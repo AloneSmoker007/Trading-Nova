@@ -2,49 +2,24 @@
 
 Authoritative roadmap: [docs/TRADING-NOVA-MASTER-ROADMAP.md](docs/TRADING-NOVA-MASTER-ROADMAP.md).
 
-## Task 3 — Phase 2: Portfolio State + Deterministic Risk Gate
-- [x] Portfolio state / positions / exposure
-- [x] Max position, gross exposure, daily loss, drawdown, leverage and concentration checks
-- [x] Stale-data stop and emergency kill switch
-- [x] Versioned/hash-bound risk configuration
-- [x] Fail-closed deterministic decision
-- [x] Defense-in-depth via independent validation and execution/reconciliation boundaries
+## Tasks 1–10
+Complete. See roadmap and merged history.
 
-## Task 4 — Phase 3: Paper Execution
-- [x] Deterministic paper execution
-- [x] No exchange SDK / no live-money path
+## Task 11 — Production Hardening + Persistence Foundation
+- [x] Durable in-process state abstraction with snapshot/restore boundary
+- [x] Idempotency protection for repeated logical operations
+- [x] Hash-chained audit persistence boundary
+- [x] Human-approved, hash-bound risk configuration record
+- [x] Execution reconciliation state machine with fail-closed safe state
+- [x] Integrity-checked recovery checkpoint
+- [x] Meaningful success/failure tests
 
-## Task 5 — Phase 4: Reconciliation + Journal + Memory foundation
-- [x] Reconciliation contract
-- [x] Hash-chained append-only journal
-- [x] Thesis/evidence ordering remains before order eligibility
-
-## Task 6 — Phase 5: Backtesting + Statistical Validation foundation
-- [x] Deterministic replay/backtest primitive
-- [x] Calibrated probability is unavailable until minimum sample threshold
-- [x] Score and probability remain separate
-
-## Task 7 — Phase 6: AI Research Brain foundation
-- [x] Evidence-aware opportunity scoring
-- [x] Uncertainty and WAIT are first-class
-
-## Task 8 — Phase 7: Lifecycle/Governance/Validation
-- [x] Strategy lifecycle and certificate-gated promotion
-- [x] Explicit promotion states
-
-## Task 9 — Phase 8: Reliability/Reality-gap foundation
-- [x] Circuit breaker
-- [x] Reconciliation boundary
-
-## Task 10 — Phase 10: Advanced Intelligence foundation
-- [x] Deterministic market-regime classifier
-
-## Acceptance
-- [x] Tests cover success and failure paths
-- [x] No live execution path
-- [x] No exchange SDK
-- [x] Safety controls remain deterministic and human-configurable
-- [x] CI-compatible Node-only implementation
+## Safety
+- No exchange SDK
+- No broker credentials
+- No autonomous live execution
+- Recovery rejects tampered journal state
+- Risk configuration cannot be accepted without human approval and matching hash
 
 ## Next
-Deepening tasks: production-grade persistence, real market connectors, richer backtesting/statistical validation, AI model integration, UI, observability, and human-controlled promotion gates.
+Task 12: real market-data connector abstraction + persistence adapter, followed by richer statistical validation, AI research integration, UI, observability, and controlled promotion gates.
