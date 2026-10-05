@@ -1,0 +1,64 @@
+name: V1 Operational Evidence Harness
+
+on:
+  workflow_dispatch:
+    inputs:
+      market_duration_ms:
+        description: "Public market-data soak duration in milliseconds"
+        required: false
+        default: "60000"
+      load_test_url:
+        description: "HTTP endpoint for capacity testing (leave empty to skip)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: trading_nova_evidence
+        options: >-
+          --health-cmd "pg_isready -U postgres -d trading_nova_evidence"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+        ports:
+          - 5432:5432
+    env:
+      POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/trading_nova_evidence
+      MARKET_SOAK_DURATION_MS: ${{ inputs.market_duration_ms }}
+      LOAD_TEST_URL: ${{ inputs.load_test_url }}
+      LOAD_TEST_DURATION_MS: "30000"
+      LOAD_TEST_CONCURRENCY: "10"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: npm run db:migrate
+      - run: npm test
+      - run: npm run lint
+      - run: npm run security:secrets
+      - name: Public market-data soak
+        run: npm run market:soak
+      - name: Capacity test
+        if: ${{ inputs.load_test_url != '' }}
+        run: npm run load:test
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-nova-v1-evidence
+          path: |
+            evidence/**
+            reports/**
+          if-no-files-found: ignore
