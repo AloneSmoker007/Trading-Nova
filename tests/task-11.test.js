@@ -20,7 +20,14 @@ test("audit journal survives checkpoint and rejects tampering",()=>{
 });
 
 test("risk approval is human-bound and hash protected",()=>{
-  const r=approveRiskConfig({version:"2",maxPositionNotional:100},"human-1");
+  const r=approveRiskConfig({
+    version:"2",
+    maxPositionNotional:100,
+    maxGrossExposure:1000,
+    maxDailyLoss:100,
+    maxDrawdown:200,
+    maxLeverage:2
+  },"human-1");
   assert.equal(assertApprovedRiskConfig(r),true);
   const tampered={...r,config:{...r.config,maxPositionNotional:999}};
   assert.throws(()=>assertApprovedRiskConfig(tampered),/integrity/);
