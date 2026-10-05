@@ -1,0 +1,3 @@
+const SOURCE_TRUST=Object.freeze({official:1,verified:0.9,aggregated:0.7,unknown:0});
+function createSource({id,kind="unknown",baseUrl}){if(typeof id!=="string"||!id.trim())throw new TypeError("source id required");if(!Object.hasOwn(SOURCE_TRUST,kind))throw new TypeError("invalid source kind");return Object.freeze({id,kind,trustScore:SOURCE_TRUST[kind],baseUrl});}
+export {SOURCE_TRUST,createSource};
