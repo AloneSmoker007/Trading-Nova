@@ -27,6 +27,8 @@ export class PostgresStore {
   }
   async appendAudit(entry){
     return this.withTransaction(async client=>{
+      // Serialize appenders so the hash chain cannot fork under concurrent writers.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('trading_nova:audit-chain')::bigint)");
       const prev=await client.query("SELECT hash FROM trading_audit ORDER BY sequence DESC LIMIT 1");
       const previousHash=prev.rows[0]?.hash ?? null;
       const payload={entry,previousHash};
