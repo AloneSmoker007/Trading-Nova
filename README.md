@@ -4,7 +4,7 @@ Risk-first personal AI trading research, teaching, paper-execution and journalin
 
 ## Build status
 
-Tasks 1–23 are implemented and merged. Task 24 is the final production audit/release-gate phase.
+Tasks 1–25 are implemented in the repository; Task 24 is merged and Task 25 adds the production PostgreSQL persistence boundary. Real backup/restore and crash-recovery drills still require an actual database service.
 
 This repository is not a claim of live-money production readiness. The current system is paper/shadow-first. Real-money execution remains disabled until the roadmap Phase 9 requirements are independently evidenced and explicitly human-approved.
 
