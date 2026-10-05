@@ -1,0 +1,17 @@
+name: Actions sanity
+on:
+  push:
+    branches: ["fix/ci-lockfile-bootstrap-and-test-discovery"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Runner sanity
+        run: |
+          echo "runner-ok"
+          node --version
+          npm --version
