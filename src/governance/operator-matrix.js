@@ -1,0 +1,1 @@
+const actions=["change-risk-config","promote-strategy","enable-live","rotate-credentials","rollback"];export function authorize({role,action}={}){if(!actions.includes(action))return false;if(role==="owner")return true;if(role==="risk-admin")return ["change-risk-config","rollback"].includes(action);if(role==="operator")return ["promote-strategy"].includes(action);return false;}
