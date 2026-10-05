@@ -1,0 +1,2 @@
+export const POSTGRES_TABLES=Object.freeze(["market_events","strategies","signals","orders","fills","portfolio_snapshots","risk_configs","journal_events","promotion_certificates","audit_events","idempotency_keys"]);
+export function assertPostgresAdapter(db){if(!db||typeof db.transaction!=="function"||typeof db.query!=="function")throw new Error("postgres adapter contract required");return db;}
