@@ -1,0 +1,2 @@
+export function createPromotionCertificate(x){if(!x?.strategyId||!x.validationEvidence||!Array.isArray(x.tests)||!x.tests.length)throw new Error("incomplete promotion certificate");if(["limited-live","live"].includes(x.to)&&(!x.approvedBy||x.humanApproved!==true))throw new Error("human approval required");return Object.freeze({...x,createdAt:Date.now()});}
+export function promotionAllowed(c){return Boolean(c?.validationEvidence&&c.tests?.length&&(!["limited-live","live"].includes(c.to)||c.humanApproved===true));}
