@@ -40,3 +40,9 @@ Code foundation implemented on this branch:
 These gates fail closed and do not manufacture external evidence. Live money remains blocked until real operational evidence and human approval exist.
 
 See docs/PHASES-15-20-SCALE-GOVERNANCE.md.
+
+
+## V1 — Release Certification
+The V1 code layer is complete. See docs/V1-RELEASE-CERTIFICATION.md.
+
+Current V1 blockers are external evidence only: real PostgreSQL deployment/restore, measured RTO/RPO, production market-data soak, observability/alerts, independent security evidence, capacity evidence, and sustained paper/shadow evidence. Until those are recorded, V1 is NOT CERTIFIED and real-money trading remains blocked.
