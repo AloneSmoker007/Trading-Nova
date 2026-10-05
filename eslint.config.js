@@ -11,6 +11,7 @@ const nodeGlobals = {
   clearInterval: "readonly",
   URL: "readonly",
   fetch: "readonly",
+  performance: "readonly",
   WebSocket: "readonly"
 };
 
