@@ -2,7 +2,7 @@ import {evaluateEvidence,romanUrduExplanation} from "./council.js";
 import {scoreOpportunity,calibratedProbability} from "../research/opportunity.js";
 export function researchOpportunity({evidence,regime,sampleSize=0,calibration=null}={}){
   const council=evaluateEvidence(evidence);const features={technical:council.score,regime:regime?.score??50,evidence:council.score};
-  const opportunity=scoreOpportunity(features);const probability=calibratedProbability({sampleSize,probability:calibration?.probability??null,minSamples:calibration?.minSamples??500});
+  const opportunityResult=scoreOpportunity(features);const opportunity=opportunityResult.score;const probability=calibratedProbability({wins:calibration?.wins,losses:calibration?.losses,minSamples:calibration?.minSamples??500});
   const decision=council.decision==="WAIT"?"WAIT":opportunity>=70?"RESEARCH":"NO_TRADE";
   return Object.freeze({opportunityScore:opportunity,probability,uncertainty:council.uncertainty,conflicts:council.conflicts,decision,explanation:romanUrduExplanation({decision,score:opportunity,uncertainty:council.uncertainty}),features});
 }
