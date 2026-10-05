@@ -1,21 +1,8 @@
-# secrets & env
-.env
-*.env
-secrets/
-*.key
-*.pem
-
-# data & artifacts
-data/
-*.parquet
-*.csv
-backtests/
-reports/
-__pycache__/
-*.pyc
 node_modules/
-.venv/
-venv/
-
-# os
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+*.log
 .DS_Store
