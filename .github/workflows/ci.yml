@@ -1,19 +1,37 @@
 name: CI
 on:
   push:
-    branches: ["main","feat/**"]
+    branches: ["main","feat/**","fix/**","hardening/**"]
   pull_request:
 permissions:
   contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: trading_nova_ci
+        options: >-
+          --health-cmd "pg_isready -U postgres -d trading_nova_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/trading_nova_ci
+      TRADING_NOVA_REAL_DB_TEST: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: npm run db:migrate
       - run: npm test
       - run: npm run lint
       - run: npm run security:secrets
