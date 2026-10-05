@@ -1,0 +1,2 @@
+export function capacityTest(fn,{iterations=10000}={}){const t=Date.now();let failures=0;for(let i=0;i<iterations;i++)try{fn(i);}catch{failures++;}const ms=Date.now()-t;return{iterations,failures,elapsedMs:ms,opsPerSecond:ms?iterations/(ms/1000):Infinity,pass:failures===0};}
+export function failClosed(c={}){const blockers=Object.entries(c).filter(([,v])=>v!==true).map(([k])=>k);return{allowed:blockers.length===0,blockers};}
