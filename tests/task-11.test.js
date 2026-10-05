@@ -21,8 +21,9 @@ test("audit journal survives checkpoint and rejects tampering",()=>{
 
 test("risk approval is human-bound and hash protected",()=>{
   const r=approveRiskConfig({version:"2",maxPositionNotional:100},"human-1");
-  assert.equal(assertApprovedRiskConfig(r),true); r.config.maxPositionNotional=999;
-  assert.throws(()=>assertApprovedRiskConfig(r),/integrity/);
+  assert.equal(assertApprovedRiskConfig(r),true);
+  const tampered={...r,config:{...r.config,maxPositionNotional:999}};
+  assert.throws(()=>assertApprovedRiskConfig(tampered),/integrity/);
 });
 
 test("execution reconciliation state machine fails closed",()=>{
