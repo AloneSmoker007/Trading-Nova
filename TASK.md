@@ -46,3 +46,22 @@ See docs/PHASES-15-20-SCALE-GOVERNANCE.md.
 The V1 code layer is complete. See docs/V1-RELEASE-CERTIFICATION.md.
 
 Current V1 blockers are external evidence only: real PostgreSQL deployment/restore, measured RTO/RPO, production market-data soak, observability/alerts, independent security evidence, capacity evidence, and sustained paper/shadow evidence. Until those are recorded, V1 is NOT CERTIFIED and real-money trading remains blocked.
+
+
+## Current Task — V1 External Evidence Preparation
+
+Code-layer V1 is merged. The next work is evidence collection, not live-money enablement.
+
+- [x] External-evidence runbook added: `docs/V1-EXTERNAL-EVIDENCE-RUNBOOK.md`
+- [x] Capability/research traceability framework added: `docs/V1-CAPABILITY-TRACEABILITY.md`
+- [ ] Real PostgreSQL deployment and recovery evidence
+- [ ] Backup/restore + measured RTO/RPO
+- [ ] Production market-data soak/reconnect/gap evidence
+- [ ] Production observability and alert evidence
+- [ ] Independent security evidence
+- [ ] Capacity/load evidence
+- [ ] Sustained paper/shadow evidence
+- [ ] Historical 1,900+ raw research list recovered/mapped
+- [ ] Human V1 release approval
+
+**Safety:** real-money trading remains blocked. Do not record simulated/mocked results as production evidence.
