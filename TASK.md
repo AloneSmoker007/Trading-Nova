@@ -55,3 +55,20 @@ Implemented in this branch:
 - [x] 34 Controlled promotion/disable controls
 
 External operational evidence remains required before any live-money promotion: real database deployment and restore drill, real venue conformance, production monitoring/alerts, and explicit human approval.
+
+
+## Phase 10 — Advanced Intelligence
+
+Code foundation complete:
+- [x] Multi-agent research council + dissent/common-mode protection
+- [x] Microstructure/order-book intelligence
+- [x] Derivatives intelligence
+- [x] Cross-asset/intermarket regime
+- [x] Alternative/external evidence freshness
+- [x] Constrained optimization + revalidation trigger
+- [x] AI input coverage/representativeness gate
+- [x] Probability calibration metrics
+- [x] Revalidation/drift/expiry controls
+- [x] Reconstructable research traces
+
+Advanced intelligence cannot bypass deterministic Risk Gate or safety controls.

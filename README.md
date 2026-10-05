@@ -36,3 +36,9 @@ See docs/TRADING-NOVA-MASTER-ROADMAP.md for the authoritative architecture and p
 See docs/TASKS-26-34.md. The repository now contains the production-facing market-data supervision, persistent paper boundary, research brain, backtesting v2, shadow runner, dashboard shell, security/operations controls, venue conformance contract and controlled promotion gate.
 
 **Important:** code completion is not the same as live-money certification. No exchange credentials or autonomous live execution were added.
+
+
+## Phase 10 — Advanced Intelligence
+The code foundation now supports multi-agent research, microstructure, derivatives, cross-asset intelligence, external evidence, constrained optimization, input representativeness, probability calibration, revalidation and reconstructable research traces.
+
+These intelligence layers can improve research but **cannot bypass the deterministic Risk Gate**. External provider deployments and production data subscriptions remain separate operational concerns.

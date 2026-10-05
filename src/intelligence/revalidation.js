@@ -1,0 +1,2 @@
+export function dueForRevalidation({lastValidatedAt,intervalMs,now=Date.now()}={}){if(!Number.isFinite(lastValidatedAt)||!Number.isFinite(intervalMs)||intervalMs<=0)return true;return now-lastValidatedAt>=intervalMs;}
+export function revalidationDecision({valid,drift=false,expired=false}={}){return Object.freeze({allowed:Boolean(valid&&!drift&&!expired),reason:!valid?"INVALID":drift?"DRIFT":expired?"EXPIRED":"VALID"});}
