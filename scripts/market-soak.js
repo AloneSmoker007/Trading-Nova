@@ -1,3 +1,4 @@
+import {performance} from "node:perf_hooks";
 const base=process.env.MARKET_DATA_URL??"https://api.binance.com";
 const symbol=(process.env.MARKET_SYMBOL??"BTCUSDT").toUpperCase();
 const intervalMs=Math.max(250,Number(process.env.MARKET_SOAK_INTERVAL_MS??1000));

@@ -4,6 +4,11 @@ import {join, relative, extname} from "node:path";
 const ROOT = process.cwd();
 const IGNORED_DIRS = new Set([".git", "node_modules", "coverage", ".next", "dist", "build"]);
 const TEXT_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".json", ".md", ".txt", ".yml", ".yaml", ".html", ".css", ".sql", ".env", ".toml", ".ini"]);
+// Allowlist: well-known FAKE credentials used by the GitHub Actions postgres service
+// (user postgres / password postgres, loopback host only, trading_nova_* database names).
+// These are placeholders documented in .github/workflows/*.yml and are never real secrets.
+const CI_PLACEHOLDER_URI = /postgres(?:ql)?:\/\/postgres:postgres@(?:localhost|127\.0\.0\.1):\d+\/trading_nova_[a-z_]+/g;
+
 const HIGH_CONFIDENCE_PATTERNS = [
   {name:"OpenAI key", regex:/\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/},
   {name:"GitHub token", regex:/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b/},
@@ -32,7 +37,7 @@ async function scanDir(dir, findings) {
     if (!entry.isFile() || !isText(path)) continue;
     let text;
     try { text = await readFile(path, "utf8"); } catch { continue; }
-    const scanText = text.replace(/postgres(?:ql)?:\/\/postgres:postgres@(?:localhost|127\.0\.0\.1):\d+\/trading_nova_ci/g, "");
+    const scanText = text.replace(CI_PLACEHOLDER_URI, "");
     for (const pattern of HIGH_CONFIDENCE_PATTERNS) {
       if (pattern.regex.test(scanText)) findings.push({pattern:pattern.name,path:relative(ROOT,path)});
     }
