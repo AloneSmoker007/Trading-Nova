@@ -1,4 +1,4 @@
-name: Generate reproducible npm lockfile
+name: Restore reproducible npm lockfile
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - fix/v1-reproducible-install
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   lockfile:
@@ -17,9 +17,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Generate package-lock.json
+          cache: npm
+      - name: Generate lockfile when absent
+        if: ${{ hashFiles('package-lock.json') == '' }}
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Commit generated lockfile
+        if: ${{ hashFiles('package-lock.json') != '' }}
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json already committed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore: add npm lockfile"
+          git push
+      - name: Verify reproducible install
+        if: ${{ hashFiles('package-lock.json') != '' }}
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Upload generated lockfile
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: generated-package-lock
