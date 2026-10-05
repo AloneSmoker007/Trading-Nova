@@ -1,0 +1,2 @@
+export function recordOutcome(t){if(!t?.id||!t.thesis||t.pnl===undefined)throw new Error("trade outcome requires thesis and pnl");return{id:t.id,thesis:t.thesis,pnl:Number(t.pnl),mistakes:[...(t.mistakes||[])],lessons:[...(t.lessons||[])],createdAt:t.createdAt??Date.now()};}
+export function lossAutopsy(xs){const m=new Map();for(const x of xs.filter(x=>x.pnl<0))for(const e of x.mistakes||[])m.set(e,(m.get(e)||0)+1);return[...m.entries()].sort((a,b)=>b[1]-a[1]).map(([mistake,count])=>({mistake,count}));}
