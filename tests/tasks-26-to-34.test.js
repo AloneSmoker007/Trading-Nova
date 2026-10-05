@@ -1,0 +1,23 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {MarketStreamSupervisor} from "../src/market-data/stream.js";
+import {PersistentPaperEngine} from "../src/execution/paper-persistent.js";
+import {runBacktestV2} from "../src/backtest/engine-v2.js";
+import {validateBacktest} from "../src/backtest/validation.js";
+import {researchOpportunity,counterEvidence} from "../src/research/brain.js";
+import {runShadow} from "../src/shadow/runner.js";
+import {TokenBucket} from "../src/security/rate-limit.js";
+import {redactSecrets} from "../src/security/audit.js";
+import {conformanceReport} from "../src/governance/venue-conformance.js";
+import {evaluatePromotion} from "../src/governance/promotion-v2.js";
+import {readiness} from "../src/operations/recovery.js";
+
+test("26 stream supervisor detects sequence gaps and stale state",async()=>{let cb;const s=new MarketStreamSupervisor({connect:async x=>{cb=x;},now:()=>1000,maxAgeMs:100});await s.start();assert.deepEqual(s.accept({sequence:0}),{accepted:true});assert.deepEqual(s.accept({sequence:2}),{accepted:false,reason:"SEQUENCE_GAP"});assert.equal(s.canTrade(),false);});
+test("27 persistent paper engine is idempotent and reconciled",async()=>{const m=new Map();const store={transactIdempotent:async(k,fn)=>m.has(k)?m.get(k):(m.set(k,await fn()),m.get(k)),put:async()=>{}};const e=new PersistentPaperEngine(store);const a=await e.submit({id:"1",idempotencyKey:"x",side:"BUY",symbol:"btc",quantity:1},{markPrice:100});const b=await e.submit({id:"2",idempotencyKey:"x",side:"BUY",symbol:"btc",quantity:1},{markPrice:999});assert.deepEqual(a,b);assert.equal(a.status,"RECONCILED");});
+test("28 research separates score from probability and shows counter evidence",()=>{const x=researchOpportunity({evidence:{technical:[{score:80}],macro:[{score:40}]},regime:{score:90},sampleSize:10});assert.equal(x.probability,null);assert.ok(x.opportunityScore>=0);assert.equal(counterEvidence([{direction:"against",source:"macro",reason:"weak"}]).length,1);});
+test("29 backtest supports costs and OOS validation",()=>{const candles=Array.from({length:20},(_,i)=>({close:100+i}));const r=runBacktestV2({candles,strategy:()=>({side:"BUY",quantity:.01}),walkForward:10,feeRate:.001,slippageBps:5});assert.ok(r.outOfSample);assert.equal(validateBacktest(r).valid,false);});
+test("30 shadow blocks unknown executions",()=>{const r=runShadow({signals:[{id:"1",decision:"ENTER"}],observations:[{id:"1",reconciled:false}]});assert.equal(r.tradeAllowed,false);});
+test("32 security primitives fail closed",()=>{const b=new TokenBucket({capacity:1,refillPerSecond:0});assert.equal(b.consume(),true);assert.equal(b.consume(),false);assert.equal(redactSecrets({apiKey:"x",safe:1}).apiKey,"[REDACTED]");});
+test("33 venue conformance is explicit",()=>{assert.equal(conformanceReport({orderSubmit(){},orderStatus(){}}).passed,false);assert.equal(conformanceReport({orderSubmit(){},orderStatus(){},cancelOrder(){},fills(){},userDataStream(){}}).passed,true);});
+test("34 promotion requires independent controls and rollback",()=>{const r=evaluatePromotion({from:"shadow",to:"limited-live",certificate:true,validation:{venueConformance:true},independentSafety:true,rollbackReady:true,operatorApproved:true});assert.equal(r.allowed,true);assert.equal(evaluatePromotion({from:"shadow",to:"limited-live"}).allowed,false);});
+test("32 operations readiness requires backup and rollback",()=>{assert.equal(readiness({db:true,market:true,risk:true,backup:false,rollback:true}).ready,false);});
