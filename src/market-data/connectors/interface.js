@@ -1,0 +1,2 @@
+export function assertConnector(c){if(!c||typeof c.getQuote!=="function"||typeof c.getCandles!=="function")throw new Error("invalid market-data connector");return c;}
+export function normalizeQuote({source,symbol,bid,ask,timestamp,receivedAt=Date.now()}){if(!source||!symbol||![bid,ask].every(Number.isFinite)||bid<=0||ask<=0||bid>ask)throw new Error("invalid quote");return Object.freeze({source,symbol:symbol.toUpperCase(),bid,ask,timestamp,receivedAt,ageMs:Math.max(0,receivedAt-timestamp),trust:1});}
