@@ -23,3 +23,10 @@ Complete. See roadmap and merged history.
 
 ## Next
 Task 12: real market-data connector abstraction + persistence adapter, followed by richer statistical validation, AI research integration, UI, observability, and controlled promotion gates.
+
+## Tasks 21–23 completed
+- [x] Task 21 Shadow/reality-gap/stress foundation
+- [x] Task 22 Governance/promotion hardening
+- [x] Task 23 Advanced-intelligence safety foundation
+
+Next: final production audit — security, failure/recovery, performance/load, deployment, restore and human-controlled live-readiness.

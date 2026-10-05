@@ -1,0 +1,2 @@
+export function stressScenarios({baseline,scenarios=[]}){if(!baseline)throw new Error("baseline required");return scenarios.map(s=>Object.freeze({name:s.name||"unnamed",result:s.run? s.run(baseline):null,stopOnUnknown:true}));}
+export function commonModeCheck(outputs){if(!outputs?.length)return{risk:"unknown",reason:"no outputs"};const decisions=outputs.map(x=>x.decision);const same=decisions.every(x=>x===decisions[0]);return{risk:same&&decisions.length>2?"high":"normal",agreement:same};}
