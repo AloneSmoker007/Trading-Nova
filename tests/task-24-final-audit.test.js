@@ -37,3 +37,48 @@ test("Task 24 independent safety remains able to veto",()=>{
  assert.equal(unknownMeansStop("UNKNOWN"),true);
  assert.deepEqual(independentSafetyDecision({primaryAllowed:true,independentChecks:[true,false]}),{allowed:false,blockedByIndependentSafety:true});
 });
+
+test("reduce-only closes a long position even when kill switch, drawdown and daily loss are active",()=>{
+ const p={equity:10000,cash:0,positions:[{symbol:"BTC",quantity:2,markPrice:5000}],grossExposure:10000,netExposure:10000,dailyPnl:-1000,drawdown:.2};
+ const {config,hash}=createRiskConfig({version:"reduce-long",maxPositionNotional:500,maxGrossExposure:1000,maxDailyLoss:500,maxDrawdown:.1,maxLeverage:.1,maxConcentrationNotional:0});
+ const r=evaluateRiskGate({order:{symbol:"BTC",side:"SELL",quantity:1,price:5000,reduceOnly:true},portfolio:p,riskConfig:config,approvedConfigHash:hash,killSwitch:true});
+ assert.equal(r.decision,"ALLOW");
+ assert.equal(r.validReduction,true);
+ assert.equal(r.projectedGrossExposure,5000);
+});
+
+test("reduce-only closes a short position with BUY without adding gross exposure",()=>{
+ const p={equity:10000,cash:20000,positions:[{symbol:"BTC",quantity:-2,markPrice:5000}],grossExposure:10000,netExposure:-10000,dailyPnl:0,drawdown:0};
+ const {config,hash}=createRiskConfig({version:"reduce-short",maxPositionNotional:500,maxGrossExposure:1000,maxDailyLoss:500,maxDrawdown:.1,maxLeverage:.1,maxConcentrationNotional:0});
+ const r=evaluateRiskGate({order:{symbol:"BTC",side:"BUY",quantity:1,price:5000,reduceOnly:true},portfolio:p,riskConfig:config,approvedConfigHash:hash});
+ assert.equal(r.decision,"ALLOW");
+ assert.equal(r.validReduction,true);
+ assert.equal(r.projectedGrossExposure,5000);
+});
+
+test("reduce-only cannot flip, open, or exceed the existing position",()=>{
+ const p={equity:10000,cash:0,positions:[{symbol:"BTC",quantity:2,markPrice:5000}],grossExposure:10000,netExposure:10000,dailyPnl:0,drawdown:0};
+ const {config,hash}=createRiskConfig({version:"invalid-reduction",maxPositionNotional:10000,maxGrossExposure:20000,maxDailyLoss:500,maxDrawdown:.5,maxLeverage:2,maxConcentrationNotional:10000});
+ assert.equal(evaluateRiskGate({order:{symbol:"BTC",side:"BUY",quantity:1,price:5000,reduceOnly:true},portfolio:p,riskConfig:config,approvedConfigHash:hash}).decision,"NO_TRADE");
+ assert.equal(evaluateRiskGate({order:{symbol:"BTC",side:"SELL",quantity:3,price:5000,reduceOnly:true},portfolio:p,riskConfig:config,approvedConfigHash:hash}).decision,"NO_TRADE");
+ assert.equal(evaluateRiskGate({order:{symbol:"ETH",side:"SELL",quantity:1,price:5000,reduceOnly:true},portfolio:p,riskConfig:config,approvedConfigHash:hash}).decision,"NO_TRADE");
+});
+
+test("stale critical data still blocks reduce-only and normal orders remain blocked by kill switch",()=>{
+ const p={equity:10000,cash:0,positions:[{symbol:"BTC",quantity:2,markPrice:5000}],grossExposure:10000,netExposure:10000,dailyPnl:0,drawdown:0};
+ const {config,hash}=createRiskConfig({version:"safety-boundary",maxPositionNotional:10000,maxGrossExposure:20000,maxDailyLoss:500,maxDrawdown:.5,maxLeverage:2,maxConcentrationNotional:10000});
+ const close=evaluateRiskGate({order:{symbol:"BTC",side:"SELL",quantity:1,price:5000,reduceOnly:true},portfolio:p,riskConfig:config,approvedConfigHash:hash,dataFresh:false});
+ const open=evaluateRiskGate({order:{symbol:"ETH",side:"BUY",quantity:1,price:100,reduceOnly:false},portfolio:p,riskConfig:config,approvedConfigHash:hash,killSwitch:true});
+ assert.equal(close.decision,"NO_TRADE");
+ assert.ok(close.reasons.includes("STALE_CRITICAL_DATA"));
+ assert.equal(open.decision,"NO_TRADE");
+ assert.ok(open.reasons.includes("EMERGENCY_KILL_SWITCH"));
+});
+
+test("zero concentration limit blocks new exposure",()=>{
+ const p={equity:10000,cash:10000,positions:[],grossExposure:0,netExposure:0,dailyPnl:0,drawdown:0};
+ const {config,hash}=createRiskConfig({version:"zero-concentration",maxPositionNotional:1000,maxGrossExposure:5000,maxDailyLoss:500,maxDrawdown:.5,maxLeverage:1,maxConcentrationNotional:0});
+ const r=evaluateRiskGate({order:{symbol:"BTC",side:"BUY",quantity:1,price:100},portfolio:p,riskConfig:config,approvedConfigHash:hash});
+ assert.equal(r.decision,"NO_TRADE");
+ assert.ok(r.reasons.includes("MAX_CONCENTRATION"));
+});
