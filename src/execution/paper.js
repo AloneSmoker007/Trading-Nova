@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
-
 export function createPaperExecution() {
-  const orders=new Map();
+  const orders=new Map(), idempotency=new Map();
   return {
     submit(order) {
-      if (!order?.symbol || !Number.isFinite(order.quantity) || !Number.isFinite(order.price)) throw new Error("invalid paper order");
+      if (!order?.symbol || !["BUY","SELL"].includes(order.side) || !Number.isFinite(order.quantity) || order.quantity <= 0 || !Number.isFinite(order.price) || order.price <= 0) throw new Error("invalid paper order");
+      if (order.idempotencyKey && idempotency.has(order.idempotencyKey)) return Object.freeze({...idempotency.get(order.idempotencyKey)});
       const id=randomUUID();
-      const fill={id,orderId:id,tier:"paper",symbol:order.symbol,side:order.side,quantity:order.quantity,price:order.price,status:"FILLED",filledAt:Date.now()};
+      const fill={id,orderId:id,tier:"paper",symbol:order.symbol.toUpperCase(),side:order.side,quantity:order.quantity,price:order.price,status:"FILLED",filledAt:Date.now()};
       orders.set(id,fill);
+      if (order.idempotencyKey) idempotency.set(order.idempotencyKey,fill);
       return Object.freeze({...fill});
     },
-    get(id) { return orders.get(id) || null; }
+    get(id) { const fill=orders.get(id); return fill ? Object.freeze({...fill}) : null; }
   };
 }
