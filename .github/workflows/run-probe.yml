@@ -1,5 +1,7 @@
 name: Run probe
 on:
+  push:
+    branches: ["fix/ci-lockfile-bootstrap-and-test-discovery"]
   workflow_dispatch:
 permissions:
   contents: read
