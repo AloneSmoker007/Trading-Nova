@@ -46,7 +46,7 @@ export class DurableStore {
   restore(snapshot) {
     if (!snapshot || typeof snapshot !== "object") throw new Error("invalid snapshot");
     const journal = Array.isArray(snapshot.journal) ? structuredClone(snapshot.journal) : [];
-    if (!verifyJournal(journal)) throw new Error("invalid journal chain");
+    if (!verifyJournal(journal)) throw new Error("journal integrity failure");
     this.state = new Map(Object.entries(snapshot.state || {}));
     this.idempotency = new Map(Object.entries(snapshot.idempotency || {}));
     this.journal = journal;
