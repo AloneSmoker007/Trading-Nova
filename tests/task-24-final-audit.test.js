@@ -8,7 +8,7 @@ import {DurableStore} from "../src/persistence/store.js";
 import {unknownMeansStop,independentSafetyDecision} from "../src/reliability/common-mode.js";
 
 test("Task 24 risk gate requires approved config and valid side",()=>{
- const p={equity:10000,cash:10000,positions:[],grossExposure:0,dailyPnl:0,drawdown:0};
+ const p={equity:10000,cash:10000,positions:[],grossExposure:0,netExposure:0,dailyPnl:0,drawdown:0};
  const {config,hash}=createRiskConfig({version:"24",maxPositionNotional:1000,maxGrossExposure:3000,maxDailyLoss:500,maxDrawdown:.2,maxLeverage:1});
  assert.equal(evaluateRiskGate({order:{symbol:"BTC",side:"BUY",quantity:1,price:500},portfolio:p,riskConfig:config}).decision,"NO_TRADE");
  assert.equal(evaluateRiskGate({order:{symbol:"BTC",side:"HOLD",quantity:1,price:500},portfolio:p,riskConfig:config,approvedConfigHash:hash}).decision,"NO_TRADE");
