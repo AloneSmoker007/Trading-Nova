@@ -3,7 +3,7 @@ name: Restore reproducible npm lockfile
 on:
   push:
     branches:
-      - fix/v1-reproducible-install
+      - main
 
 permissions:
   contents: write
