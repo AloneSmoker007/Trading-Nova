@@ -62,5 +62,12 @@ export class PostgresStore {
 export async function createPostgresStore({connectionString,max=10,idleTimeoutMillis=10000}={}){
   if(!connectionString) throw new Error("POSTGRES_URL required");
   const {Pool}=await import("pg");
-  return new PostgresStore(new Pool({connectionString,max,idleTimeoutMillis}));
+  const pool=new Pool({connectionString,max,idleTimeoutMillis});
+  // Audit DB-03: idle-client errors (e.g. server restart -> 57P01) are emitted
+  // as 'error' events. Unhandled they crash the process; the pool replaces dead
+  // clients transparently, so we log structured and keep running (fail-safe).
+  pool.on("error",(err)=>{
+    console.error(JSON.stringify({level:"error",event:"db_pool_error",code:err?.code??null,message:err?.message??String(err)}));
+  });
+  return new PostgresStore(pool);
 }
