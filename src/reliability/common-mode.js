@@ -1,0 +1,2 @@
+export function independentSafetyDecision({primaryAllowed,independentChecks=[]}={}){const blocked=independentChecks.filter(x=>x===false).length;return{allowed:Boolean(primaryAllowed)&&blocked===0,blockedByIndependentSafety:blocked>0};}
+export function unknownMeansStop(state){return state==="UNKNOWN"||state==="UNRECONCILED";}
