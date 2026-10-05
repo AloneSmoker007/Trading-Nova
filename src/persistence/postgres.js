@@ -1,3 +1,15 @@
+import {createHash} from "node:crypto";
+
+function stable(value) {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key)=>[key,stable(value[key])]));
+  return value;
+}
+
+function auditHash(entry, previousHash) {
+  return createHash("sha256").update(JSON.stringify(stable({entry,previousHash}))).digest("hex");
+}
+
 export class PostgresStore {
   constructor(pool){ if(!pool || typeof pool.connect!=="function") throw new Error("postgres pool required"); this.pool=pool; }
   async withTransaction(fn){
@@ -27,22 +39,20 @@ export class PostgresStore {
   }
   async appendAudit(entry){
     return this.withTransaction(async client=>{
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('trading_nova:audit-chain')::bigint)");
       const prev=await client.query("SELECT hash FROM trading_audit ORDER BY sequence DESC LIMIT 1");
       const previousHash=prev.rows[0]?.hash ?? null;
-      const payload={entry,previousHash};
-      const {createHash}=await import("node:crypto");
-      const hash=createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+      const hash=auditHash(entry,previousHash);
       const r=await client.query("INSERT INTO trading_audit(entry,previous_hash,hash) VALUES($1::jsonb,$2,$3) RETURNING sequence,entry,previous_hash,hash,created_at",[JSON.stringify(entry),previousHash,hash]);
       return r.rows[0];
     });
   }
   async verifyAudit(){
     const r=await this.pool.query("SELECT sequence,entry,previous_hash,hash FROM trading_audit ORDER BY sequence ASC");
-    const {createHash}=await import("node:crypto"); let previousHash=null;
+    let previousHash=null;
     for(const row of r.rows){
       if(row.previous_hash!==previousHash) return false;
-      const expected=createHash("sha256").update(JSON.stringify({entry:row.entry,previousHash})).digest("hex");
-      if(row.hash!==expected) return false;
+      if(row.hash!==auditHash(row.entry,previousHash)) return false;
       previousHash=row.hash;
     }
     return true;
