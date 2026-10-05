@@ -120,7 +120,7 @@ Limited live requires explicit position, daily-loss, drawdown and leverage caps,
 
 **No live money before Phase 9.**
 
-### Phase 10 — Advanced Intelligence
+### Phase 10 — Advanced Intelligence — CODE FOUNDATION COMPLETE
 Broader market intelligence, multi-agent research, order-flow/microstructure, derivatives, on-chain, macro/news/OSINT, smart-money, cross-asset/intermarket, institutional-style research and advanced optimization.
 
 Advanced intelligence never gets a Risk Gate bypass.
@@ -192,3 +192,19 @@ A phase is complete only when implementation exists, meaningful success/failure 
 Do not implement live trading, broad AI, or advanced intelligence in Task 1.
 
 The first objective is to make the system structurally safe to build on.
+
+
+### Phase 10 implementation status
+The Phase 10 code layer now includes:
+- multi-agent research council with dissent/common-mode detection
+- order-book microstructure and trade-flow features
+- derivatives funding/open-interest/liquidation features
+- cross-asset/intermarket regime analysis
+- freshness-aware external/alternative evidence
+- constrained optimization with revalidation trigger
+- AI input coverage/representativeness gate
+- probability calibration metrics (Brier score + bins)
+- validation expiry/drift/revalidation decisions
+- reconstructable research traces
+
+Advanced intelligence remains downstream of evidence/data-quality and cannot bypass the deterministic Risk Gate.
