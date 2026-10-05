@@ -49,8 +49,11 @@ run("PostgreSQL real integration: idempotency executes once", async()=>{
 
 run("PostgreSQL real integration: audit hash chain verifies and detects tamper", async()=>{
   const store=await createPostgresStore({connectionString:process.env.POSTGRES_URL,max:2});
-  const first=await store.appendAudit({type:"INTEGRATION",id:randomUUID()});
-  await store.appendAudit({type:"INTEGRATION",id:randomUUID()});
+  const [first]=await Promise.all([
+    store.appendAudit({type:"INTEGRATION",id:randomUUID()}),
+    store.appendAudit({type:"INTEGRATION",id:randomUUID()}),
+    store.appendAudit({type:"INTEGRATION",id:randomUUID()})
+  ]);
   assert.equal(await store.verifyAudit(),true);
   await store.pool.query("UPDATE trading_audit SET hash=$1 WHERE sequence=$2",[first.hash==="tampered"?"x":"tampered",first.sequence]);
   assert.equal(await store.verifyAudit(),false);
