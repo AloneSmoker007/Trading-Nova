@@ -1,0 +1,2 @@
+export function brierScore(rows=[]){if(!rows.length)return null;return rows.reduce((s,x)=>s+(Number(x.probability)-Number(x.outcome))**2,0)/rows.length;}
+export function calibrationBins(rows=[],bins=10){return Array.from({length:bins},(_,i)=>{const lo=i/bins,hi=(i+1)/bins,subset=rows.filter(x=>x.probability>=lo&&(i===bins-1?x.probability<=hi:x.probability<hi));return{subset:subset.length,predicted:subset.length?subset.reduce((s,x)=>s+x.probability,0)/subset.length:null,observed:subset.length?subset.reduce((s,x)=>s+x.outcome,0)/subset.length:null};});}
