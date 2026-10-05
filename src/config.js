@@ -1,0 +1,3 @@
+const ALLOWED_MODES=new Set(["paper","shadow","limited-live","live"]);const ALLOWED_LEVELS=new Set(["debug","info","warn","error"]);
+function readConfig(env=process.env){const mode=env.TRADING_MODE??"paper";const level=env.LOG_LEVEL??"info";const nodeEnv=env.NODE_ENV??"development";if(!ALLOWED_MODES.has(mode))throw new Error("Invalid TRADING_MODE");if(!ALLOWED_LEVELS.has(level))throw new Error("Invalid LOG_LEVEL");return Object.freeze({nodeEnv,logLevel:level,tradingMode:mode,liveEnabled:mode==="limited-live"||mode==="live"});}
+export {readConfig,ALLOWED_MODES,ALLOWED_LEVELS};

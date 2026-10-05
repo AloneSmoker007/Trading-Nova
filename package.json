@@ -1,0 +1,1 @@
+{"name":"trading-nova","version":"0.1.0","private":true,"type":"module","description":"Risk-first personal AI trading research and paper-execution workspace.","engines":{"node":">=20"},"scripts":{"test":"node --test","lint":"node --check src/config.js && node --check src/logger.js && node --check src/contracts/index.js","security:secrets":"node scripts/secret-scan.js"}}
