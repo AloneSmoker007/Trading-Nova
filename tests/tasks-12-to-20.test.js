@@ -1,0 +1,22 @@
+import test from "node:test";import assert from "node:assert/strict";
+import {BinancePublicConnector} from "../src/market-data/connectors/binance.js";
+import {RateLimiter,withBackoff} from "../src/market-data/resilience.js";
+import {summarize,bootstrapMean} from "../src/backtest/statistics.js";
+import {StrategyRegistry} from "../src/strategy/registry.js";
+import {evaluateEvidence} from "../src/research/council.js";
+import {buildOpportunity} from "../src/opportunity/engine.js";
+import {recordOutcome,lossAutopsy} from "../src/journal/learning.js";
+import {Metrics} from "../src/observability/metrics.js";
+import {healthSnapshot} from "../src/observability/health.js";
+import {capacityTest,failClosed} from "../src/reliability/stress.js";
+import {createPromotionCertificate,promotionAllowed} from "../src/governance/promotion.js";
+
+test("Task12 connector normalizes quote and candles",async()=>{const c=new BinancePublicConnector({fetchImpl:async u=>({ok:true,json:async()=>u.pathname.includes("klines")?[[0,"1","2","0.5","1.5","10",60000]]:{symbol:"BTCUSDT",bidPrice:"1",askPrice:"2"}}),now:()=>1000});assert.equal((await c.getQuote("btcusdt")).symbol,"BTCUSDT");assert.equal((await c.getCandles("BTCUSDT")).length,1);});
+test("Task12 resilience fails closed on rate limit",async()=>{const l=new RateLimiter({capacity:1,refillPerSecond:0});assert.equal(l.allow(),true);assert.equal(l.allow(),false);let n=0;assert.equal(await withBackoff(async i=>{n++;if(i<2)throw Error("x");return 7},{sleep:async()=>{}}),7);assert.equal(n,3);});
+test("Task14 statistical validation",()=>{const s=summarize([100,110,99,120]);assert.equal(s.samples,3);assert.ok(s.maxDrawdown<0);const b=bootstrapMean([.01,-.02,.03],100);assert.ok(b.low<=b.high);});
+test("Task15 strategy thesis/falsification/certificate",()=>{const r=new StrategyRegistry();r.register({id:"s1",version:"1",thesis:"trend",falsification:"close below"});assert.throws(()=>r.promote("s1","1","paper",null),/certificate/);assert.equal(r.promote("s1","1","paper",{approvedBy:"human",validationEvidence:"oos",humanApproved:true}).status,"paper");});
+test("Task16 evidence conflict produces WAIT",()=>{const e=evaluateEvidence({technical:[{score:90}],macro:[{score:20}],news:[{score:30}]});assert.equal(e.decision,"WAIT");assert.equal(e.uncertainty,"High");});
+test("Task17 probability is unavailable below sample threshold",()=>{const a=buildOpportunity({symbol:"BTCUSDT",side:"LONG",score:83,evidence:{uncertainty:"Medium"},sampleSize:50,calibratedProbability:.9});assert.equal(a.calibratedProbability,null);assert.equal(a.opportunityScore,83);});
+test("Task18 loss autopsy",()=>{const x=[recordOutcome({id:"1",thesis:"t",pnl:-1,mistakes:["late"]}),recordOutcome({id:"2",thesis:"t",pnl:-2,mistakes:["late","oversize"]})];assert.deepEqual(lossAutopsy(x)[0],{mistake:"late",count:2});});
+test("Task20 health metrics and fail closed",()=>{const m=new Metrics();m.inc("orders");m.observe("latency",10);assert.equal(m.snapshot().counters.orders,1);assert.equal(healthSnapshot({dependencies:{db:true},lastMarketEventAt:Date.now()}).status,"ok");assert.equal(failClosed({risk:true,reconciliation:false}).allowed,false);assert.equal(capacityTest(()=>{},{iterations:100}).pass,true);});
+test("promotion certificate requires human approval for live",()=>{const c=createPromotionCertificate({strategyId:"s",from:"shadow",to:"limited-live",validationEvidence:"validated",tests:["replay"],approvedBy:"human",humanApproved:true});assert.equal(promotionAllowed(c),true);assert.throws(()=>createPromotionCertificate({strategyId:"s",from:"shadow",to:"live",validationEvidence:"validated",tests:["replay"]}),/human approval/);});
