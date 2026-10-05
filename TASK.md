@@ -7,6 +7,23 @@ Complete and merged.
 
 ## Task 24 — Final Production Audit / Release Gate
 
+Completed and merged. CI is green. Paper/shadow foundation certified only; live-money remains blocked.
+
+## Task 25 — PostgreSQL Production Persistence
+
+- [x] Transactional PostgreSQL adapter
+- [x] Durable state and idempotency tables
+- [x] Append-only hash-chained audit table
+- [x] Risk-config/checkpoint persistence tables
+- [x] Checksum-verified migration runner
+- [x] PostgreSQL driver dependency/factory
+- [x] CI-safe injected-pool regression tests
+- [ ] Real deployment backup/restore drill
+- [ ] Crash-recovery drill against a real PostgreSQL service
+
+See docs/TASK-25-POSTGRES.md.
+
+
 - [ ] Security boundary audit
 - [ ] Full regression: tests, syntax/lint and secret scan
 - [ ] Failure/recovery and journal-integrity verification
