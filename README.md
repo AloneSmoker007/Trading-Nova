@@ -12,3 +12,6 @@ Task 11 adds an integrity-checked persistence boundary, idempotency, human-appro
 
 ## Current limits
 No exchange SDK, broker credentials, autonomous live execution, leverage escalation, or AI write access to safety controls is included.
+
+## Tasks 21–23
+Shadow/reality-gap comparison, stress/common-mode testing, capacity admission, material-change governance, operator authorization and independent safety controls are implemented as foundations. These controls remain fail-closed and do not authorize autonomous live money.
