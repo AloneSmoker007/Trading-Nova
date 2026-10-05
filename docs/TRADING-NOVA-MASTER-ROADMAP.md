@@ -208,3 +208,32 @@ The Phase 10 code layer now includes:
 - reconstructable research traces
 
 Advanced intelligence remains downstream of evidence/data-quality and cannot bypass the deterministic Risk Gate.
+
+
+## 13. Phases 11–20 Extension
+
+### Phases 11–14 — Production Certification & Controlled Scale
+Phase 11 validates real PostgreSQL, backup/restore, production market data, venue conformance, paper/shadow evidence, observability and human certification. Phase 12 adds testnet/limited-live controls with strict caps and rollback. Phase 13 validates challenger/calibration/revalidation/drift controls while keeping Risk Gate immutable. Phase 14 adds HA/DR/capacity/security/observability requirements.
+
+These phases have code-level gates, but external infrastructure evidence must be produced before live-money promotion.
+
+### Phase 15 — High Availability
+Primary/replica readiness, explicit RTO/RPO targets and tested failover admission gate.
+
+### Phase 16 — Disaster Recovery
+Verified backup, isolated restore, recovery replay, rollback verification and incident-plan gate.
+
+### Phase 17 — Security Assurance
+Dependency, secret, authorization, threat-model and independent security-test evidence gate.
+
+### Phase 18 — Cost & Performance
+p95 latency, error-rate, monthly-cost and capacity-headroom admission controls.
+
+### Phase 19 — Data Expansion
+Coverage, freshness, source trust, point-in-time correctness and bias checks before expanded data can influence research.
+
+### Phase 20 — Institutional Governance
+Separation of duties, full automated-activity reconstruction, model inventory, material change control, independent validation and certificate expiry/revalidation.
+
+**Phases 15–20 code foundation:** implemented with fail-closed tests. They do not fabricate external operational evidence.
+

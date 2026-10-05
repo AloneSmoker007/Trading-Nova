@@ -6,11 +6,9 @@ Authoritative roadmap: docs/TRADING-NOVA-MASTER-ROADMAP.md.
 Complete and merged.
 
 ## Task 24 — Final Production Audit / Release Gate
-
 Completed and merged. CI is green. Paper/shadow foundation certified only; live-money remains blocked.
 
 ## Task 25 — PostgreSQL Production Persistence
-
 - [x] Transactional PostgreSQL adapter
 - [x] Durable state and idempotency tables
 - [x] Append-only hash-chained audit table
@@ -21,54 +19,24 @@ Completed and merged. CI is green. Paper/shadow foundation certified only; live-
 - [ ] Real deployment backup/restore drill
 - [ ] Crash-recovery drill against a real PostgreSQL service
 
-See docs/TASK-25-POSTGRES.md.
-
-
-- [ ] Security boundary audit
-- [ ] Full regression: tests, syntax/lint and secret scan
-- [ ] Failure/recovery and journal-integrity verification
-- [ ] Risk-config approval/hash verification
-- [ ] Paper idempotency and invalid-order rejection verification
-- [ ] Market-data validation/resilience verification
-- [ ] Capacity/stress and common-mode fail-closed verification
-- [ ] Deployment/readiness review
-- [ ] PostgreSQL production-gap disclosure
-- [ ] Human-controlled live-readiness review
-
-### Release rule
-
-Task 24 can certify the paper/shadow foundation only if CI is green and no critical/high safety blocker remains.
-
-It must not certify live-money readiness merely because tests pass. Live promotion remains blocked until the roadmap Phase 9 evidence exists: real persistence, reconciliation, venue conformance, promotion certificate, independent validation, explicit human approval, capped limited-live controls, rollback/disable path and operational restore evidence.
-
 ## Tasks 26–34 — Production Completion Layer
-
-Implemented in this branch:
-- [x] 26 Market-data stream supervision/source health
-- [x] 27 Persistent paper execution boundary
-- [x] 28 AI research brain/evidence/counter-evidence
-- [x] 29 Backtesting 2.0 with costs and OOS validation
-- [x] 30 Shadow execution boundary
-- [x] 31 Safety-first dashboard shell
-- [x] 32 Security/operations primitives
-- [x] 33 Venue conformance contract
-- [x] 34 Controlled promotion/disable controls
-
-External operational evidence remains required before any live-money promotion: real database deployment and restore drill, real venue conformance, production monitoring/alerts, and explicit human approval.
-
+Implemented and merged. External operational evidence remains required before live-money promotion.
 
 ## Phase 10 — Advanced Intelligence
+Code foundation complete and merged. Advanced intelligence cannot bypass deterministic Risk Gate or safety controls.
 
-Code foundation complete:
-- [x] Multi-agent research council + dissent/common-mode protection
-- [x] Microstructure/order-book intelligence
-- [x] Derivatives intelligence
-- [x] Cross-asset/intermarket regime
-- [x] Alternative/external evidence freshness
-- [x] Constrained optimization + revalidation trigger
-- [x] AI input coverage/representativeness gate
-- [x] Probability calibration metrics
-- [x] Revalidation/drift/expiry controls
-- [x] Reconstructable research traces
+## Phases 11–14 — Production Certification Gates
+Code-level gates implemented and merged. Real infrastructure evidence, venue testing, observability deployment, paper/shadow evidence and explicit human approval remain external requirements.
 
-Advanced intelligence cannot bypass deterministic Risk Gate or safety controls.
+## Phases 15–20 — Scale, Resilience, Security & Governance
+Code foundation implemented on this branch:
+- [x] Phase 15 — High availability admission/failover gate
+- [x] Phase 16 — Disaster recovery/restore/replay gate
+- [x] Phase 17 — Security assurance gate
+- [x] Phase 18 — Cost/performance/capacity gate
+- [x] Phase 19 — Data expansion quality/bias gate
+- [x] Phase 20 — Institutional governance/independent validation gate
+
+These gates fail closed and do not manufacture external evidence. Live money remains blocked until real operational evidence and human approval exist.
+
+See docs/PHASES-15-20-SCALE-GOVERNANCE.md.
