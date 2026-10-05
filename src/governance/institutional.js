@@ -1,3 +1,5 @@
+import {dataExpansionGate} from "../intelligence/data-expansion.js";
+
 const REQUIRED = ["operatorSeparation", "activityReconstruction", "modelInventory", "changeControl", "independentValidation", "certificateExpiry"];
 
 export function institutionalGovernanceGate(evidence = {}) {
