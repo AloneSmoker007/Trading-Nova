@@ -10,10 +10,17 @@ export function hashRiskConfig(config) {
   return createHash("sha256").update(JSON.stringify(stable(config))).digest("hex");
 }
 
+function positionsForSymbol(portfolio, symbol) {
+  return (portfolio?.positions ?? []).filter((p) => p?.symbol === symbol);
+}
+
 function currentPositionQuantity(portfolio, symbol) {
-  return (portfolio?.positions ?? [])
-    .filter((p) => p?.symbol === symbol)
-    .reduce((sum, p) => sum + p.quantity, 0);
+  return positionsForSymbol(portfolio, symbol).reduce((sum, p) => sum + p.quantity, 0);
+}
+
+function currentPositionGross(portfolio, symbol) {
+  return positionsForSymbol(portfolio, symbol)
+    .reduce((sum, p) => sum + Math.abs(p.quantity * p.markPrice), 0);
 }
 
 function isValidReduction({side, positionQuantity, orderQuantity}) {
@@ -50,26 +57,22 @@ export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, 
 
   if (reduceOnly && !validReduction) reasons.push("INVALID_REDUCE_ONLY");
 
-  const positionNotionalBefore = Math.abs(positionQuantity * (portfolio?.positions ?? [])
-    .filter((p) => p?.symbol === order?.symbol)
-    .reduce((sum, p) => sum + (Number.isFinite(p.markPrice) ? p.markPrice : 0), 0));
-
-  const remainingQuantity = validReduction
-    ? positionQuantity + (order.side === "SELL" ? -order.quantity : order.quantity)
-    : positionQuantity;
-
   const projectedGross = validOrder
-    ? Math.max(0, (portfolio?.grossExposure || 0) - positionNotionalBefore + Math.abs(remainingQuantity * order.price))
+    ? (validReduction
+      ? Math.max(0, (portfolio?.grossExposure || 0) - currentPositionGross(portfolio, order.symbol) + Math.abs((positionQuantity + (order.side === "SELL" ? -order.quantity : order.quantity)) * order.price))
+      : (portfolio?.grossExposure || 0) + notional)
     : portfolio?.grossExposure || 0;
   const equity=portfolio?.equity||0;
   const projectedLeverage=equity>0 ? projectedGross/equity : Infinity;
 
   if (riskConfig && !validReduction && notional > riskConfig.maxPositionNotional) reasons.push("MAX_POSITION");
   if (riskConfig && !validReduction && projectedGross > riskConfig.maxGrossExposure) reasons.push("MAX_GROSS_EXPOSURE");
-  if (riskConfig && riskConfig && !validReduction && (portfolio?.dailyPnl||0) <= -Math.abs(riskConfig.maxDailyLoss)) reasons.push("MAX_DAILY_LOSS");
+  if (riskConfig && !validReduction && (portfolio?.dailyPnl||0) <= -Math.abs(riskConfig.maxDailyLoss)) reasons.push("MAX_DAILY_LOSS");
   if (riskConfig && !validReduction && (portfolio?.drawdown||0) >= riskConfig.maxDrawdown) reasons.push("MAX_DRAWDOWN");
   if (riskConfig && !validReduction && projectedLeverage > riskConfig.maxLeverage) reasons.push("MAX_LEVERAGE");
   if (riskConfig && !validReduction && Number.isFinite(riskConfig.maxConcentrationNotional) && notional > riskConfig.maxConcentrationNotional) reasons.push("MAX_CONCENTRATION");
+
+  if (killSwitch && !validReduction) reasons.push("EMERGENCY_KILL_SWITCH");
 
   return {
     decision: reasons.length ? "NO_TRADE" : "ALLOW",
