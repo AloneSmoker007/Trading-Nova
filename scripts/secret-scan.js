@@ -13,7 +13,7 @@ const HIGH_CONFIDENCE_PATTERNS = [
   {name:"Slack token", regex:/\bxox[baprs]-[0-9A-Za-z-]{20,}\b/},
   {name:"Private key", regex:/-----BEGIN (?:RSA |EC |OPENSSH |DSA |ED25519 )?PRIVATE KEY-----/},
   {name:"PostgreSQL password URI", regex:/\bpostgres(?:ql)?:\/\/[^\s/:@]+:[^\s/@]+@/i},
-  {name:"Credentialed HTTP URL", regex:/\bhttps?:\/\/[^\s/:@]+:[^\s/@]+@/i/},
+  {name:"Credentialed HTTP URL", regex:/\bhttps?:\/\/[^\s/:@]+:[^\s/@]+@/i},
   {name:"Binance credential assignment", regex:/\b(?:BINANCE|MBX)[A-Z0-9_]*(?:API[_-]?KEY|SECRET|PRIVATE[_-]?KEY)\s*[:=]\s*["'`]?(?!\$\{|<|>)(?!YOUR_|CHANGE_|REPLACE_)[A-Za-z0-9_\-+/=]{16,}/i}
 ];
 
