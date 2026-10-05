@@ -1,0 +1,2 @@
+export function sourceHealth(sources=[],now=Date.now()){return sources.map(s=>{const fresh=Number.isFinite(s.lastEventAt)&&now-s.lastEventAt<=s.maxAgeMs;return Object.freeze({name:s.name,status:s.enabled&&fresh?"healthy":"unhealthy",fresh,trust:Number.isFinite(s.trust)?Math.max(0,Math.min(1,s.trust)):0});});}
+export function primarySourceAllowed(health,{minTrust=.7}={}){const p=health.find(x=>x.status==="healthy");return Boolean(p&&p.trust>=minTrust);}
