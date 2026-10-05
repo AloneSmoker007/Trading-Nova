@@ -40,3 +40,18 @@ See docs/TASK-25-POSTGRES.md.
 Task 24 can certify the paper/shadow foundation only if CI is green and no critical/high safety blocker remains.
 
 It must not certify live-money readiness merely because tests pass. Live promotion remains blocked until the roadmap Phase 9 evidence exists: real persistence, reconciliation, venue conformance, promotion certificate, independent validation, explicit human approval, capped limited-live controls, rollback/disable path and operational restore evidence.
+
+## Tasks 26–34 — Production Completion Layer
+
+Implemented in this branch:
+- [x] 26 Market-data stream supervision/source health
+- [x] 27 Persistent paper execution boundary
+- [x] 28 AI research brain/evidence/counter-evidence
+- [x] 29 Backtesting 2.0 with costs and OOS validation
+- [x] 30 Shadow execution boundary
+- [x] 31 Safety-first dashboard shell
+- [x] 32 Security/operations primitives
+- [x] 33 Venue conformance contract
+- [x] 34 Controlled promotion/disable controls
+
+External operational evidence remains required before any live-money promotion: real database deployment and restore drill, real venue conformance, production monitoring/alerts, and explicit human approval.
