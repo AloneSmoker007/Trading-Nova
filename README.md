@@ -3,15 +3,31 @@
 Risk-first personal AI trading research, teaching, paper-execution and journaling workspace.
 
 ## Build status
-Tasks 1–11 core foundations are implemented. This is **not** a claim of production live-trading readiness. Live money remains disabled until explicit promotion, reconciliation, security and human-approval requirements are satisfied.
+
+Tasks 1–23 are implemented and merged. Task 24 is the final production audit/release-gate phase.
+
+This repository is not a claim of live-money production readiness. The current system is paper/shadow-first. Real-money execution remains disabled until the roadmap Phase 9 requirements are independently evidenced and explicitly human-approved.
 
 ## Safety architecture
-WORLD DATA → DATA QUALITY → REGIME → RESEARCH/AI → EVIDENCE → STATISTICAL VALIDATION → STRATEGY/SIGNAL → PORTFOLIO → RISK LIMITS → DETERMINISTIC RISK GATE → PAPER/SHADOW → RECONCILIATION → JOURNAL/LEARNING → REVALIDATION.
 
-Task 11 adds an integrity-checked persistence boundary, idempotency, human-approved risk-config records, a reconciliation state machine, and recovery checkpoints.
+WORLD DATA → DATA QUALITY / SOURCE TRUST → MARKET REGIME → RESEARCH / AI COUNCIL → EVIDENCE → STATISTICAL VALIDATION → STRATEGY / SIGNAL → PORTFOLIO → DETERMINISTIC RISK GATE → PAPER / SHADOW → RECONCILIATION → JOURNAL / LEARNING → REVALIDATION / PROMOTION.
 
-## Current limits
-No exchange SDK, broker credentials, autonomous live execution, leverage escalation, or AI write access to safety controls is included.
+Golden rule: AI can discover an opportunity. Statistics can validate it. Portfolio logic can size it. Only the deterministic Risk Gate can permit an order.
 
-## Tasks 21–23
-Shadow/reality-gap comparison, stress/common-mode testing, capacity admission, material-change governance, operator authorization and independent safety controls are implemented as foundations. These controls remain fail-closed and do not authorize autonomous live money.
+## Completed foundations
+
+- Tasks 1–10: contracts, portfolio/risk, paper execution, reconciliation, journal, backtest, opportunity scoring, lifecycle, reliability and regime foundations.
+- Tasks 11–20: durability boundary, human-approved risk config, recovery checkpoints, public market-data connector, PostgreSQL adapter contract, statistical validation, strategy/evidence/opportunity/loss-learning foundations, dashboard/observability/capacity foundations.
+- Tasks 21–23: reality-gap/shadow analysis, stress/common-mode controls, capacity admission, material-change governance, operator authorization and independent safety controls.
+- Task 24: final audit, regression, recovery, safety-boundary and release-gate verification.
+
+## Current hard limits
+
+- No exchange/broker credentials.
+- No autonomous live-money execution.
+- No withdrawal/transfer capability.
+- AI cannot modify risk limits, enable live mode, or remove safety controls.
+- PostgreSQL is currently an adapter contract/foundation; production deployment still requires a real database driver, migrations, credentials and restore drill.
+- Market-data integration is public-data research infrastructure, not a promise of exchange-grade execution or uptime.
+
+See docs/TRADING-NOVA-MASTER-ROADMAP.md for the authoritative architecture and promotion sequence.

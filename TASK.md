@@ -1,32 +1,25 @@
 # Trading Nova — Current Execution Task
 
-Authoritative roadmap: [docs/TRADING-NOVA-MASTER-ROADMAP.md](docs/TRADING-NOVA-MASTER-ROADMAP.md).
+Authoritative roadmap: docs/TRADING-NOVA-MASTER-ROADMAP.md.
 
-## Tasks 1–10
-Complete. See roadmap and merged history.
+## Tasks 1–23
+Complete and merged.
 
-## Task 11 — Production Hardening + Persistence Foundation
-- [x] Durable in-process state abstraction with snapshot/restore boundary
-- [x] Idempotency protection for repeated logical operations
-- [x] Hash-chained audit persistence boundary
-- [x] Human-approved, hash-bound risk configuration record
-- [x] Execution reconciliation state machine with fail-closed safe state
-- [x] Integrity-checked recovery checkpoint
-- [x] Meaningful success/failure tests
+## Task 24 — Final Production Audit / Release Gate
 
-## Safety
-- No exchange SDK
-- No broker credentials
-- No autonomous live execution
-- Recovery rejects tampered journal state
-- Risk configuration cannot be accepted without human approval and matching hash
+- [ ] Security boundary audit
+- [ ] Full regression: tests, syntax/lint and secret scan
+- [ ] Failure/recovery and journal-integrity verification
+- [ ] Risk-config approval/hash verification
+- [ ] Paper idempotency and invalid-order rejection verification
+- [ ] Market-data validation/resilience verification
+- [ ] Capacity/stress and common-mode fail-closed verification
+- [ ] Deployment/readiness review
+- [ ] PostgreSQL production-gap disclosure
+- [ ] Human-controlled live-readiness review
 
-## Next
-Task 12: real market-data connector abstraction + persistence adapter, followed by richer statistical validation, AI research integration, UI, observability, and controlled promotion gates.
+### Release rule
 
-## Tasks 21–23 completed
-- [x] Task 21 Shadow/reality-gap/stress foundation
-- [x] Task 22 Governance/promotion hardening
-- [x] Task 23 Advanced-intelligence safety foundation
+Task 24 can certify the paper/shadow foundation only if CI is green and no critical/high safety blocker remains.
 
-Next: final production audit — security, failure/recovery, performance/load, deployment, restore and human-controlled live-readiness.
+It must not certify live-money readiness merely because tests pass. Live promotion remains blocked until the roadmap Phase 9 evidence exists: real persistence, reconciliation, venue conformance, promotion certificate, independent validation, explicit human approval, capped limited-live controls, rollback/disable path and operational restore evidence.

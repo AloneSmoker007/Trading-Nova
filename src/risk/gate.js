@@ -1,16 +1,21 @@
 import { createHash } from "node:crypto";
 import { validatePortfolioState } from "./portfolio.js";
 
-export function hashRiskConfig(config) {
-  return createHash("sha256").update(JSON.stringify(config)).digest("hex");
+function stable(value) {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])]));
+  return value;
 }
-
+export function hashRiskConfig(config) {
+  return createHash("sha256").update(JSON.stringify(stable(config))).digest("hex");
+}
 export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, killSwitch=false, approvedConfigHash}) {
   const reasons=[];
-  try { validatePortfolioState(portfolio); } catch (e) { return {decision:"NO_TRADE",reasons:["INVALID_PORTFOLIO_STATE"]}; }
-  if (!order || !Number.isFinite(order.quantity) || !Number.isFinite(order.price) || order.quantity <= 0 || order.price <= 0) reasons.push("INVALID_ORDER");
+  try { validatePortfolioState(portfolio); } catch { return {decision:"NO_TRADE",reasons:["INVALID_PORTFOLIO_STATE"]}; }
+  if (!order || !Number.isFinite(order.quantity) || !Number.isFinite(order.price) || order.quantity <= 0 || order.price <= 0 || !["BUY","SELL"].includes(order.side)) reasons.push("INVALID_ORDER");
   if (!riskConfig || !Number.isFinite(riskConfig.maxPositionNotional) || !Number.isFinite(riskConfig.maxGrossExposure) || !Number.isFinite(riskConfig.maxDailyLoss) || !Number.isFinite(riskConfig.maxDrawdown) || !Number.isFinite(riskConfig.maxLeverage)) reasons.push("INVALID_RISK_CONFIG");
-  if (approvedConfigHash && hashRiskConfig(riskConfig) !== approvedConfigHash) reasons.push("RISK_CONFIG_HASH_MISMATCH");
+  if (!approvedConfigHash) reasons.push("RISK_CONFIG_NOT_APPROVED");
+  else if (!riskConfig || hashRiskConfig(riskConfig) !== approvedConfigHash) reasons.push("RISK_CONFIG_HASH_MISMATCH");
   if (!dataFresh) reasons.push("STALE_CRITICAL_DATA");
   if (killSwitch) reasons.push("EMERGENCY_KILL_SWITCH");
   const notional=Math.abs((order?.quantity||0)*(order?.price||0));
@@ -25,7 +30,6 @@ export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, 
   if (riskConfig?.maxConcentrationNotional && notional > riskConfig.maxConcentrationNotional) reasons.push("MAX_CONCENTRATION");
   return {decision: reasons.length ? "NO_TRADE" : "ALLOW", reasons, orderNotional:notional, projectedGrossExposure:projectedGross, projectedLeverage};
 }
-
 export function createRiskConfig(input) {
   const config=Object.freeze({...input, version:String(input?.version||"1")});
   const required=["maxPositionNotional","maxGrossExposure","maxDailyLoss","maxDrawdown","maxLeverage"];
