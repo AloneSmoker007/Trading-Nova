@@ -1,0 +1,5 @@
+function assessFreshness(observedAt,now=Date.now(),maxAgeMs=10000){if(!Number.isFinite(observedAt)||!Number.isFinite(now)||observedAt<=0)throw new TypeError("invalid timestamp");const age=Math.max(0,now-observedAt);return Object.freeze({ageMs:age,fresh:age<=maxAgeMs,status:age<=maxAgeMs?"fresh":"stale"});}
+function detectCandleGap(previous,current,intervalMs){if(!Number.isFinite(intervalMs)||intervalMs<=0)throw new TypeError("intervalMs must be positive");if(!previous||!current)return false;return current.openTime!==previous.openTime+intervalMs;}
+function assessQuote(quote){if(quote.ask<quote.bid)return {ok:false,reason:"crossed-market"};if(quote.bid===0&&quote.ask===0)return {ok:false,reason:"empty-quote"};return {ok:true,reason:"ok"};}
+function dataQualityGate({freshness,gap=false,sourceTrusted=true,valid=true}){const reasons=[];if(!freshness?.fresh)reasons.push("stale");if(gap)reasons.push("gap");if(!sourceTrusted)reasons.push("untrusted-source");if(!valid)reasons.push("invalid-data");return Object.freeze({allowed:reasons.length===0,reasons});}
+export {assessFreshness,detectCandleGap,assessQuote,dataQualityGate};
