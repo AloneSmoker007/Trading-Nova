@@ -1,6 +1,9 @@
 import {performance} from "node:perf_hooks";
-const url=process.env.LOAD_TEST_URL;
-if(!url) throw new Error("LOAD_TEST_URL is required");
+import {requireEnv} from "./lib/require-env.js";
+const url=requireEnv("LOAD_TEST_URL",{
+  hint:"HTTP endpoint the load test should hit",
+  example:"LOAD_TEST_URL=http://localhost:8080/health npm run load:test"
+});
 const durationMs=Number(process.env.LOAD_TEST_DURATION_MS??30000);
 const concurrency=Math.max(1,Number(process.env.LOAD_TEST_CONCURRENCY??5));
 const samples=[];let errors=0,requests=0,stop=false;

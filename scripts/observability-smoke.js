@@ -1,5 +1,8 @@
-const endpoint=process.env.OBSERVABILITY_INGEST_URL;
-if(!endpoint) throw new Error("OBSERVABILITY_INGEST_URL is required");
+import {requireEnv} from "./lib/require-env.js";
+const endpoint=requireEnv("OBSERVABILITY_INGEST_URL",{
+  hint:"ingest endpoint that receives observability events",
+  example:"OBSERVABILITY_INGEST_URL=https://ingest.example.com/events npm run observability:smoke"
+});
 const events=["READINESS_FAILURE","RISK_BLOCK","RECONCILIATION_FAILURE","UNKNOWN_EXECUTION","MARKET_DATA_STALE","SECURITY_EVENT","BACKUP_FAILURE"];
 const results=[];
 for(const event of events){

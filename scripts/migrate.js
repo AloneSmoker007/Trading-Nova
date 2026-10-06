@@ -2,6 +2,12 @@ import {readdir,readFile} from "node:fs/promises";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {createPostgresStore} from "../src/persistence/postgres.js";
+import {requireEnv} from "./lib/require-env.js";
+
+const connectionString=requireEnv("POSTGRES_URL",{
+  hint:"PostgreSQL connection string for the canonical trading_* schema (embed credentials in the URL; never commit it)",
+  example:"POSTGRES_URL=postgresql://localhost:5432/trading_nova npm run db:migrate"
+});
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 const dir=path.resolve(root,"../db/migrations");
@@ -14,7 +20,7 @@ const files=(await readdir(dir))
   .filter(x=>x.endsWith(".sql") && !LEGACY_MIGRATIONS.has(x))
   .sort();
 
-const store=await createPostgresStore({connectionString:process.env.POSTGRES_URL});
+const store=await createPostgresStore({connectionString});
 await store.withTransaction(async client=>{
   await client.query("CREATE TABLE IF NOT EXISTS trading_schema_migrations(version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())");
   const {createHash}=await import("node:crypto");
