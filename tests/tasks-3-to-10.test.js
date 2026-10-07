@@ -19,7 +19,11 @@ test("risk gate fails closed and enforces limits",()=>{
  assert.equal(evaluateRiskGate({order:{symbol:"BTC",side:"BUY",quantity:1,price:500},portfolio:p,riskConfig:config,approvedConfigHash:hash,dataFresh:false}).decision,"NO_TRADE");
 });
 test("paper execution reconciles",()=>{
- const ex=createPaperExecution(), order={symbol:"BTC",side:"BUY",quantity:1,price:500}; const fill=ex.submit(order); const r=reconcileOrder({order,fill}); assert.equal(r.status,"RECONCILED"); assert.equal(requireReconciled(r),true);
+ const p=buildPortfolioState({cash:10000,positions:[],startingEquity:10000});
+ const {config,hash}=createRiskConfig({version:"1",maxPositionNotional:1000,maxGrossExposure:3000,maxDailyLoss:500,maxDrawdown:.2,maxLeverage:1,maxConcentrationNotional:1000});
+ const ex=createPaperExecution(), order={symbol:"BTC",side:"BUY",quantity:1,price:500};
+ const verdict=evaluateRiskGate({order,portfolio:p,riskConfig:config,approvedConfigHash:hash});
+ const fill=ex.submit(order,{gateArtifact:verdict.artifact}); const r=reconcileOrder({order,fill}); assert.equal(r.status,"RECONCILED"); assert.equal(requireReconciled(r),true);
 });
 test("journal is append-only verifiable",()=>{const c=[];appendJournalEntry(c,{type:"THESIS",id:1});appendJournalEntry(c,{type:"ORDER",id:2});assert.equal(verifyJournal(c),true);c[0].entry.id=9;assert.equal(verifyJournal(c),false);});
 test("backtest is deterministic",()=>{const candles=[{close:100},{close:110},{close:120}];const a=runBacktest({candles,startingCash:1000,strategy:(c,s)=>c.close===100?{side:"BUY",quantity:2}:{side:"SELL",quantity:2}});const b=runBacktest({candles,startingCash:1000,strategy:(c,s)=>c.close===100?{side:"BUY",quantity:2}:{side:"SELL",quantity:2}});assert.deepEqual(a,b);});

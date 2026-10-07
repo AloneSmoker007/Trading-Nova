@@ -18,23 +18,34 @@ export class PostgresStore {
     catch(error){ try{ await client.query("ROLLBACK"); } catch{} throw error; }
     finally{ client.release(); }
   }
-  async put(namespace,id,value){
+  async put(namespace,id,value,client=this.pool){
     if(!namespace||!id) throw new Error("namespace and id required");
-    await this.pool.query("INSERT INTO trading_state(namespace,state_id,value) VALUES($1,$2,$3::jsonb) ON CONFLICT(namespace,state_id) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",[namespace,id,JSON.stringify(value)]);
+    await client.query("INSERT INTO trading_state(namespace,state_id,value) VALUES($1,$2,$3::jsonb) ON CONFLICT(namespace,state_id) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",[namespace,id,JSON.stringify(value)]);
     return structuredClone(value);
   }
-  async get(namespace,id){
-    const r=await this.pool.query("SELECT value FROM trading_state WHERE namespace=$1 AND state_id=$2",[namespace,id]);
+  async get(namespace,id,client=this.pool){
+    const r=await client.query("SELECT value FROM trading_state WHERE namespace=$1 AND state_id=$2",[namespace,id]);
     return r.rows[0] ? structuredClone(r.rows[0].value) : null;
   }
   async transactIdempotent(key,operation){
     if(!key) throw new Error("idempotency key required");
+    if(typeof operation!=="function") throw new Error("operation required");
     return this.withTransaction(async client=>{
-      const existing=await client.query("SELECT result FROM trading_idempotency WHERE idempotency_key=$1 FOR UPDATE",[key]);
+      // M7: SELECT ... FOR UPDATE on a not-yet-existing row locks nothing, so
+      // concurrent same-key calls would both execute the operation and the
+      // loser's INSERT would fail the whole call. Serialize per key with an
+      // advisory transaction lock; the loser then reads the winner's result.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",["trading_nova:idempotency:"+key]);
+      const existing=await client.query("SELECT result FROM trading_idempotency WHERE idempotency_key=$1",[key]);
       if(existing.rowCount) return structuredClone(existing.rows[0].result);
-      const result=await operation(client);
+      // The operation must write through `tx` so its writes join THIS
+      // transaction (H3): store.put on a pooled connection would escape it.
+      const tx={client,put:(ns,id,value)=>this.put(ns,id,value,client),get:(ns,id)=>this.get(ns,id,client)};
+      const result=await operation(tx);
+      if(result===undefined) throw new Error("idempotent operation must return a result");
+      const cached=structuredClone(result);
       await client.query("INSERT INTO trading_idempotency(idempotency_key,result) VALUES($1,$2::jsonb)",[key,JSON.stringify(result)]);
-      return structuredClone(result);
+      return cached;
     });
   }
   async appendAudit(entry){
