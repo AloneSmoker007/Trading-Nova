@@ -1,1 +1,132 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading Nova</title><style>body{font-family:system-ui;margin:0;background:#0b1020;color:#eef}main{max-width:1100px;margin:auto;padding:32px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.card{background:#151c32;border:1px solid #293250;border-radius:14px;padding:18px}.muted{color:#9aa6c2}.status{font-size:28px;font-weight:700}</style></head><body><main><h1>Trading Nova</h1><p class="muted">Research → evidence → validation → risk → paper/shadow. Live trading stays human-controlled.</p><section class="grid"><div class="card"><div class="muted">Market</div><div id="market" class="status">NO DATA</div></div><div class="card"><div class="muted">Opportunity</div><div id="opportunity" class="status">WAIT</div></div><div class="card"><div class="muted">Risk Gate</div><div id="risk" class="status">UNKNOWN</div></div><div class="card"><div class="muted">Execution</div><div id="execution" class="status">PAPER</div></div></section><section class="card" style="margin-top:16px"><h2>Safety</h2><p id="safety" class="muted">No live-money capability is implied by this UI.</p></section></main><script>window.TRADING_NOVA_UI={setState(s){for(const[k,v]of Object.entries(s)){const e=document.getElementById(k);if(e)e.textContent=String(v)}}};</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Trading Nova — Paper Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <h1>Trading Nova</h1>
+    <p class="tagline">Research → evidence → validation → risk → paper/shadow. Live trading stays human-controlled.</p>
+  </header>
+
+  <p class="paper-banner" id="paper-banner">
+    PAPER / SHADOW ONLY — real money OFF. This is a read-only dashboard: no action here can place a real order.
+  </p>
+
+  <main id="main">
+    <form class="controls" id="controls" aria-label="Dashboard controls">
+      <div class="field">
+        <label for="symbol-input">Symbol</label>
+        <input id="symbol-input" name="symbol" type="text" value="BTCUSDT" maxlength="24"
+               pattern="[A-Za-z0-9]{2,24}" autocomplete="off" spellcheck="false" required>
+      </div>
+      <div class="field">
+        <label for="interval-input">Interval</label>
+        <select id="interval-input" name="interval">
+          <option value="1m">1m</option>
+          <option value="5m">5m</option>
+          <option value="15m">15m</option>
+          <option value="1h" selected>1h</option>
+          <option value="4h">4h</option>
+          <option value="1d">1d</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="limit-input">Candles</label>
+        <input id="limit-input" name="limit" type="number" min="5" max="1000" step="1" value="300">
+      </div>
+      <button type="submit" id="refresh-btn">Refresh</button>
+      <div class="field field-inline">
+        <input id="auto-input" type="checkbox" checked>
+        <label for="auto-input">Auto-refresh (30 s)</label>
+      </div>
+    </form>
+
+    <p id="live-status" class="live-status" role="status" aria-live="polite">Loading dashboard…</p>
+
+    <div class="grid">
+      <section class="card" aria-labelledby="health-title">
+        <div class="card-head">
+          <h2 id="health-title">System health</h2>
+          <span class="badge" id="health-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="health-values" aria-live="polite" aria-busy="true"></dl>
+        <p class="panel-note" id="health-note"></p>
+      </section>
+
+      <section class="card" aria-labelledby="market-title">
+        <div class="card-head">
+          <h2 id="market-title">Market data</h2>
+          <span class="badge" id="market-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="market-values" aria-live="polite" aria-busy="true"></dl>
+        <p class="panel-note" id="market-note"></p>
+      </section>
+
+      <section class="card" aria-labelledby="indicators-title">
+        <div class="card-head">
+          <h2 id="indicators-title">Indicators</h2>
+          <span class="badge" id="indicators-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="indicators-values" aria-live="polite" aria-busy="true"></dl>
+        <p class="panel-note" id="indicators-note"></p>
+      </section>
+
+      <section class="card" aria-labelledby="portfolio-title">
+        <div class="card-head">
+          <h2 id="portfolio-title">Paper portfolio</h2>
+          <span class="badge" id="portfolio-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="portfolio-values" aria-live="polite" aria-busy="true"></dl>
+        <div class="table-wrap" id="portfolio-positions-wrap" hidden>
+          <table id="portfolio-positions">
+            <caption>Open paper positions (read-only)</caption>
+            <thead>
+              <tr><th scope="col">Symbol</th><th scope="col">Qty</th><th scope="col">Mark</th><th scope="col">Notional</th></tr>
+            </thead>
+            <tbody id="portfolio-positions-body"></tbody>
+          </table>
+        </div>
+        <p class="panel-note" id="portfolio-note"></p>
+      </section>
+
+      <section class="card" aria-labelledby="journal-title">
+        <div class="card-head">
+          <h2 id="journal-title">Journal</h2>
+          <span class="badge" id="journal-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="journal-values" aria-live="polite" aria-busy="true"></dl>
+        <ul class="journal-list" id="journal-entries"></ul>
+        <p class="panel-note" id="journal-note"></p>
+      </section>
+
+      <section class="card" aria-labelledby="backtest-title">
+        <div class="card-head">
+          <h2 id="backtest-title">Backtest summary</h2>
+          <span class="badge" id="backtest-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="backtest-values" aria-live="polite" aria-busy="true"></dl>
+        <p class="panel-note" id="backtest-note"></p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <h2>Safety</h2>
+    <ul>
+      <li>Paper / shadow only — real money is OFF and cannot be enabled from this UI.</li>
+      <li>This dashboard is read-only. Order submission is not wired; a gated paper-only endpoint will land after Risk Gate enforcement.</li>
+      <li>Live trading requires a human-approved, Risk-Gate-checked process outside this UI.</li>
+      <li>Backtests describe history only — past performance is not a prediction.</li>
+    </ul>
+    <p class="muted" id="safety">No live-money capability is implied by this UI.</p>
+  </footer>
+</body>
+</html>
