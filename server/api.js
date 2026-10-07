@@ -17,9 +17,9 @@ import {healthSnapshot} from "../src/observability/health.js";
 import {runBacktestV2} from "../src/backtest/engine-v2.js";
 import {computeIndicators} from "./indicators.js";
 import {loadPaperState} from "./state.js";
+import {createPaperOrderService} from "./orders.js";
 import {createStrategy, STRATEGY_DESCRIPTIONS} from "./strategies.js";
 import {parseSymbol, parseInterval, parseLimit, parseStrategy} from "./validate.js";
-import {paperOrders} from "./orders.js";
 
 const FRESH_MAX_AGE_MS = 10000; // "fresh" for market payloads = data age <= 10s
 
@@ -33,8 +33,16 @@ function num(v) {
   return Number.isFinite(v) ? v : null;
 }
 
-export function createApi({market, stateFile, now = () => Date.now(), tradingMode = "paper", startedAt = Date.now()}) {
+export function createApi({
+  market,
+  stateFile,
+  executionStateFile,
+  now = () => Date.now(),
+  tradingMode = "paper",
+  startedAt = Date.now()
+}) {
   const paperNote = "Paper/shadow only. Real money OFF. This API is read-only for GET endpoints.";
+  const paperOrderService = createPaperOrderService({market, stateFile, executionStateFile, now, tradingMode});
 
   async function health() {
     const t = now();
@@ -117,7 +125,7 @@ export function createApi({market, stateFile, now = () => Date.now(), tradingMod
   }
 
   async function portfolio() {
-    const s = await loadPaperState(stateFile, now());
+    const s = await paperOrderService.getPortfolio();
     if (s.state === "error") return fail(500, "error", "paper-state-error", "paper state could not be read", s.reason);
     if (s.state === "empty") {
       return ok({
@@ -216,11 +224,16 @@ export function createApi({market, stateFile, now = () => Date.now(), tradingMod
 
   // POST /api/paper/orders — paper execution gated by Risk Gate.
   async function submitPaperOrder(body) {
+    let parsedBody;
     try {
-      const parsedBody = typeof body === "string" ? JSON.parse(body) : body;
-      return await paperOrders(parsedBody, stateFile, now, tradingMode);
-    } catch (err) {
+      parsedBody = typeof body === "string" ? JSON.parse(body) : body;
+    } catch {
       return fail(400, "error", "invalid-json", "request body must be valid JSON");
+    }
+    try {
+      return await paperOrderService.submit(parsedBody);
+    } catch {
+      return fail(500, "error", "internal-error", "paper order could not be safely processed");
     }
   }
 

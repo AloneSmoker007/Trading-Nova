@@ -1,7 +1,8 @@
 // server/state.js — read-only paper state (portfolio + journal) loader.
 //
-// The web app NEVER writes trading state. It reads an optional JSON snapshot
-// produced later by the paper-execution path (WS-A / milestone M3) and exposes
+// This loader reads the optional seed snapshot. Paper orders are persisted by
+// the separate execution store and merged by server/orders.js; this module only
+// validates the seed data and exposes
 // it through the real engine modules:
 //   - src/risk/portfolio.js  buildPortfolioState / validatePortfolioState
 //   - src/risk/limits.js     evaluateLimits (fail-closed verdict)

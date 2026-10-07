@@ -75,7 +75,7 @@ test("ui/dashboard.html forwards to the single canonical dashboard", () => {
   assert.match(html, /PAPER \/ SHADOW ONLY|real money OFF/i);
 });
 
-test("server ships the safety envelope: CSP headers + loopback bind + stub marker", () => {
+test("server ships the safety envelope: CSP headers + loopback bind + paper gate", () => {
   const app = read("server/app.js");
   assert.match(app, /Content-Security-Policy/);
   assert.match(app, /default-src 'none'/);
@@ -87,7 +87,7 @@ test("server ships the safety envelope: CSP headers + loopback bind + stub marke
   assert.match(entry, /PAPER \/ SHADOW ONLY/);
 
   const api = read("server/api.js");
-  assert.match(api, /order-submission-not-wired/);
+  assert.match(api, /submitPaperOrder/);
   assert.match(api, /Risk Gate/);
-  assert.match(api, /STUB/);
+  assert.match(api, /paper-gated/);
 });

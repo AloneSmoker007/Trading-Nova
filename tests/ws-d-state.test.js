@@ -46,7 +46,8 @@ test("/api/portfolio is honest-empty when no paper state exists", async () => {
       assert.equal(res.body.ok, true);
       assert.equal(res.body.data.state, "empty");
       assert.equal(res.body.data.portfolio, null);
-      assert.match(res.body.data.note, /not wired/i);
+      assert.match(res.body.data.note, /No paper state/i);
+      assert.match(res.body.data.note, /Paper\/shadow only/i);
       assert.deepEqual(findSecretViolations(res.body, res.text), []);
     } finally {
       await srv.close();

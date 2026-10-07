@@ -7,7 +7,7 @@
 //   GET  /api/health                  engine + server health (honest degraded states)
 //   GET  /api/market/:symbol          real ticker from src/market-data (fresh/stale/unavailable)
 //   GET  /api/indicators/:symbol      real indicators from src/indicators over real candles
-//   GET  /api/portfolio               paper portfolio from the state snapshot (read-only)
+//   GET  /api/portfolio               paper portfolio from the state snapshot + paper fills
 //   GET  /api/journal                 hash-chained journal + verifyJournal integrity
 //   GET  /api/backtest                real backtest (src/backtest/engine-v2) summary
 //   POST /api/paper/orders            paper order submission (Risk Gate gated, no real money)
@@ -41,6 +41,37 @@ const SECURITY_HEADERS = Object.freeze({
   "Cross-Origin-Opener-Policy": "same-origin"
 });
 
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let complete = false;
+    let tooLarge = false;
+    req.on("data", (chunk) => {
+      if (tooLarge) return;
+      size += chunk.length;
+      if (size > MAX_BODY_LENGTH) {
+        tooLarge = true;
+        complete = true;
+        chunks.length = 0;
+        resolve({tooLarge: true});
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (complete) return;
+      complete = true;
+      resolve({body: Buffer.concat(chunks).toString("utf8")});
+    });
+    req.on("error", (error) => {
+      if (complete) return;
+      complete = true;
+      reject(error);
+    });
+  });
+}
+
 function sendJson(res, status, body, extra = {}) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -71,13 +102,14 @@ export function createNovaServer({
   fetchImpl = globalThis.fetch,
   now = () => Date.now(),
   stateFile = join(REPO_ROOT, "db", "paper-state.json"),
+  executionStateFile = join(REPO_ROOT, "db", "paper-orders.json"),
   webRoot = join(REPO_ROOT, "web"),
   tradingMode = "paper",
   log = null
 } = {}) {
   const market = createMarketService({fetchImpl, now});
   const startedAt = now();
-  const api = createApi({market, stateFile, now, tradingMode, startedAt});
+  const api = createApi({market, stateFile, executionStateFile, now, tradingMode, startedAt});
 
   const server = createServer(async (req, res) => {
     const method = req.method || "GET";
@@ -115,27 +147,15 @@ export function createNovaServer({
         }
 
         let out;
-        
-        // Handle POST /api/paper/orders — read request body.
         if (route.name === "submitPaperOrder") {
-          let body = "";
-          req.on("data", chunk => {
-            body += chunk.toString();
-            if (body.length > MAX_BODY_LENGTH) {
-              req.socket.destroy();
-            }
-          });
-          req.on("end", async () => {
-            try {
-              out = await api.submitPaperOrder(body);
-              sendJson(res, out.status, out.body);
-            } catch (err) {
-              if (log) log("request-error", {message: err && err.message ? String(err.message) : "unknown"});
-              if (!res.headersSent) {
-                sendJson(res, 500, {ok: false, state: "error", error: {code: "internal-error", message: "internal error"}});
-              }
-            }
-          });
+          const request = await readRequestBody(req);
+          if (request.tooLarge) {
+            res.shouldKeepAlive = false;
+            sendJson(res, 413, {ok: false, state: "error", error: {code: "body-too-large", message: "request body exceeds the allowed size"}}, {Connection: "close"});
+            return;
+          }
+          out = await api.submitPaperOrder(request.body);
+          sendJson(res, out.status, out.body);
           return;
         }
 

@@ -20,8 +20,8 @@ test("GET /api/health returns ok with honest, secret-free payload", async () => 
     assert.equal(typeof res.body.data, "object");
     assert.ok(["ok", "degraded"].includes(res.body.data.status), `honest status, got ${res.body.data.status}`);
     assert.equal(res.body.data.paperOnly, true);
-    assert.equal(res.body.data.readOnly, true);
-    assert.equal(res.body.data.orderSubmission, "not-wired");
+    assert.equal(res.body.data.readOnly, false);
+    assert.equal(res.body.data.orderSubmission, "paper-gated");
     assert.equal(res.body.data.tradingMode, "paper");
     assert.deepEqual(findSecretViolations(res.body, res.text), []);
 
@@ -107,7 +107,7 @@ test("unknown API routes 404 as JSON; wrong methods 405 with Allow", async () =>
   }
 });
 
-test("POST /api/paper/orders is a clearly-marked stub (501), not a live path", async () => {
+test("POST /api/paper/orders rejects incomplete requests and never exposes a live path", async () => {
   const srv = await startTestServer({stateFile: "/nonexistent/paper-state.json"});
   try {
     const res = await fetch(srv.base + "/api/paper/orders", {
@@ -116,15 +116,13 @@ test("POST /api/paper/orders is a clearly-marked stub (501), not a live path", a
       body: JSON.stringify({symbol: "BTCUSDT", side: "BUY", quantity: 1})
     });
     const body = await res.json();
-    assert.equal(res.status, 501);
+    assert.equal(res.status, 400);
     assert.equal(body.ok, false);
-    assert.equal(body.state, "not-implemented");
-    assert.equal(body.error.code, "order-submission-not-wired");
-    assert.match(body.error.reason || "", /Risk Gate/);
-    assert.match(body.error.reason || "", /paper\/shadow only/i);
+    assert.equal(body.state, "error");
+    assert.equal(body.error.code, "invalid-price");
     assert.deepEqual(findSecretViolations(body, JSON.stringify(body)), []);
 
-    // GET on the order endpoint is refused too (405 — wrong method for a stub).
+    // GET on the order endpoint is refused; it is not a generic execution route.
     const getRes = await fetch(srv.base + "/api/paper/orders");
     assert.equal(getRes.status, 405);
     await getRes.json();
