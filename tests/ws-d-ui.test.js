@@ -60,10 +60,30 @@ test("web/index.html is the honest, accessible dashboard shell", () => {
   assert.ok(!/\son[a-z]+\s*=/.test(html), "no inline event handlers");
 });
 
+test("paper order ticket only targets the gated paper endpoint", () => {
+  const html = read("web/index.html");
+  const app = read("web/app.js");
+  assert.match(html, /id="order-form"/);
+  assert.match(html, /id="order-side"/);
+  assert.match(html, /id="order-quantity"/);
+  assert.match(html, /id="order-price"/);
+  assert.match(html, /id="order-reduce-only"/);
+  assert.match(html, /PAPER \/ SHADOW ONLY/);
+  assert.match(app, /fetch\("\/api\/paper\/orders"/);
+  assert.match(app, /idempotencyKey/);
+  assert.match(app, /NO TRADE/);
+  assert.match(app, /Risk Gate/);
+  assert.match(app, /if \(orderSubmissionInProgress\) return/);
+  assert.match(app, /!orderSubmissionInProgress && orderPrice\.dataset\.edited/);
+  assert.match(app, /control\.disabled = true/);
+  assert.match(app, /control\.disabled = false/);
+});
+
 test("web/style.css provides responsive layout and visible focus", () => {
   const css = read("web/style.css");
   assert.match(css, /:focus-visible/);
   assert.match(css, /grid-template-columns:\s*repeat\(auto-fit/);
+  assert.match(css, /@media \(max-width: 680px\)/);
   assert.match(css, /@media/);
 });
 
