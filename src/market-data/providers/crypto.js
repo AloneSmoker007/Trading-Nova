@@ -28,6 +28,7 @@
 // result envelopes instead of the throwing contract of the raw interface helpers.
 
 import {normalizeQuote, normalizeCandle} from "../connectors/interface.js";
+import {detectCandleGap} from "../quality.js";
 import {DEFAULT_INFO_URL, DEFAULT_LEADERBOARD_URL, createHyperliquidClient, requestJson, toFiniteNumber, normaliseHyperliquidLeaderboardEntry} from "./hyperliquid.js";
 
 export {normaliseHyperliquidLeaderboardEntry};
@@ -154,15 +155,34 @@ function validateSymbol(symbol) {
   return SYMBOL_RE.test(sym) ? sym : null;
 }
 
+// Continuity audit over a sorted candle list: every non-contiguous neighbour
+// pair is reported (with the number of missing bars) so callers can fail closed
+// via dataQualityGate instead of silently computing indicators across an outage
+// window. Uses the shared quality.js `detectCandleGap` predicate.
+function candleGaps(candles, intervalMs) {
+  const gaps = [];
+  for (let i = 1; i < candles.length; i++) {
+    const prev = candles[i - 1];
+    const cur = candles[i];
+    if (detectCandleGap({openTime: prev.ts}, {openTime: cur.ts}, intervalMs)) {
+      gaps.push(Object.freeze({fromTs: prev.ts, toTs: cur.ts, missingBars: Math.max(0, Math.round((cur.ts - prev.ts) / intervalMs) - 1)}));
+    }
+  }
+  return Object.freeze(gaps);
+}
+
 // ---------------------------------------------------------------------------
 // Provider factory (transport-injectable)
 // ---------------------------------------------------------------------------
 
-export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now = () => Date.now()} = {}) {
+export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now = () => Date.now(), http = {}} = {}) {
   if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function");
   if (typeof now !== "function") throw new TypeError("now must be a function");
   const cfg = resolveSources(sources);
-  const hyperliquid = createHyperliquidClient({fetchImpl, infoUrl: cfg.hyperliquid.infoUrl, leaderboardUrl: cfg.hyperliquid.leaderboardUrl});
+  // Bounded HTTP transport: per-attempt AbortSignal.timeout + deadline-aware
+  // retries on transient failures (never on 429).
+  const httpOpts = {timeoutMs: 10000, retries: 2, retryDelayMs: 100, deadlineMs: 30000, ...http};
+  const hyperliquid = createHyperliquidClient({fetchImpl, infoUrl: cfg.hyperliquid.infoUrl, leaderboardUrl: cfg.hyperliquid.leaderboardUrl, http: httpOpts});
 
   // Normalised candles {ts,open,high,low,close,volume}, sorted ascending by ts.
   async function getKlines({symbol, interval = "1m", limit = 100} = {}) {
@@ -170,7 +190,7 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
     if (!sym) return {ok: false, reason: "invalid-symbol"};
     if (!Object.hasOwn(BINANCE_INTERVAL_MS, interval)) return {ok: false, reason: "invalid-interval"};
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000) return {ok: false, reason: "invalid-limit"};
-    const res = await requestJson(fetchImpl, buildUrl(cfg.binance.baseUrl, "/api/v3/klines", {symbol: sym, interval, limit}));
+    const res = await requestJson(fetchImpl, buildUrl(cfg.binance.baseUrl, "/api/v3/klines", {symbol: sym, interval, limit}), undefined, httpOpts);
     if (!res.ok) return res;
     if (!Array.isArray(res.data)) return {ok: false, reason: "invalid-payload"};
     const candles = [];
@@ -180,13 +200,15 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
       candles.push(candle);
     }
     candles.sort((a, b) => a.ts - b.ts);
-    return {ok: true, data: candles};
+    // Robust gap handling: surface discontinuities instead of pretending the
+    // series is continuous (empty `gaps` == no holes).
+    return {ok: true, data: candles, gaps: candleGaps(candles, BINANCE_INTERVAL_MS[interval])};
   }
 
   async function getTicker(symbol) {
     const sym = validateSymbol(symbol);
     if (!sym) return {ok: false, reason: "invalid-symbol"};
-    const res = await requestJson(fetchImpl, buildUrl(cfg.binance.baseUrl, "/api/v3/ticker/24hr", {symbol: sym}));
+    const res = await requestJson(fetchImpl, buildUrl(cfg.binance.baseUrl, "/api/v3/ticker/24hr", {symbol: sym}), undefined, httpOpts);
     if (!res.ok) return res;
     const ticker = normaliseBinanceTicker(res.data);
     return ticker ? {ok: true, data: ticker} : {ok: false, reason: "invalid-payload"};
@@ -196,7 +218,7 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
   async function getQuote(symbol) {
     const sym = validateSymbol(symbol);
     if (!sym) return {ok: false, reason: "invalid-symbol"};
-    const res = await requestJson(fetchImpl, buildUrl(cfg.binance.baseUrl, "/api/v3/ticker/bookTicker", {symbol: sym}));
+    const res = await requestJson(fetchImpl, buildUrl(cfg.binance.baseUrl, "/api/v3/ticker/bookTicker", {symbol: sym}), undefined, httpOpts);
     if (!res.ok) return res;
     const book = normaliseBinanceBookTicker(res.data);
     if (!book || !book.symbol) return {ok: false, reason: "invalid-payload"};
@@ -220,7 +242,8 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
     try {
       return {
         ok: true,
-        data: res.data.map((c) => normalizeCandle({source: "binance-public", symbol: sym, openTime: c.ts, closeTime: c.ts + intervalMs - 1, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume, receivedAt}))
+        data: res.data.map((c) => normalizeCandle({source: "binance-public", symbol: sym, openTime: c.ts, closeTime: c.ts + intervalMs - 1, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume, receivedAt})),
+        gaps: res.gaps
       };
     } catch {
       return {ok: false, reason: "invalid-payload"};
@@ -231,7 +254,7 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
   async function getCoinPrice(id) {
     const coinId = typeof id === "string" ? id.trim() : "";
     if (!COINGECKO_ID_RE.test(coinId)) return {ok: false, reason: "invalid-id"};
-    const res = await requestJson(fetchImpl, buildUrl(cfg.coingecko.baseUrl, "/api/v3/coins/markets", {vs_currency: "usd", ids: coinId, per_page: 1, page: 1}));
+    const res = await requestJson(fetchImpl, buildUrl(cfg.coingecko.baseUrl, "/api/v3/coins/markets", {vs_currency: "usd", ids: coinId, per_page: 1, page: 1}), undefined, httpOpts);
     if (!res.ok) return res;
     if (!Array.isArray(res.data) || res.data.length === 0) return {ok: false, reason: "invalid-payload"};
     const price = normaliseCoinGeckoPrice(res.data[0]);

@@ -42,23 +42,89 @@ export function toFiniteNumber(v) {
 
 // Shared fail-closed JSON transport. Accepts any fetch-compatible function.
 // Returns {ok:true,data} | {ok:false,reason,status?}. Never throws.
-export async function requestJson(fetchImpl, url, init) {
-  let res;
+//
+// Every attempt is bounded by a real deadline: an AbortSignal.timeout() is
+// attached to the request AND the whole attempt (fetch + body read) is raced
+// against a timer, so even a transport that ignores the signal cannot hang the
+// pipeline forever — a stalled upstream now yields {ok:false,reason:"timeout"}
+// that freshness/quality gates can actually see. Transient failures
+// (network-error, timeout, 5xx) are retried up to `retries` times under an
+// optional total `deadlineMs` budget; rate limits (429) are NEVER retried.
+export const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+
+const AbortSignalCtor = globalThis.AbortSignal;
+
+function positiveTimeout(v) {
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
+function attemptSignal(timeoutMs, callerSignal) {
+  // Best-effort abort wiring for real fetch implementations. Stubs that ignore
+  // init/signal are still bounded by the timer race below.
+  const signals = [];
+  if (callerSignal) signals.push(callerSignal);
+  if (AbortSignalCtor && typeof AbortSignalCtor.timeout === "function") signals.push(AbortSignalCtor.timeout(timeoutMs));
+  if (!signals.length) return undefined;
+  if (signals.length === 1) return signals[0];
+  return typeof AbortSignalCtor.any === "function" ? AbortSignalCtor.any(signals) : signals[0];
+}
+
+async function attemptJson(fetchImpl, url, init, timeoutMs) {
+  const signal = attemptSignal(timeoutMs, init && init.signal);
+  const callInit = signal ? {...(init || {}), signal} : init;
+  let timer = null;
+  let timedOut = false;
+  const deadline = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error("request timeout"));
+    }, timeoutMs);
+  });
+  const work = (async () => {
+    const res = await fetchImpl(url, callInit);
+    if (!res || typeof res !== "object") return {ok: false, reason: "network-error"};
+    const status = Number.isFinite(res.status) ? res.status : 0;
+    if (res.ok !== true) return {ok: false, reason: status === 429 ? "rate-limited" : "http-error", status};
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      return {ok: false, reason: "invalid-json"};
+    }
+    return {ok: true, data};
+  })();
   try {
-    res = await fetchImpl(url, init);
+    return await Promise.race([work, deadline]);
   } catch {
-    return {ok: false, reason: "network-error"};
+    return {ok: false, reason: timedOut ? "timeout" : "network-error"};
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  if (!res || typeof res !== "object") return {ok: false, reason: "network-error"};
-  const status = Number.isFinite(res.status) ? res.status : 0;
-  if (res.ok !== true) return {ok: false, reason: status === 429 ? "rate-limited" : "http-error", status};
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    return {ok: false, reason: "invalid-json"};
+}
+
+function isRetryable(res) {
+  return res && res.ok !== true && (res.reason === "network-error" || res.reason === "timeout" || (res.reason === "http-error" && res.status >= 500));
+}
+
+export async function requestJson(fetchImpl, url, init, {timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, retries = 0, retryDelayMs = 100, deadlineMs = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms))} = {}) {
+  const perAttemptMs = positiveTimeout(timeoutMs);
+  const maxRetries = Number.isInteger(retries) && retries > 0 ? retries : 0;
+  const startedAt = Date.now();
+  let last = null;
+  for (let i = 0; i <= maxRetries; i++) {
+    const elapsed = Date.now() - startedAt;
+    const budget = Number.isFinite(deadlineMs) && deadlineMs > 0 ? Math.min(perAttemptMs, deadlineMs - elapsed) : perAttemptMs;
+    if (!(budget > 0)) return last || {ok: false, reason: "timeout"};
+    const res = await attemptJson(fetchImpl, url, init, budget);
+    if (!isRetryable(res)) return res;
+    last = res;
+    if (i === maxRetries) break;
+    const backoff = retryDelayMs * 2 ** i;
+    // deadline-aware: never sleep past the total budget
+    if (Number.isFinite(deadlineMs) && deadlineMs > 0 && Date.now() - startedAt + backoff >= deadlineMs) return res;
+    await sleep(backoff);
   }
-  return {ok: true, data};
+  return last || {ok: false, reason: "network-error"};
 }
 
 // URL/body builders (pure). These throw TypeError on programmer error (invalid
@@ -168,12 +234,13 @@ export function normaliseHyperliquidClearinghouseState(raw) {
 // Client (transport-injectable; all I/O fail-closed)
 // ---------------------------------------------------------------------------
 
-export function createHyperliquidClient({fetchImpl = globalThis.fetch, infoUrl = DEFAULT_INFO_URL, leaderboardUrl = DEFAULT_LEADERBOARD_URL} = {}) {
+export function createHyperliquidClient({fetchImpl = globalThis.fetch, infoUrl = DEFAULT_INFO_URL, leaderboardUrl = DEFAULT_LEADERBOARD_URL, http = {}} = {}) {
   if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function");
+  const httpOpts = {timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS, retries: 2, retryDelayMs: 100, deadlineMs: 30000, ...http};
 
   async function fetchLeaderboard() {
     const req = buildLeaderboardRequest({leaderboardUrl});
-    const res = await requestJson(fetchImpl, req.url, req.init);
+    const res = await requestJson(fetchImpl, req.url, req.init, httpOpts);
     if (!res.ok) return res;
     if (!res.data || typeof res.data !== "object" || !Array.isArray(res.data.leaderboardRows)) return {ok: false, reason: "invalid-payload"};
     return {ok: true, rows: res.data.leaderboardRows};
@@ -182,7 +249,7 @@ export function createHyperliquidClient({fetchImpl = globalThis.fetch, infoUrl =
   async function fetchClearinghouseState(address) {
     if (!isValidAddress(address)) return {ok: false, reason: "invalid-address"};
     const req = buildInfoRequest(address, {infoUrl});
-    const res = await requestJson(fetchImpl, req.url, req.init);
+    const res = await requestJson(fetchImpl, req.url, req.init, httpOpts);
     if (!res.ok) return res;
     return {ok: true, state: res.data};
   }
