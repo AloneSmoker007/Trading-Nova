@@ -1,4 +1,4 @@
-// server/api.js — read-only JSON API over the real engine modules (src/).
+// server/api.js — JSON API over the real engine modules (src/).
 //
 // Envelope convention (every response is JSON):
 //   success: {ok: true,  data: {...}}                  — data.state: "ok" | "stale" | "empty"
@@ -10,14 +10,14 @@
 //   "unavailable" = upstream/state genuinely cannot provide data right now (HTTP 503)
 //   "error"       = bad request (400) or server-side failure (500) — never leaks internals
 //
-// GOLDEN SAFETY RULE: this API is READ-ONLY and paper/shadow only. There is no
-// order submission here. POST /api/paper/orders is a clearly-marked STUB (501)
-// until Risk Gate enforcement (WS-A, src/risk/gate.js) lands. Real money OFF.
+// GOLDEN SAFETY RULE: Paper/shadow only. Real money OFF.
+// POST /api/paper/orders is GATED by Risk Gate enforcement. No execution without an ALLOW artifact.
 
 import {healthSnapshot} from "../src/observability/health.js";
 import {runBacktestV2} from "../src/backtest/engine-v2.js";
 import {computeIndicators} from "./indicators.js";
 import {loadPaperState} from "./state.js";
+import {createPaperOrderService} from "./orders.js";
 import {createStrategy, STRATEGY_DESCRIPTIONS} from "./strategies.js";
 import {parseSymbol, parseInterval, parseLimit, parseStrategy} from "./validate.js";
 
@@ -33,8 +33,16 @@ function num(v) {
   return Number.isFinite(v) ? v : null;
 }
 
-export function createApi({market, stateFile, now = () => Date.now(), tradingMode = "paper", startedAt = Date.now()}) {
-  const paperNote = "Paper/shadow only. Real money OFF. This API is read-only.";
+export function createApi({
+  market,
+  stateFile,
+  executionStateFile,
+  now = () => Date.now(),
+  tradingMode = "paper",
+  startedAt = Date.now()
+}) {
+  const paperNote = "Paper/shadow only. Real money OFF. This API is read-only for GET endpoints.";
+  const paperOrderService = createPaperOrderService({market, stateFile, executionStateFile, now, tradingMode});
 
   async function health() {
     const t = now();
@@ -54,8 +62,8 @@ export function createApi({market, stateFile, now = () => Date.now(), tradingMod
       checkedAt: snap.checkedAt,
       tradingMode,
       paperOnly: true,
-      readOnly: true,
-      orderSubmission: "not-wired",
+      readOnly: false,
+      orderSubmission: "paper-gated",
       uptimeMs: Math.max(0, t - startedAt),
       note: paperNote
     });
@@ -117,7 +125,7 @@ export function createApi({market, stateFile, now = () => Date.now(), tradingMod
   }
 
   async function portfolio() {
-    const s = await loadPaperState(stateFile, now());
+    const s = await paperOrderService.getPortfolio();
     if (s.state === "error") return fail(500, "error", "paper-state-error", "paper state could not be read", s.reason);
     if (s.state === "empty") {
       return ok({
@@ -126,7 +134,7 @@ export function createApi({market, stateFile, now = () => Date.now(), tradingMod
         limits: null,
         updatedAt: null,
         ageMs: null,
-        note: "No paper state on disk yet — order submission is not wired. " + paperNote
+        note: "No paper state on disk yet. " + paperNote
       });
     }
     return ok({
@@ -214,25 +222,22 @@ export function createApi({market, stateFile, now = () => Date.now(), tradingMod
     });
   }
 
-  // ------------------------------------------------------------------
-  // STUB — NOT WIRED. Future gated write endpoint (see CONSENSUS WS-D §3).
-  // POST /api/paper/orders must land ONLY together with Risk Gate enforcement:
-  //   contracts.validateOrder -> risk/gate.evaluateRiskGate (fail-closed, ALLOW
-  //   artifact with order hash + config hash) -> execution/paper-persistent
-  //   (idempotency key mandatory) -> reconciliation. Paper/shadow tiers ONLY.
-  // Until then this endpoint refuses every request by design.
-  // ------------------------------------------------------------------
-  function paperOrdersStub() {
-    return fail(
-      501,
-      "not-implemented",
-      "order-submission-not-wired",
-      "Order submission is intentionally not wired yet.",
-      "stub: POST /api/paper/orders will be gated on Risk Gate enforcement (WS-A); paper/shadow only; real money OFF"
-    );
+  // POST /api/paper/orders — paper execution gated by Risk Gate.
+  async function submitPaperOrder(body) {
+    let parsedBody;
+    try {
+      parsedBody = typeof body === "string" ? JSON.parse(body) : body;
+    } catch {
+      return fail(400, "error", "invalid-json", "request body must be valid JSON");
+    }
+    try {
+      return await paperOrderService.submit(parsedBody);
+    } catch {
+      return fail(500, "error", "internal-error", "paper order could not be safely processed");
+    }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, paperOrdersStub};
+  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};

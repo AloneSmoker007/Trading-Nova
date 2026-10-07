@@ -2,7 +2,7 @@ import { assertGateArtifact, hashOrderPayload, normalizeSide, normalizeSymbol } 
 
 export class PersistentPaperEngine {
   constructor(store){if(!store||typeof store.transactIdempotent!=="function")throw new Error("durable store required");this.store=store;}
-  async submit(order,{markPrice,gateArtifact}={}){
+  async submit(order,{markPrice,gateArtifact,onFill}={}){
     const side = normalizeSide(order?.side);
     if(!order?.idempotencyKey||!order?.symbol||!["BUY","SELL"].includes(side)||!Number.isFinite(order.quantity)||order.quantity<=0)throw new Error("invalid paper order");
     if(!Number.isFinite(markPrice)||markPrice<=0)throw new Error("mark price required");
@@ -33,6 +33,7 @@ export class PersistentPaperEngine {
       // Write through the transaction handle when the store provides one so the
       // fill commits atomically with the idempotency record (all-or-nothing).
       await writer.put("paper-fills",order.idempotencyKey,fill);
+      if(onFill) await onFill(writer,fill);
       return fill;
     });
   }

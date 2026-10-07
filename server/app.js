@@ -1,16 +1,16 @@
 // server/app.js — thin localhost HTTP server for the Trading-Nova dashboard.
 //
 // node:http only, no framework, no new dependencies. Bound to 127.0.0.1 by
-// server/index.js (loopback only — this is a personal, read-only app).
+// server/index.js (loopback only — this is a personal, paper-only app).
 //
 // Surface:
 //   GET  /api/health                  engine + server health (honest degraded states)
 //   GET  /api/market/:symbol          real ticker from src/market-data (fresh/stale/unavailable)
 //   GET  /api/indicators/:symbol      real indicators from src/indicators over real candles
-//   GET  /api/portfolio               paper portfolio from the state snapshot (read-only)
+//   GET  /api/portfolio               paper portfolio from the state snapshot + paper fills
 //   GET  /api/journal                 hash-chained journal + verifyJournal integrity
 //   GET  /api/backtest                real backtest (src/backtest/engine-v2) summary
-//   POST /api/paper/orders            STUB -> 501 (order submission NOT wired; see api.js)
+//   POST /api/paper/orders            paper order submission (Risk Gate gated, no real money)
 //   GET  /*                          whitelisted static dashboard files
 //
 // Safety properties enforced here:
@@ -18,7 +18,8 @@
 //   - API responses are Cache-Control: no-store
 //   - JSON errors are generic; nothing from the environment, stack traces or
 //     filesystem ever reaches the wire
-//   - GET/HEAD only (plus the 501 POST stub); other methods -> 405 with Allow
+//   - POST /api/paper/orders is gated by Risk Gate; no execution without ALLOW artifact
+//   - only GET/HEAD on read endpoints; POST only on the paper orders endpoint
 
 import {createServer} from "node:http";
 import {join, dirname} from "node:path";
@@ -29,6 +30,7 @@ import {readStatic} from "./static.js";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_URL_LENGTH = 2048;
+const MAX_BODY_LENGTH = 16384; // 16KB max for JSON order request
 
 const SECURITY_HEADERS = Object.freeze({
   "Content-Security-Policy":
@@ -38,6 +40,37 @@ const SECURITY_HEADERS = Object.freeze({
   "X-Frame-Options": "DENY",
   "Cross-Origin-Opener-Policy": "same-origin"
 });
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let complete = false;
+    let tooLarge = false;
+    req.on("data", (chunk) => {
+      if (tooLarge) return;
+      size += chunk.length;
+      if (size > MAX_BODY_LENGTH) {
+        tooLarge = true;
+        complete = true;
+        chunks.length = 0;
+        resolve({tooLarge: true});
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (complete) return;
+      complete = true;
+      resolve({body: Buffer.concat(chunks).toString("utf8")});
+    });
+    req.on("error", (error) => {
+      if (complete) return;
+      complete = true;
+      reject(error);
+    });
+  });
+}
 
 function sendJson(res, status, body, extra = {}) {
   const payload = JSON.stringify(body);
@@ -54,14 +87,14 @@ function sendJson(res, status, body, extra = {}) {
 // Route matcher for /api/* -> handler name + captured path params.
 function matchApi(pathname) {
   if (pathname === "/api/health") return {name: "health", params: {}};
-  let m = /^\/api\/market\/([^/]+)$/.exec(pathname);
+  let m = /^\/api\/market\/([^\/]+)$/.exec(pathname);
   if (m) return {name: "marketData", params: {symbol: m[1]}};
-  m = /^\/api\/indicators\/([^/]+)$/.exec(pathname);
+  m = /^\/api\/indicators\/([^\/]+)$/.exec(pathname);
   if (m) return {name: "indicators", params: {symbol: m[1]}};
   if (pathname === "/api/portfolio") return {name: "portfolio", params: {}};
   if (pathname === "/api/journal") return {name: "journal", params: {}};
   if (pathname === "/api/backtest") return {name: "backtest", params: {}};
-  if (pathname === "/api/paper/orders") return {name: "paperOrdersStub", params: {}};
+  if (pathname === "/api/paper/orders") return {name: "submitPaperOrder", params: {}};
   return null;
 }
 
@@ -69,13 +102,14 @@ export function createNovaServer({
   fetchImpl = globalThis.fetch,
   now = () => Date.now(),
   stateFile = join(REPO_ROOT, "db", "paper-state.json"),
+  executionStateFile = join(REPO_ROOT, "db", "paper-orders.json"),
   webRoot = join(REPO_ROOT, "web"),
   tradingMode = "paper",
   log = null
 } = {}) {
   const market = createMarketService({fetchImpl, now});
   const startedAt = now();
-  const api = createApi({market, stateFile, now, tradingMode, startedAt});
+  const api = createApi({market, stateFile, executionStateFile, now, tradingMode, startedAt});
 
   const server = createServer(async (req, res) => {
     const method = req.method || "GET";
@@ -99,17 +133,33 @@ export function createNovaServer({
           sendJson(res, 404, {ok: false, state: "error", error: {code: "not-found", message: "unknown API route"}});
           return;
         }
-        // Methods: GET/HEAD everywhere; POST only on the marked stub (which 501s).
-        const allowed = route.name === "paperOrdersStub" ? ["POST"] : ["GET", "HEAD"];
+
+        // Methods: GET/HEAD on read endpoints; POST only on paper orders.
+        const allowed = route.name === "submitPaperOrder" ? ["POST"] : ["GET", "HEAD"];
         if (!allowed.includes(method)) {
           sendJson(res, 405, {ok: false, state: "error", error: {code: "method-not-allowed", message: "method not allowed"}}, {Allow: allowed.join(", ")});
           return;
         }
+
         if (method === "HEAD") {
           sendJson(res, 200, {ok: true, data: {note: "HEAD — use GET for the full payload"}});
           return;
         }
+
         let out;
+        if (route.name === "submitPaperOrder") {
+          const request = await readRequestBody(req);
+          if (request.tooLarge) {
+            res.shouldKeepAlive = false;
+            sendJson(res, 413, {ok: false, state: "error", error: {code: "body-too-large", message: "request body exceeds the allowed size"}}, {Connection: "close"});
+            return;
+          }
+          out = await api.submitPaperOrder(request.body);
+          sendJson(res, out.status, out.body);
+          return;
+        }
+
+        // Handle GET endpoints.
         if (route.name === "marketData" || route.name === "indicators") {
           out = await api[route.name](url.searchParams, route.params.symbol);
         } else {
