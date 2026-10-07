@@ -5,10 +5,10 @@ import {approveRiskConfig,assertApprovedRiskConfig} from "../src/persistence/ris
 import {transitionExecution,isExecutionSafe} from "../src/reconciliation/state-machine.js";
 import {createCheckpoint,restoreCheckpoint} from "../src/recovery/checkpoint.js";
 
-test("idempotency returns exactly one logical result",()=>{
+test("idempotency returns exactly one logical result",async()=>{
   const s=new DurableStore(); let calls=0;
-  const a=s.transactIdempotent("order-1",()=>{calls++;return {status:"accepted"}});
-  const b=s.transactIdempotent("order-1",()=>{calls++;return {status:"different"}});
+  const a=await s.transactIdempotent("order-1",()=>{calls++;return {status:"accepted"}});
+  const b=await s.transactIdempotent("order-1",()=>{calls++;return {status:"different"}});
   assert.deepEqual(a,b); assert.equal(calls,1);
 });
 

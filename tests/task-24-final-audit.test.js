@@ -23,8 +23,13 @@ test("Task 24 risk config hashing is key-order stable",()=>{
 test("Task 24 paper execution rejects invalid orders and deduplicates idempotency keys",()=>{
  const ex=createPaperExecution();
  assert.throws(()=>ex.submit({symbol:"BTC",side:"HOLD",quantity:1,price:1}),/invalid paper order/);
- const a=ex.submit({symbol:"BTC",side:"BUY",quantity:1,price:1,idempotencyKey:"k"});
- const b=ex.submit({symbol:"BTC",side:"BUY",quantity:1,price:1,idempotencyKey:"k"});
+ const order={symbol:"BTC",side:"BUY",quantity:1,price:1,idempotencyKey:"k"};
+ const p={equity:10000,cash:10000,positions:[],grossExposure:0,netExposure:0,dailyPnl:0,drawdown:0};
+ const {config,hash}=createRiskConfig({version:"24-exec",maxPositionNotional:1000,maxGrossExposure:3000,maxDailyLoss:500,maxDrawdown:.2,maxLeverage:1});
+ const verdict=evaluateRiskGate({order,portfolio:p,riskConfig:config,approvedConfigHash:hash});
+ assert.equal(verdict.decision,"ALLOW");
+ const a=ex.submit(order,{gateArtifact:verdict.artifact});
+ const b=ex.submit(order,{gateArtifact:verdict.artifact});
  assert.equal(a.id,b.id);
  assert.equal(ex.get(a.id).symbol,"BTC");
 });
