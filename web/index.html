@@ -17,7 +17,7 @@
   </header>
 
   <p class="paper-banner" id="paper-banner">
-    PAPER / SHADOW ONLY — real money OFF. This is a read-only dashboard: no action here can place a real order.
+    PAPER / SHADOW ONLY — real money OFF. The order ticket sends simulated orders through the server-side Risk Gate only.
   </p>
 
   <main id="main">
@@ -50,6 +50,45 @@
     </form>
 
     <p id="live-status" class="live-status" role="status" aria-live="polite">Loading dashboard…</p>
+
+    <section class="card order-ticket" aria-labelledby="order-title">
+      <div class="card-head">
+        <h2 id="order-title">Paper order ticket</h2>
+        <span class="badge" id="order-badge" data-state="idle">PAPER ONLY</span>
+      </div>
+      <p class="panel-note order-intro">Every submission is checked by the server-side Risk Gate. Stale data, unsafe portfolio state, or a breached limit means NO TRADE.</p>
+      <form id="order-form" class="order-form" aria-busy="false">
+        <div class="order-fields">
+          <div class="field">
+            <span class="field-label">Symbol</span>
+            <output class="field-output" id="order-symbol" for="symbol-input" aria-live="polite">BTCUSDT</output>
+          </div>
+          <div class="field">
+            <label for="order-side">Side</label>
+            <select id="order-side" name="side">
+              <option value="BUY">Buy</option>
+              <option value="SELL">Sell</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="order-quantity">Quantity</label>
+            <input id="order-quantity" name="quantity" type="number" min="0.00000001" step="any" value="0.001" required>
+          </div>
+          <div class="field">
+            <label for="order-price">Paper execution price</label>
+            <input id="order-price" name="price" type="number" min="0.0000000001" step="any" placeholder="Refresh market data" required>
+          </div>
+          <label class="order-reduce">
+            <input id="order-reduce-only" name="reduceOnly" type="checkbox">
+            <span>Reduce only</span>
+          </label>
+          <button type="submit" id="order-submit">Submit paper order</button>
+        </div>
+      </form>
+      <div class="order-result" aria-live="polite" aria-atomic="true">
+        <p class="panel-note" id="order-note">No order submitted. Price is a paper-simulation input, not a live execution instruction.</p>
+      </div>
+    </section>
 
     <div class="grid">
       <section class="card" aria-labelledby="health-title">
@@ -122,7 +161,7 @@
     <h2>Safety</h2>
     <ul>
       <li>Paper / shadow only — real money is OFF and cannot be enabled from this UI.</li>
-      <li>This dashboard is read-only. Order submission is not wired; a gated paper-only endpoint will land after Risk Gate enforcement.</li>
+      <li>The order ticket can only submit to the paper simulator; every order needs a server-issued Risk Gate ALLOW.</li>
       <li>Live trading requires a human-approved, Risk-Gate-checked process outside this UI.</li>
       <li>Backtests describe history only — past performance is not a prediction.</li>
     </ul>

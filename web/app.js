@@ -10,6 +10,9 @@
 
   var SYMBOL_RE = /^[A-Za-z0-9]{2,24}$/;
   var AUTO_REFRESH_MS = 30000;
+  var pendingOrderFingerprint = null;
+  var pendingOrderKey = null;
+  var orderSubmissionInProgress = false;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -145,6 +148,14 @@
       if (result.status === 200 && body && body.ok === true && body.data) {
         var d = body.data;
         var t = d.ticker || {};
+        var ticketSymbol = $("order-symbol");
+        var orderPrice = $("order-price");
+        if (ticketSymbol) ticketSymbol.textContent = d.symbol;
+        if (orderPrice && !orderSubmissionInProgress && orderPrice.dataset.edited !== "true") {
+          var freshMark = d.state === "ok" && Number.isFinite(t.last) && t.last > 0 &&
+            (!d.freshness || d.freshness.status === "fresh");
+          orderPrice.value = freshMark ? String(t.last) : "";
+        }
         setBadge("market-badge", d.state === "stale" ? "stale" : "ok",
           d.state === "stale" ? "STALE · " + fmtAge(d.ageMs) : "OK");
         row(dl, "Symbol", d.symbol);
@@ -376,7 +387,113 @@
     }
     input.removeAttribute("aria-invalid");
     input.value = raw;
+    if ($("order-symbol")) $("order-symbol").textContent = raw;
     return raw;
+  }
+
+  function makeIdempotencyKey() {
+    if (!window.crypto) throw new Error("Secure order keys are unavailable in this browser");
+    if (typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+    var bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    return Array.prototype.map.call(bytes, function (byte) {
+      return byte.toString(16).padStart(2, "0");
+    }).join("");
+  }
+
+  function sendPaperOrder(order) {
+    return fetch("/api/paper/orders", {
+      method: "POST",
+      cache: "no-store",
+      headers: {Accept: "application/json", "Content-Type": "application/json"},
+      body: JSON.stringify(order)
+    }).then(function (res) {
+      return res.json()
+        .catch(function () { return null; })
+        .then(function (body) { return {status: res.status, body: body}; });
+    }).catch(function () {
+      throw new Error("Cannot reach the local API server. Retrying this order will reuse its idempotency key.");
+    });
+  }
+
+  function submitPaperOrder(event) {
+    event.preventDefault();
+    if (orderSubmissionInProgress) return;
+    var symbol = readSymbol();
+    if (!symbol) return;
+
+    var order = {
+      symbol: symbol,
+      side: $("order-side").value,
+      quantity: Number($("order-quantity").value),
+      price: Number($("order-price").value),
+      reduceOnly: $("order-reduce-only").checked
+    };
+    if (!Number.isFinite(order.quantity) || order.quantity <= 0 ||
+        !Number.isFinite(order.price) || order.price <= 0) {
+      setBadge("order-badge", "error", "INVALID INPUT");
+      note("order-note", "Enter a positive quantity and paper execution price.");
+      return;
+    }
+
+    var fingerprint = JSON.stringify([order.symbol, order.side, order.quantity, order.price, order.reduceOnly]);
+    if (fingerprint !== pendingOrderFingerprint || !pendingOrderKey) {
+      try {
+        pendingOrderKey = makeIdempotencyKey();
+        pendingOrderFingerprint = fingerprint;
+      } catch (err) {
+        setBadge("order-badge", "error", "BLOCKED");
+        note("order-note", err.message);
+        return;
+      }
+    }
+    order.idempotencyKey = pendingOrderKey;
+
+    var form = $("order-form");
+    orderSubmissionInProgress = true;
+    form.setAttribute("aria-busy", "true");
+    Array.prototype.forEach.call(form.querySelectorAll("input, select, button"), function (control) {
+      control.disabled = true;
+    });
+    $("symbol-input").disabled = true;
+    setBadge("order-badge", "loading", "CHECKING GATE");
+    note("order-note", "Submitting to the paper simulator…");
+
+    return sendPaperOrder(order).then(function (result) {
+      var body = result.body;
+      if (result.status >= 200 && result.status < 300 && body && body.ok === true && body.data) {
+        var data = body.data;
+        var fill = data.fill || {};
+        var replayed = data.state === "replayed" || (data.verdict && data.verdict.replayed);
+        setBadge("order-badge", "ok", replayed ? "REPLAYED FILL" : "GATE ALLOW");
+        note("order-note", (replayed ? "Previously confirmed paper fill" : "Paper fill") + ": " +
+          [fill.symbol, fill.side, fmtNum(fill.quantity, 6) + " @ " + fmtNum(fill.price), fill.status]
+            .filter(Boolean).join(" · ") + ". Real money OFF.");
+        pendingOrderFingerprint = null;
+        pendingOrderKey = null;
+        renderPortfolio();
+        return;
+      }
+
+      var failure = failureState(result);
+      var verdict = body && body.verdict;
+      var noTrade = verdict && verdict.decision === "NO_TRADE";
+      setBadge("order-badge", noTrade ? "no-trade" : (result.status >= 500 ? "unavailable" : "error"),
+        noTrade ? "NO TRADE" : "BLOCKED");
+      var reasons = verdict && Array.isArray(verdict.reasons) ? verdict.reasons.join(", ") : "";
+      note("order-note", [failure.message, reasons ? "Risk Gate: " + reasons : "", "No order was placed."]
+        .filter(Boolean).join(" · "));
+    }).catch(function (err) {
+      setBadge("order-badge", "unavailable", "NOT CONFIRMED");
+      note("order-note", err.message);
+    }).finally(function () {
+      orderSubmissionInProgress = false;
+      form.setAttribute("aria-busy", "false");
+      Array.prototype.forEach.call(form.querySelectorAll("input, select, button"), function (control) {
+        control.disabled = false;
+      });
+      $("symbol-input").disabled = false;
+    });
   }
 
   function refreshAll() {
@@ -396,6 +513,15 @@
       event.preventDefault();
       refreshAll();
     });
+    $("symbol-input").addEventListener("input", function () {
+      $("order-symbol").textContent = this.value.trim().toUpperCase() || "—";
+      $("order-price").value = "";
+      delete $("order-price").dataset.edited;
+    });
+    $("order-price").addEventListener("input", function () {
+      this.dataset.edited = "true";
+    });
+    $("order-form").addEventListener("submit", submitPaperOrder);
     setInterval(function () {
       if (!document.hidden && $("auto-input").checked) refreshAll();
     }, AUTO_REFRESH_MS);
