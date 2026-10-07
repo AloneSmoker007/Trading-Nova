@@ -24,7 +24,7 @@ jobs:
       - name: Commit generated lockfile
         if: ${{ hashFiles('package-lock.json') != '' }}
         run: |
-          if git diff --quiet -- package-lock.json; then
+          if git ls-files --error-unmatch package-lock.json >/dev/null 2>&1 && git diff --quiet -- package-lock.json; then
             echo "package-lock.json already committed"
             exit 0
           fi
