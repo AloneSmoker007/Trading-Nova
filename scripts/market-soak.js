@@ -39,7 +39,8 @@ while (Date.now() < end) {
     ]);
     const latencyMs = performance.now() - started;
     if (!quote.ok || !candles.ok) {
-      const describe = (result) => result.ok ? "ok" : `${result.reason ?? "unknown"}${Number.isFinite(result.status) && result.status > 0 ? `(${result.status})` : ""}`;\n      throw new Error(`upstream failure: quote=${describe(quote)} candles=${describe(candles)}`);
+      const describe = (result) => result.ok ? "ok" : `${result.reason ?? "unknown"}${Number.isFinite(result.status) && result.status > 0 ? `(${result.status})` : ""}`;
+      throw new Error(`upstream failure: quote=${describe(quote)} candles=${describe(candles)}`);
     }
 
     const latest = candles.data.at(-1);
