@@ -13,6 +13,7 @@
   var pendingOrderFingerprint = null;
   var pendingOrderKey = null;
   var orderSubmissionInProgress = false;
+  var orderOutcomeUncertain = false;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -437,6 +438,11 @@
     }
 
     var fingerprint = JSON.stringify([order.symbol, order.side, order.quantity, order.price, order.reduceOnly]);
+    if (orderOutcomeUncertain && fingerprint !== pendingOrderFingerprint) {
+      setBadge("order-badge", "unavailable", "NOT CONFIRMED");
+      note("order-note", "The previous order outcome is unconfirmed. Check the portfolio, then retry the unchanged order in this tab to reuse its idempotency key.");
+      return;
+    }
     if (fingerprint !== pendingOrderFingerprint || !pendingOrderKey) {
       try {
         pendingOrderKey = makeIdempotencyKey();
@@ -471,6 +477,7 @@
             .filter(Boolean).join(" · ") + ". Real money OFF.");
         pendingOrderFingerprint = null;
         pendingOrderKey = null;
+        orderOutcomeUncertain = false;
         renderPortfolio();
         return;
       }
@@ -478,14 +485,25 @@
       var failure = failureState(result);
       var verdict = body && body.verdict;
       var noTrade = verdict && verdict.decision === "NO_TRADE";
-      setBadge("order-badge", noTrade ? "no-trade" : (result.status >= 500 ? "unavailable" : "error"),
-        noTrade ? "NO TRADE" : "BLOCKED");
+      var uncertain = result.status === 409 || result.status >= 500 ||
+        (result.status >= 200 && result.status < 300);
+      orderOutcomeUncertain = uncertain;
+      if (!uncertain) {
+        pendingOrderFingerprint = null;
+        pendingOrderKey = null;
+      }
+      setBadge("order-badge", noTrade ? "no-trade" : (uncertain ? "unavailable" : "error"),
+        noTrade ? "NO TRADE" : (uncertain ? "NOT CONFIRMED" : "BLOCKED"));
       var reasons = verdict && Array.isArray(verdict.reasons) ? verdict.reasons.join(", ") : "";
-      note("order-note", [failure.message, reasons ? "Risk Gate: " + reasons : "", "No order was placed."]
+      var outcome = noTrade ? "No order was placed." : uncertain
+        ? "Order outcome is unconfirmed. Check the portfolio before retrying; an unchanged retry in this tab reuses the same idempotency key."
+        : "Request rejected; no order was placed.";
+      note("order-note", [failure.message, reasons ? "Risk Gate: " + reasons : "", outcome]
         .filter(Boolean).join(" · "));
     }).catch(function (err) {
+      orderOutcomeUncertain = true;
       setBadge("order-badge", "unavailable", "NOT CONFIRMED");
-      note("order-note", err.message);
+      note("order-note", err.message + " Do not change this order before its outcome is confirmed.");
     }).finally(function () {
       orderSubmissionInProgress = false;
       form.setAttribute("aria-busy", "false");
