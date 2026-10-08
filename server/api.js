@@ -16,9 +16,10 @@
 import {healthSnapshot} from "../src/observability/health.js";
 import {runBacktestV2} from "../src/backtest/engine-v2.js";
 import {computeIndicators} from "./indicators.js";
-import {loadPaperState} from "./state.js";
+import {loadPaperState, appendJournalToFile} from "./state.js";
 import {createPaperOrderService} from "./orders.js";
 import {createStrategy, STRATEGY_DESCRIPTIONS} from "./strategies.js";
+import {computeAiCouncil} from "./ai.js";
 import {parseSymbol, parseInterval, parseLimit, parseStrategy} from "./validate.js";
 
 const FRESH_MAX_AGE_MS = 10000; // "fresh" for market payloads = data age <= 10s
@@ -237,7 +238,150 @@ export function createApi({
     }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder};
+  async function markets() {
+    const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"];
+    const results = [];
+    for (const sym of symbols) {
+      try {
+        const res = await market.getTicker(sym);
+        if (res.state === "ok" && res.data) {
+          const t = res.data;
+          results.push({
+            symbol: sym,
+            last: num(t.last),
+            bid: num(t.bid),
+            ask: num(t.ask),
+            volume24h: num(t.volume24h),
+            changePct24h: num(t.changePct24h),
+            stale: res.stale
+          });
+        }
+      } catch {
+        // skip unavailable
+      }
+    }
+    return ok({state: "ok", count: results.length, markets: results, note: paperNote});
+  }
+
+  async function aiCouncil(query, symbolRaw) {
+    const sym = parseSymbol(symbolRaw);
+    if (!sym.ok) return fail(400, "error", sym.code, sym.message);
+    const tickerRes = await market.getTicker(sym.symbol);
+    const candlesRes = await market.getCandles(sym.symbol, {interval: "1h", limit: 100});
+    const pState = await paperOrderService.getPortfolio();
+
+    const council = computeAiCouncil({
+      ticker: tickerRes.data,
+      candles: candlesRes.data || [],
+      portfolio: pState.portfolio,
+      limits: pState.limits
+    });
+
+    return ok({state: "ok", council, note: "Advisory AI multi-brain research council. Cannot bypass Risk Gate."});
+  }
+
+  async function orders() {
+    const res = await paperOrderService.getOrders();
+    if (res.state === "error") return fail(500, "error", "paper-orders-error", "could not fetch orders");
+    return ok({state: "ok", fills: res.fills, total: res.total, note: paperNote});
+  }
+
+  async function riskStatus() {
+    const pState = await paperOrderService.getPortfolio();
+    const limits = pState.limits;
+    const portfolio = pState.portfolio;
+    const alerts = [];
+    if (portfolio?.drawdown > 0.05) {
+      alerts.push({level: "WARNING", message: `Drawdown exceeds 5%: ${(portfolio.drawdown * 100).toFixed(1)}%`});
+    }
+    if (limits?.ok === false) {
+      alerts.push({level: "CRITICAL", message: `Risk limit breach: ${(limits.reasons || []).join(", ")}`});
+    }
+    return ok({
+      state: "ok",
+      riskConfig: {
+        maxPositionNotional: 5000,
+        maxGrossExposure: 15000,
+        maxDailyLoss: 500,
+        maxDrawdownPct: 10,
+        maxLeverage: 1
+      },
+      portfolio: portfolio ? {
+        equity: portfolio.equity,
+        cash: portfolio.cash,
+        grossExposure: portfolio.grossExposure,
+        netExposure: portfolio.netExposure,
+        dailyPnl: portfolio.dailyPnl,
+        drawdownPct: portfolio.drawdown !== null ? portfolio.drawdown * 100 : 0
+      } : null,
+      verdict: limits || {ok: true, decision: "ALLOW"},
+      alerts,
+      killSwitchActive: limits?.ok === false,
+      note: "Deterministic Risk Gate is backend-authoritative. AI cannot override or alter risk limits."
+    });
+  }
+
+  async function strategyLab(query) {
+    const sym = parseSymbol(query.get("symbol"));
+    if (!sym.ok) return fail(400, "error", sym.code, sym.message);
+    const interval = parseInterval(query.get("interval"));
+    if (!interval.ok) return fail(400, "error", interval.code, interval.message);
+    const limit = parseLimit(query.get("limit"), 300);
+    if (!limit.ok) return fail(400, "error", limit.code, limit.message);
+
+    const candlesRes = await market.getCandles(sym.symbol, {interval: interval.interval, limit: limit.limit});
+    if (candlesRes.state === "unavailable" || !candlesRes.data || candlesRes.data.length < 35) {
+      return fail(503, "unavailable", "candles-unavailable", "insufficient candle data for strategy lab");
+    }
+    const candles = candlesRes.data;
+    const strategies = ["sma-cross", "momentum", "famous-turtle"];
+    const results = [];
+    for (const stratName of strategies) {
+      const strategy = createStrategy(stratName);
+      if (strategy) {
+        try {
+          const res = runBacktestV2({candles, strategy, startingCash: 10000, feeRate: 0.001, slippageBps: 5});
+          results.push({
+            name: stratName,
+            description: STRATEGY_DESCRIPTIONS[stratName] || "",
+            returnPct: res.inSample?.returnPct ? res.inSample.returnPct * 100 : 0,
+            trades: res.inSample?.trades || 0,
+            finalEquity: res.inSample?.equity || 10000,
+            reproducible: res.reproducible
+          });
+        } catch {
+          // ignore strategy error
+        }
+      }
+    }
+    return ok({state: "ok", symbol: sym.symbol, candleCount: candles.length, strategies: results, note: paperNote});
+  }
+
+  async function addJournalEntry(body) {
+    let parsed;
+    try {
+      parsed = typeof body === "string" ? JSON.parse(body) : body;
+    } catch {
+      return fail(400, "error", "invalid-json", "request body must be valid JSON");
+    }
+    if (!parsed || typeof parsed !== "object" || typeof parsed.text !== "string" || !parsed.text.trim()) {
+      return fail(400, "error", "invalid-entry", "journal entry text is required");
+    }
+    try {
+      const record = await appendJournalToFile(stateFile, {
+        type: typeof parsed.type === "string" ? parsed.type : "thesis",
+        symbol: typeof parsed.symbol === "string" ? parsed.symbol.toUpperCase() : "GENERAL",
+        title: typeof parsed.title === "string" ? parsed.title : "User Entry",
+        text: parsed.text.trim(),
+        tags: Array.isArray(parsed.tags) ? parsed.tags : []
+      }, now());
+      return ok({state: "ok", record, note: "Journal entry hash-chained and appended."});
+    } catch {
+      return fail(500, "error", "journal-save-failed", "could not save journal entry");
+    }
+  }
+
+  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, markets, aiCouncil, orders, riskStatus, strategyLab, addJournalEntry};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};

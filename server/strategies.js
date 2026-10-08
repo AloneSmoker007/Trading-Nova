@@ -39,17 +39,62 @@ function makeSmaCross(shortPeriod = 10, longPeriod = 30) {
   };
 }
 
+function makeMomentum(period = 14) {
+  const closes = [];
+  return function momentumStrat(candle, {cash, position} = {}) {
+    if (!candle || !Number.isFinite(candle.close)) return null;
+    closes.push(candle.close);
+    if (closes.length < period + 1) return null;
+    const prev = closes[closes.length - 1 - period];
+    const changePct = ((candle.close - prev) / prev) * 100;
+    if (changePct > 3 && position === 0 && cash > 0) {
+      const quantity = Math.floor((cash * 0.95) / candle.close);
+      return quantity > 0 ? {side: "BUY", quantity} : null;
+    }
+    if (changePct < -2 && position > 0) {
+      return {side: "SELL", quantity: position};
+    }
+    return null;
+  };
+}
+
+function makeFamousTurtle(period = 20) {
+  const closes = [];
+  return function turtleStrat(candle, {cash, position} = {}) {
+    if (!candle || !Number.isFinite(candle.close)) return null;
+    closes.push(candle.close);
+    if (closes.length < period + 1) return null;
+    const window = closes.slice(closes.length - 1 - period, closes.length - 1);
+    const high20 = Math.max(...window);
+    const low10 = Math.min(...window.slice(period - 10));
+    if (candle.close > high20 && position === 0 && cash > 0) {
+      const quantity = Math.floor((cash * 0.95) / candle.close);
+      return quantity > 0 ? {side: "BUY", quantity} : null;
+    }
+    if (candle.close < low10 && position > 0) {
+      return {side: "SELL", quantity: position};
+    }
+    return null;
+  };
+}
+
 // Each call must return a FRESH strategy instance: the factory keeps rolling
 // state, and a reused instance would leak state across backtest runs.
 export function createStrategy(name) {
   switch (name) {
     case "sma-cross":
       return makeSmaCross(10, 30);
+    case "momentum":
+      return makeMomentum(14);
+    case "famous-turtle":
+      return makeFamousTurtle(20);
     default:
       return null;
   }
 }
 
 export const STRATEGY_DESCRIPTIONS = Object.freeze({
-  "sma-cross": "SMA(10/30) cross: fully invested on golden cross, flat on death cross (95% of cash per entry)."
+  "sma-cross": "SMA(10/30) cross: fully invested on golden cross, flat on death cross (95% of cash per entry).",
+  "momentum": "14-candle rate-of-change momentum strategy: buy on >3% surge, exit on <-2% drop.",
+  "famous-turtle": "Famous Turtle Trader 20-candle Donchian breakout methodology (documented public strategy)."
 });

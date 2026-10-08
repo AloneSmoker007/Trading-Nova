@@ -21,7 +21,7 @@ const DEFAULT_RISK_CONFIG = Object.freeze({
   maxConcentrationNotional: 5000
 });
 const {config: RISK_CONFIG, hash: RISK_CONFIG_HASH} = createRiskConfig(DEFAULT_RISK_CONFIG);
-const ALLOWED_FIELDS = new Set(["symbol", "side", "quantity", "price", "idempotencyKey", "reduceOnly"]);
+const ALLOWED_FIELDS = new Set(["symbol", "side", "quantity", "price", "idempotencyKey", "reduceOnly", "type", "stopPrice", "takeProfitPrice"]);
 const fail = (status, code, message, reason) => ({
   status,
   body: {ok: false, state: "error", error: {code, message, ...(reason ? {reason} : {})}}
@@ -54,11 +54,24 @@ function parseOrderRequest(body) {
   if (body.reduceOnly !== undefined && typeof body.reduceOnly !== "boolean") {
     return {error: {code: "invalid-reduce-only", message: "reduceOnly must be a boolean"}};
   }
+  const type = typeof body.type === "string" ? body.type.toUpperCase() : "MARKET";
+  if (!["MARKET", "LIMIT", "STOP_LOSS", "TAKE_PROFIT"].includes(type)) {
+    return {error: {code: "invalid-type", message: "type must be MARKET, LIMIT, STOP_LOSS, or TAKE_PROFIT"}};
+  }
+  if (body.stopPrice !== undefined && (!Number.isFinite(body.stopPrice) || body.stopPrice <= 0)) {
+    return {error: {code: "invalid-stop-price", message: "stopPrice must be a positive number"}};
+  }
+  if (body.takeProfitPrice !== undefined && (!Number.isFinite(body.takeProfitPrice) || body.takeProfitPrice <= 0)) {
+    return {error: {code: "invalid-take-profit-price", message: "takeProfitPrice must be a positive number"}};
+  }
   return {order: {
     symbol: symbol.symbol,
     side,
+    type,
     quantity: body.quantity,
     price: body.price,
+    ...(body.stopPrice ? {stopPrice: body.stopPrice} : {}),
+    ...(body.takeProfitPrice ? {takeProfitPrice: body.takeProfitPrice} : {}),
     idempotencyKey: body.idempotencyKey.trim(),
     reduceOnly: body.reduceOnly === true
   }};
@@ -323,7 +336,15 @@ export function createPaperOrderService({
     });
   }
 
-  return {submit, getPortfolio};
+  async function getOrders() {
+    return serialize(async () => {
+      if (!(await initialize())) return {state: "error", reason: storeError};
+      const orderFills = fills().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      return {state: "ok", fills: orderFills, total: orderFills.length};
+    });
+  }
+
+  return {submit, getPortfolio, getOrders};
 }
 
 function orderSuccess(order, fill, verdict, replayed) {
