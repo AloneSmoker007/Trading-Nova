@@ -77,6 +77,9 @@ test("paper order ticket only targets the gated paper endpoint", () => {
   assert.match(app, /!orderSubmissionInProgress && orderPrice\.dataset\.edited/);
   assert.match(app, /control\.disabled = true/);
   assert.match(app, /control\.disabled = false/);
+  assert.match(app, /orderOutcomeUncertain && fingerprint !== pendingOrderFingerprint/);
+  assert.match(app, /Order outcome is unconfirmed/);
+  assert.match(app, /unchanged retry in this tab reuses the same idempotency key/);
 });
 
 test("web/style.css provides responsive layout and visible focus", () => {
