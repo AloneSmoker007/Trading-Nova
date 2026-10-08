@@ -5,6 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {startTestServer, getJson, fakeFetch, jsonResponse, klineRows, ticker24hPayload, findSecretViolations} from "./ws-d-helpers.js";
+import {createStrategy} from "../server/strategies.js";
 
 // Mutable upstream state: handlers read it at call time so tests can flip the
 // upstream from healthy to dead (for stale/unavailable transitions).
@@ -145,6 +146,20 @@ test("/api/backtest runs the real engine and stays paper-only honest", async () 
   } finally {
     await srv.close();
   }
+});
+
+test("sma-cross sizes fractional BTC instead of flooring to zero", () => {
+  const strategy = createStrategy("sma-cross");
+  let signal = null;
+  for (let i = 0; i < 40; i++) {
+    const close = i < 31 ? 42000 : 50000;
+    signal = strategy({close}, {cash: 10000, position: 0}) || signal;
+  }
+  assert.ok(signal);
+  assert.equal(signal.side, "BUY");
+  assert.ok(signal.quantity > 0);
+  assert.ok(signal.quantity < 1);
+  assert.ok(signal.quantity * 50000 <= 10000 * 0.95 + 1e-9);
 });
 
 test("backtest refuses unknown strategy and unavailable data honestly", async () => {
