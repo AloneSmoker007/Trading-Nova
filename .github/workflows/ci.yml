@@ -131,3 +131,47 @@ jobs:
       - run: npm install --no-audit --no-fund
       - name: Run public Binance market-data evidence soak
         run: npm run market:soak
+
+  phase5-stress-capacity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NOVA_PORT: "7411"
+      STRESS_TEST_DURATION_MS: "30000"
+      STRESS_TEST_RPS: "100"
+      STRESS_TEST_CONCURRENCY: "20"
+      STRESS_TEST_REQUEST_TIMEOUT_MS: "5000"
+      STRESS_TEST_MAX_ERROR_RATE: "0.01"
+      STRESS_TEST_MAX_P95_MS: "500"
+      STRESS_TEST_MAX_RSS_GROWTH_MB: "128"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - name: Start loopback-only paper server
+        shell: bash
+        run: |
+          nohup npm run serve >/tmp/trading-nova-server.log 2>&1 &
+          for i in {1..50}; do
+            if curl --fail --silent http://127.0.0.1:7411/api/health >/dev/null; then exit 0; fi
+            sleep 0.2
+          done
+          cat /tmp/trading-nova-server.log
+          exit 1
+      - name: Stress health endpoint
+        env:
+          STRESS_TEST_URL: http://127.0.0.1:7411/api/health
+        run: npm run stress:test
+      - name: Stress portfolio endpoint
+        env:
+          STRESS_TEST_URL: http://127.0.0.1:7411/api/portfolio
+        run: npm run stress:test
+      - name: Stress journal endpoint
+        env:
+          STRESS_TEST_URL: http://127.0.0.1:7411/api/journal
+        run: npm run stress:test
+      - name: Print server log on failure
+        if: failure()
+        run: cat /tmp/trading-nova-server.log

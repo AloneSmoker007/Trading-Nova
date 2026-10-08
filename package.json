@@ -17,7 +17,8 @@
     "load:test": "node scripts/load-test.js",
     "market:soak": "node scripts/market-soak.js",
     "observability:smoke": "node scripts/observability-smoke.js",
-    "recovery:drill": "node scripts/backup-restore-drill.js"
+    "recovery:drill": "node scripts/backup-restore-drill.js",
+    "stress:test": "node scripts/stress-test.js"
   },
   "dependencies": {
     "pg": "^8.16.3"
