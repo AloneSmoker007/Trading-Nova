@@ -11,8 +11,9 @@ const pollMs = Math.max(1_000, Number(process.env.MARKET_SOAK_INTERVAL_MS ?? 5_0
 const maxFreshMs = Math.max(intervalMs * 2, Number(process.env.MARKET_MAX_AGE_MS ?? intervalMs * 2));
 const maxErrorRate = Math.min(1, Math.max(0, Number(process.env.MARKET_MAX_ERROR_RATE ?? 0.05)));
 const maxLatencyMs = Math.max(1, Number(process.env.MARKET_MAX_LATENCY_MS ?? 2_000));
-
+const binanceBaseUrl = process.env.MARKET_BINANCE_BASE_URL?.trim();
 const provider = createCryptoProvider({
+  sources: binanceBaseUrl ? {binance: {baseUrl: binanceBaseUrl}} : undefined,
   http: {
     timeoutMs: Math.max(1, Number(process.env.MARKET_REQUEST_TIMEOUT_MS ?? 5_000)),
     retries: 2,
@@ -38,7 +39,8 @@ while (Date.now() < end) {
     ]);
     const latencyMs = performance.now() - started;
     if (!quote.ok || !candles.ok) {
-      throw new Error(`upstream failure: quote=${quote.reason ?? "ok"} candles=${candles.reason ?? "ok"}`);
+      const describe = (result) => result.ok ? "ok" : `${result.reason ?? "unknown"}${Number.isFinite(result.status) && result.status > 0 ? `(${result.status})` : ""}`;
+      throw new Error(`upstream failure: quote=${describe(quote)} candles=${describe(candles)}`);
     }
 
     const latest = candles.data.at(-1);
@@ -77,6 +79,7 @@ const passed = samples.length > 0 &&
 
 const report = {
   source: "binance-public-rest",
+  baseUrl: binanceBaseUrl ?? "default",
   symbol,
   interval,
   durationMs,
