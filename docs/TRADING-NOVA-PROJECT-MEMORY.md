@@ -54,6 +54,14 @@ Remaining NEXT-TASK items (feature gaps, not bugs):
 - Seed snapshot vs execution-store dual persistence still needs a single durable writer (Jules/PR #46 territory).
 - PR #34 Neon CI remains stale and needs rebase/audit, not a silent merge.
 
+## Completed Terminal Upgrade (2026-10-08)
+- Completed professional dark-themed trading terminal v2 (`web/index.html`, `web/style.css`, `web/app.js`).
+- Implemented 7-role server-side Multi-Brain AI Council (`server/ai.js`) with consensus, dissent, opportunity score, uncertainty, and Roman Urdu explanations.
+- Extended paper order ticket (`server/orders.js`) supporting MARKET, LIMIT, STOP_LOSS, and TAKE_PROFIT order types with stopPrice and takeProfitPrice parameters.
+- Added Strategy Lab endpoint and Turtle strategy implementation (`server/strategies.js`).
+- Implemented Human Brain & Journal entry endpoint (`server/api.js`, `server/state.js`) with SHA256 hash-chain integrity verification.
+- Added full integration test suite (`tests/terminal-v2.test.js`), bringing total passing tests to 464.
+
 ## Promotion path
 Paper → Shadow → validated sandbox/testnet → explicit human approval → separately reviewed limited live → controlled live.
 
