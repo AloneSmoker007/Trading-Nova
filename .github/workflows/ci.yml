@@ -51,6 +51,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: trading_nova
         ports:
           - 5432:5432
@@ -60,7 +61,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/trading_nova
+      POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/trading_nova
       TRADING_NOVA_REAL_DB_TEST: "1"
     steps:
       - uses: actions/checkout@v4
