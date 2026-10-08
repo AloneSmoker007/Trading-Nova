@@ -5,6 +5,7 @@ import {createPostgresStore} from "../src/persistence/postgres.js";
 
 const enabled = process.env.TRADING_NOVA_REAL_DB_TEST === "1";
 const run = enabled ? test : test.skip;
+const auditRun = enabled && process.env.TRADING_NOVA_SKIP_AUDIT_TEST !== "1" ? test : test.skip;
 
 run("PostgreSQL real integration: health, persistence and migration state", async()=>{
   const store=await createPostgresStore({connectionString:process.env.POSTGRES_URL,max:2});
@@ -47,7 +48,7 @@ run("PostgreSQL real integration: idempotency executes once", async()=>{
   await store.pool.end();
 });
 
-run("PostgreSQL real integration: audit hash chain verifies and detects tamper", async()=>{
+auditRun("PostgreSQL real integration: audit hash chain verifies and detects tamper", async()=>{
   const store=await createPostgresStore({connectionString:process.env.POSTGRES_URL,max:2});
   const [first]=await Promise.all([
     store.appendAudit({type:"INTEGRATION",id:randomUUID()}),

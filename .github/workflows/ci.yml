@@ -29,6 +29,7 @@ jobs:
     env:
       POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
       TRADING_NOVA_REAL_DB_TEST: "1"
+      TRADING_NOVA_SKIP_AUDIT_TEST: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,5 +39,35 @@ jobs:
       - name: Require Neon secret
         shell: bash
         run: test -n "${POSTGRES_URL}"
+      - run: npm run db:migrate
+      - run: node --test tests/postgres.integration.test.js
+
+  postgres-audit-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: trading_nova
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d trading_nova"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/trading_nova
+      TRADING_NOVA_REAL_DB_TEST: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
       - run: npm run db:migrate
       - run: node --test tests/postgres.integration.test.js
