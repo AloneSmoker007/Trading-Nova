@@ -16,7 +16,8 @@
     "evidence:validate": "node scripts/evidence-schema.js",
     "load:test": "node scripts/load-test.js",
     "market:soak": "node scripts/market-soak.js",
-    "observability:smoke": "node scripts/observability-smoke.js"
+    "observability:smoke": "node scripts/observability-smoke.js",
+    "recovery:drill": "node scripts/backup-restore-drill.js"
   },
   "dependencies": {
     "pg": "^8.16.3"
