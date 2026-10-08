@@ -4,27 +4,30 @@ on:
     branches: ["main","feat/**","fix/**","hardening/**"]
   pull_request:
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: trading_nova_ci
-        options: >-
-          --health-cmd "pg_isready -U postgres -d trading_nova_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-        ports:
-          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run lint
+      - run: npm run security:secrets
+
+  postgres-integration:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
-      POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/trading_nova_ci
+      POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
       TRADING_NOVA_REAL_DB_TEST: "1"
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +35,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install --no-audit --no-fund
+      - name: Require Neon secret
+        shell: bash
+        run: test -n "${POSTGRES_URL}"
       - run: npm run db:migrate
-      - run: npm test
-      - run: npm run lint
-      - run: npm run security:secrets
+      - run: node --test tests/postgres.integration.test.js
