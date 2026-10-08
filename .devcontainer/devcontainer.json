@@ -1,0 +1,12 @@
+{
+  "name": "Trading-Nova",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bookworm",
+  "forwardPorts": [7411],
+  "portsAttributes": {
+    "7411": {
+      "label": "Trading-Nova paper dashboard",
+      "protocol": "http",
+      "visibility": "private"
+    }
+  }
+}
