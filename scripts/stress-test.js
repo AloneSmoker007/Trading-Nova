@@ -37,7 +37,7 @@ async function request() {
   attempted++;
   inFlight++;
   maxInFlight = Math.max(maxInFlight, inFlight);
-  const controller = new AbortController();
+  const controller = new globalThis.AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {signal: controller.signal, headers: {"accept": "application/json"}});
