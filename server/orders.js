@@ -7,6 +7,7 @@ import {PersistentPaperEngine} from "../src/execution/paper-persistent.js";
 import {DurableStore} from "../src/persistence/store.js";
 import {buildPortfolioState, validatePortfolioState} from "../src/risk/portfolio.js";
 import {createRiskConfig, evaluateRiskGate, hashOrderPayload, normalizeSide} from "../src/risk/gate.js";
+import {quantitiesMatch} from "../src/reconciliation/reconcile.js";
 import {loadPaperState} from "./state.js";
 import {parseSymbol} from "./validate.js";
 
@@ -63,12 +64,12 @@ function parseOrderRequest(body) {
   }};
 }
 
-function applyFill(portfolio, fill) {
+export function applyFill(portfolio, fill) {
   const positions = new Map((portfolio.positions || []).map((position) => [position.symbol, {...position}]));
   const previous = positions.get(fill.symbol) || {symbol: fill.symbol, quantity: 0, markPrice: fill.price};
   const quantity = previous.quantity + (fill.side === "BUY" ? fill.quantity : -fill.quantity);
   const cash = portfolio.cash + (fill.side === "BUY" ? -1 : 1) * fill.quantity * fill.price;
-  if (quantity === 0) positions.delete(fill.symbol);
+  if (quantitiesMatch(quantity, 0)) positions.delete(fill.symbol);
   else positions.set(fill.symbol, {...previous, quantity, markPrice: fill.price});
 
   const startingEquity = portfolio.equity - portfolio.dailyPnl;
@@ -189,7 +190,7 @@ export function createPaperOrderService({
         // Missing or failed critical data keeps the gate closed.
       }
     }
-    if (marks.size !== symbols.length) return {fresh: false, portfolio};
+    if (marks.size !== symbols.length) return {fresh: false, portfolio, marks};
     try {
       const startingEquity = portfolio.equity - portfolio.dailyPnl;
       const marked = buildPortfolioState({
@@ -198,9 +199,9 @@ export function createPaperOrderService({
         startingEquity,
         peakEquity: portfolio.peakEquity ?? portfolio.equity
       });
-      return {fresh: true, portfolio: marked};
+      return {fresh: true, portfolio: marked, marks};
     } catch {
-      return {fresh: false, portfolio};
+      return {fresh: false, portfolio, marks};
     }
   }
 
@@ -239,7 +240,7 @@ export function createPaperOrderService({
       const prior = store.get("paper-fills", order.idempotencyKey);
       if (prior) {
         const intentHash = hashOrderPayload({...order, price: 0});
-        if (prior.intentHash !== intentHash || prior.price !== order.price) {
+        if (prior.intentHash !== intentHash) {
           return fail(409, "idempotency-key-reused", "idempotencyKey was already used for a different order");
         }
         return orderSuccess(order, prior, {decision: "ALLOW", replayed: true}, true);
@@ -259,8 +260,28 @@ export function createPaperOrderService({
           return fail(500, "paper-order-state-unavailable", "paper order state is unavailable");
         }
       }
+      const executionPrice = marketState.fresh ? marketState.marks.get(order.symbol) : null;
+      const gatedOrder = Number.isFinite(executionPrice) && executionPrice > 0
+        ? {...order, price: executionPrice}
+        : order;
+      if (gatedOrder.side === "BUY" && marketState.fresh
+          && gatedOrder.quantity * gatedOrder.price > portfolio.cash) {
+        return {
+          status: 400,
+          body: {
+            ok: false,
+            state: "error",
+            error: {
+              code: "risk-gate-rejected",
+              message: "order rejected by risk gate",
+              reason: "INSUFFICIENT_CASH"
+            },
+            verdict: {decision: "NO_TRADE", reasons: ["INSUFFICIENT_CASH"]}
+          }
+        };
+      }
       const verdict = evaluateRiskGate({
-        order,
+        order: gatedOrder,
         portfolio: marketState.portfolio,
         riskConfig: RISK_CONFIG,
         dataFresh: marketState.fresh,
@@ -284,9 +305,9 @@ export function createPaperOrderService({
       }
       try {
         const fill = await engine.submit(
-          {...order, id: order.idempotencyKey},
+          {...gatedOrder, id: order.idempotencyKey},
           {
-            markPrice: order.price,
+            markPrice: gatedOrder.price,
             gateArtifact: verdict.artifact,
             onFill: async (tx, committedFill) => {
               await tx.put("paper-portfolio", "current", applyFill(portfolio, committedFill));
@@ -294,7 +315,7 @@ export function createPaperOrderService({
           }
         );
         await persist();
-        return orderSuccess(order, fill, verdict, false);
+        return orderSuccess(gatedOrder, fill, verdict, false);
       } catch {
         storeError ||= "paper-order-state-unavailable";
         return fail(500, "paper-order-not-persisted", "paper order could not be safely persisted");
