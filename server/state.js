@@ -30,10 +30,10 @@
 //   {state:"ok", ...}               snapshot present and valid (age reported)
 //   {state:"error", reason, ...}    snapshot present but unreadable/invalid — never "assumed fine"
 
-import {readFile} from "node:fs/promises";
+import {readFile, writeFile} from "node:fs/promises";
 import {buildPortfolioState} from "../src/risk/portfolio.js";
 import {evaluateLimits} from "../src/risk/limits.js";
-import {verifyJournal} from "../src/journal/journal.js";
+import {verifyJournal, appendJournalEntry} from "../src/journal/journal.js";
 
 const MAX_JOURNAL_ENTRIES = 200;
 
@@ -100,6 +100,33 @@ export async function loadPaperState(stateFile, now = Date.now()) {
     updatedAt,
     ageMs: updatedAt !== null ? Math.max(0, now - updatedAt) : null
   };
+}
+
+export async function appendJournalToFile(stateFile, entryData, now = Date.now()) {
+  let text = "{}";
+  try {
+    text = await readFile(stateFile, "utf8");
+  } catch (err) {
+    if (err && err.code !== "ENOENT") throw err;
+  }
+  let raw = {};
+  try { raw = JSON.parse(text); } catch { raw = {}; }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) raw = {};
+
+  const journal = Array.isArray(raw.journal) ? raw.journal : [];
+  const record = appendJournalEntry(journal, {
+    timestamp: now,
+    type: entryData.type || "thesis",
+    symbol: entryData.symbol || "GENERAL",
+    title: entryData.title || "User Entry",
+    text: entryData.text || "",
+    tags: Array.isArray(entryData.tags) ? entryData.tags : []
+  });
+
+  raw.journal = journal;
+  raw.updatedAt = now;
+  await writeFile(stateFile, JSON.stringify(raw, null, 2), "utf8");
+  return record;
 }
 
 export {MAX_JOURNAL_ENTRIES};

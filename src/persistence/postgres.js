@@ -68,10 +68,34 @@ export class PostgresStore {
     }
     return true;
   }
+  async list(namespace,client=this.pool){
+    const r=await client.query("SELECT value FROM trading_state WHERE namespace=$1 ORDER BY state_id ASC",[namespace]);
+    return r.rows.map((row)=>structuredClone(row.value));
+  }
   async health(){ const r=await this.pool.query("SELECT 1 AS ok"); return r.rows[0]?.ok===1; }
+  async assertReady(){
+    const migrations=await this.pool.query("SELECT version FROM trading_schema_migrations ORDER BY version");
+    const versions=new Set(migrations.rows.map(row=>row.version));
+    return versions.has("001_initial.sql") && versions.has("002_constraints.sql");
+  }
 }
 export async function createPostgresStore({connectionString,max=10,idleTimeoutMillis=10000}={}){
   if(!connectionString) throw new Error("POSTGRES_URL required");
   const {Pool}=await import("pg");
-  return new PostgresStore(new Pool({connectionString,max,idleTimeoutMillis}));
+  const store=new PostgresStore(new Pool({connectionString,max,idleTimeoutMillis}));
+  try {
+    await store.health();
+  } catch (error) {
+    const failure=new Error("requested PostgreSQL schema is unavailable");
+    if(typeof error?.code==="string"&&/^[A-Z][A-Z0-9_]{0,31}$/.test(error.code)) failure.code=error.code;
+    failure.safeDetail=String(error?.message??"")
+      .replace(/postgres(?:ql)?:\/\/[^\s"'`]+/gi,"[redacted PostgreSQL URL]")
+      .replace(/password authentication failed for user\s+["']?[^"'\s,]+["']?/gi,"password authentication failed for user [redacted]")
+      .replace(/\b(?:user|username|password|passwd|pwd|host|hostname|database|dbname)\s*[=:]\s*[^,\s)]+/gi,"[redacted connection field]")
+      .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g,"[redacted endpoint]")
+      .replace(/\b[\w.-]+\.neon\.tech\b/gi,"[redacted endpoint]")
+      .slice(0,180);
+    throw failure;
+  }
+  return store;
 }

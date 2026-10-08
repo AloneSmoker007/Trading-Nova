@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Trading Nova — Paper Dashboard</title>
+  <title>Trading Nova — Professional Paper Trading Terminal</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
@@ -12,15 +12,24 @@
   <a class="skip-link" href="#main">Skip to content</a>
 
   <header class="site-header">
-    <h1>Trading Nova</h1>
-    <p class="tagline">Research → evidence → validation → risk → paper/shadow. Live trading stays human-controlled.</p>
+    <div class="header-content">
+      <div>
+        <h1>Trading Nova</h1>
+        <p class="tagline">Research → Validation → Risk Gate → Paper Execution. Real money OFF.</p>
+      </div>
+      <div class="header-badges">
+        <span class="badge badge-paper">PAPER / SHADOW ONLY</span>
+        <span class="badge" id="header-gate-badge" data-state="ok">RISK GATE ACTIVE</span>
+      </div>
+    </div>
   </header>
 
   <p class="paper-banner" id="paper-banner">
-    PAPER / SHADOW ONLY — real money OFF. The order ticket sends simulated orders through the server-side Risk Gate only.
+    PAPER / SHADOW ONLY — real money OFF. All orders send simulated paper trades through the server-side Risk Gate only.
   </p>
 
   <main id="main">
+    <!-- Top Control Bar -->
     <form class="controls" id="controls" aria-label="Dashboard controls">
       <div class="field">
         <label for="symbol-input">Symbol</label>
@@ -40,93 +49,143 @@
       </div>
       <div class="field">
         <label for="limit-input">Candles</label>
-        <input id="limit-input" name="limit" type="number" min="5" max="1000" step="1" value="300">
+        <input id="limit-input" name="limit" type="number" min="5" max="1000" step="1" value="100">
       </div>
-      <button type="submit" id="refresh-btn">Refresh</button>
+      <button type="submit" id="refresh-btn">Refresh Terminal</button>
       <div class="field field-inline">
         <input id="auto-input" type="checkbox" checked>
         <label for="auto-input">Auto-refresh (30 s)</label>
       </div>
     </form>
 
-    <p id="live-status" class="live-status" role="status" aria-live="polite">Loading dashboard…</p>
+    <p id="live-status" class="live-status" role="status" aria-live="polite">Loading terminal state…</p>
 
-    <section class="card order-ticket" aria-labelledby="order-title">
+    <!-- Watchlist & Market Ticker Bar -->
+    <section class="card market-watchlist-card" aria-labelledby="watchlist-title">
       <div class="card-head">
-        <h2 id="order-title">Paper order ticket</h2>
-        <span class="badge" id="order-badge" data-state="idle">PAPER ONLY</span>
+        <h2 id="watchlist-title">Watchlist & Market Overview</h2>
+        <span class="badge" id="watchlist-badge" data-state="loading">LOADING…</span>
       </div>
-      <p class="panel-note order-intro">Every submission is checked by the server-side Risk Gate. Stale data, unsafe portfolio state, or a breached limit means NO TRADE.</p>
-      <form id="order-form" class="order-form" aria-busy="false">
-        <div class="order-fields">
-          <div class="field">
-            <span class="field-label">Symbol</span>
-            <output class="field-output" id="order-symbol" for="symbol-input" aria-live="polite">BTCUSDT</output>
-          </div>
-          <div class="field">
-            <label for="order-side">Side</label>
-            <select id="order-side" name="side">
-              <option value="BUY">Buy</option>
-              <option value="SELL">Sell</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="order-quantity">Quantity</label>
-            <input id="order-quantity" name="quantity" type="number" min="0.00000001" step="any" value="0.001" required>
-          </div>
-          <div class="field">
-            <label for="order-price">Paper execution price</label>
-            <input id="order-price" name="price" type="number" min="0.0000000001" step="any" placeholder="Refresh market data" required>
-          </div>
-          <label class="order-reduce">
-            <input id="order-reduce-only" name="reduceOnly" type="checkbox">
-            <span>Reduce only</span>
-          </label>
-          <button type="submit" id="order-submit">Submit paper order</button>
-        </div>
-      </form>
-      <div class="order-result" aria-live="polite" aria-atomic="true">
-        <p class="panel-note" id="order-note">No order submitted. Price is a paper-simulation input, not a live execution instruction.</p>
-      </div>
+      <div class="watchlist-grid" id="watchlist-grid"></div>
     </section>
 
-    <div class="grid">
-      <section class="card" aria-labelledby="health-title">
+    <!-- Main Terminal Layout: Chart + Order Ticket -->
+    <div class="terminal-row">
+      <!-- Price Chart Panel -->
+      <section class="card chart-card" aria-labelledby="chart-title">
         <div class="card-head">
-          <h2 id="health-title">System health</h2>
-          <span class="badge" id="health-badge" data-state="loading">LOADING…</span>
+          <h2 id="chart-title">Price Chart & Indicators (<span id="chart-symbol-label">BTCUSDT</span>)</h2>
+          <span class="badge" id="chart-badge" data-state="loading">LOADING…</span>
         </div>
-        <dl class="values" id="health-values" aria-live="polite" aria-busy="true"></dl>
-        <p class="panel-note" id="health-note"></p>
+        <div class="chart-container" id="chart-container">
+          <svg id="chart-svg" viewBox="0 0 800 320" preserveAspectRatio="none" aria-label="Interactive candlestick and line price chart"></svg>
+        </div>
+        <p class="panel-note" id="chart-note">Candlestick & SMA(20/50) overlay generated from real candle feed.</p>
       </section>
 
+      <!-- Paper Order Ticket -->
+      <section class="card order-ticket-card" aria-labelledby="order-title">
+        <div class="card-head">
+          <h2 id="order-title">Paper Order Ticket</h2>
+          <span class="badge" id="order-badge" data-state="idle">PAPER / SHADOW ONLY</span>
+        </div>
+        <p class="panel-note order-intro">Gated by deterministic Risk Gate. Rejects on stale data, loss limits, or exposure caps.</p>
+        <form id="order-form" class="order-form" aria-busy="false">
+          <div class="order-form-grid">
+            <div class="field">
+              <span class="field-label">Target Symbol</span>
+              <output class="field-output" id="order-symbol" for="symbol-input" aria-live="polite">BTCUSDT</output>
+            </div>
+            <div class="field">
+              <label for="order-side">Side</label>
+              <select id="order-side" name="side">
+                <option value="BUY">BUY (Long)</option>
+                <option value="SELL">SELL (Short/Exit)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="order-type">Order Type</label>
+              <select id="order-type" name="type">
+                <option value="MARKET" selected>Market</option>
+                <option value="LIMIT">Limit</option>
+                <option value="STOP_LOSS">Stop Loss</option>
+                <option value="TAKE_PROFIT">Take Profit</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="order-quantity">Quantity</label>
+              <input id="order-quantity" name="quantity" type="number" min="0.00000001" step="any" value="0.001" required>
+            </div>
+            <div class="field">
+              <label for="order-price">Paper Price</label>
+              <input id="order-price" name="price" type="number" min="0.0000000001" step="any" placeholder="Refresh market data" required>
+            </div>
+            <div class="field">
+              <label for="order-stop-price">Stop Price (Optional)</label>
+              <input id="order-stop-price" name="stopPrice" type="number" min="0.0000000001" step="any" placeholder="Optional stop price">
+            </div>
+          </div>
+          <div class="order-options">
+            <label class="order-reduce" for="order-reduce-only">
+              <input id="order-reduce-only" name="reduceOnly" type="checkbox">
+              <span>Reduce-Only</span>
+            </label>
+            <button type="submit" id="order-submit">Submit Paper Order</button>
+          </div>
+        </form>
+        <div class="order-result" aria-live="polite" aria-atomic="true">
+          <p class="panel-note" id="order-note">No order submitted yet.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- Secondary Grid: Multi-Brain AI Council + Portfolio & Orders -->
+    <div class="grid">
+      <!-- Market Data Panel -->
       <section class="card" aria-labelledby="market-title">
         <div class="card-head">
-          <h2 id="market-title">Market data</h2>
+          <h2 id="market-title">Market Data</h2>
           <span class="badge" id="market-badge" data-state="loading">LOADING…</span>
         </div>
         <dl class="values" id="market-values" aria-live="polite" aria-busy="true"></dl>
         <p class="panel-note" id="market-note"></p>
       </section>
 
-      <section class="card" aria-labelledby="indicators-title">
+      <!-- Multi-Brain AI Council Panel -->
+      <section class="card" aria-labelledby="ai-title">
         <div class="card-head">
-          <h2 id="indicators-title">Indicators</h2>
-          <span class="badge" id="indicators-badge" data-state="loading">LOADING…</span>
+          <h2 id="ai-title">Multi-Brain AI Council</h2>
+          <span class="badge" id="ai-badge" data-state="loading">LOADING…</span>
         </div>
-        <dl class="values" id="indicators-values" aria-live="polite" aria-busy="true"></dl>
-        <p class="panel-note" id="indicators-note"></p>
+        <div id="ai-summary" class="ai-summary">
+          <div class="ai-metric">
+            <span class="metric-label">Opportunity Score</span>
+            <span class="metric-value" id="ai-score-val">— / 100</span>
+          </div>
+          <div class="ai-metric">
+            <span class="metric-label">Council Verdict</span>
+            <span class="badge" id="ai-decision-badge" data-state="idle">WAIT</span>
+          </div>
+          <div class="ai-metric">
+            <span class="metric-label">Uncertainty</span>
+            <span class="metric-value" id="ai-uncertainty-val">—</span>
+          </div>
+        </div>
+        <div id="ai-roles-list" class="ai-roles-list"></div>
+        <p class="panel-note" id="ai-explanation"></p>
+        <p class="panel-note muted">Advisory output only. AI cannot execute orders or modify risk gate parameters.</p>
       </section>
 
+      <!-- Paper Portfolio & Positions -->
       <section class="card" aria-labelledby="portfolio-title">
         <div class="card-head">
-          <h2 id="portfolio-title">Paper portfolio</h2>
+          <h2 id="portfolio-title">Paper Portfolio & Positions</h2>
           <span class="badge" id="portfolio-badge" data-state="loading">LOADING…</span>
         </div>
         <dl class="values" id="portfolio-values" aria-live="polite" aria-busy="true"></dl>
         <div class="table-wrap" id="portfolio-positions-wrap" hidden>
           <table id="portfolio-positions">
-            <caption>Open paper positions (read-only)</caption>
+            <caption>Open Paper Positions</caption>
             <thead>
               <tr><th scope="col">Symbol</th><th scope="col">Qty</th><th scope="col">Mark</th><th scope="col">Notional</th></tr>
             </thead>
@@ -136,34 +195,129 @@
         <p class="panel-note" id="portfolio-note"></p>
       </section>
 
+      <!-- Order & Fill History -->
+      <section class="card" aria-labelledby="orders-title">
+        <div class="card-head">
+          <h2 id="orders-title">Order & Reconciled Fill History</h2>
+          <span class="badge" id="orders-badge" data-state="loading">LOADING…</span>
+        </div>
+        <div class="table-wrap" id="orders-history-wrap">
+          <table id="orders-history-table">
+            <caption>Paper Execution Fills</caption>
+            <thead>
+              <tr>
+                <th scope="col">Time</th>
+                <th scope="col">Symbol</th>
+                <th scope="col">Side</th>
+                <th scope="col">Qty</th>
+                <th scope="col">Price</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="orders-history-body"></tbody>
+          </table>
+        </div>
+        <p class="panel-note" id="orders-note"></p>
+      </section>
+
+      <!-- System Health & Technical Indicators -->
+      <section class="card" aria-labelledby="indicators-title">
+        <div class="card-head">
+          <h2 id="indicators-title">Technical Indicators & Market Regime</h2>
+          <span class="badge" id="indicators-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="indicators-values" aria-live="polite" aria-busy="true"></dl>
+        <p class="panel-note" id="indicators-note"></p>
+      </section>
+
+      <!-- Strategy Lab & Backtesting -->
+      <section class="card" aria-labelledby="lab-title">
+        <div class="card-head">
+          <h2 id="lab-title">Strategy Lab & Simulation</h2>
+          <span class="badge" id="lab-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="backtest-values" aria-live="polite" aria-busy="true"></dl>
+        <div class="table-wrap">
+          <table id="lab-table">
+            <caption>Multi-Strategy Comparison (Historical Candles)</caption>
+            <thead>
+              <tr>
+                <th scope="col">Strategy</th>
+                <th scope="col">Return %</th>
+                <th scope="col">Trades</th>
+                <th scope="col">Final Cash</th>
+              </tr>
+            </thead>
+            <tbody id="lab-body"></tbody>
+          </table>
+        </div>
+        <p class="panel-note" id="lab-note">Simulated with realistic fees (0.1%) & slippage (5 bps). Historical simulation only.</p>
+      </section>
+
+      <!-- Human Brain & Journal -->
       <section class="card" aria-labelledby="journal-title">
         <div class="card-head">
-          <h2 id="journal-title">Journal</h2>
+          <h2 id="journal-title">Human Brain & Journal Memory</h2>
           <span class="badge" id="journal-badge" data-state="loading">LOADING…</span>
         </div>
+        <!-- Journal Entry Form -->
+        <form id="journal-form" class="journal-form">
+          <div class="field">
+            <label for="journal-title-input">Thesis / Title</label>
+            <input id="journal-title-input" type="text" placeholder="e.g. Bullish breakout thesis on BTCUSDT" required>
+          </div>
+          <div class="journal-form-row">
+            <div class="field">
+              <label for="journal-type-select">Category</label>
+              <select id="journal-type-select">
+                <option value="thesis">Trade Thesis</option>
+                <option value="notes">Research Notes</option>
+                <option value="mistake">Mistake Review</option>
+                <option value="outcome">Trade Outcome</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="journal-text-input">Entry Notes</label>
+              <input id="journal-text-input" type="text" placeholder="Detail reasoning, entry evidence, risk plan..." required>
+            </div>
+            <button type="submit" id="journal-submit-btn">Save Entry</button>
+          </div>
+        </form>
         <dl class="values" id="journal-values" aria-live="polite" aria-busy="true"></dl>
         <ul class="journal-list" id="journal-entries"></ul>
         <p class="panel-note" id="journal-note"></p>
       </section>
 
-      <section class="card" aria-labelledby="backtest-title">
+      <!-- Risk Status & Active Alerts -->
+      <section class="card" aria-labelledby="risk-title">
         <div class="card-head">
-          <h2 id="backtest-title">Backtest summary</h2>
-          <span class="badge" id="backtest-badge" data-state="loading">LOADING…</span>
+          <h2 id="risk-title">Risk Status & Active Alerts</h2>
+          <span class="badge" id="risk-badge" data-state="loading">LOADING…</span>
         </div>
-        <dl class="values" id="backtest-values" aria-live="polite" aria-busy="true"></dl>
-        <p class="panel-note" id="backtest-note"></p>
+        <dl class="values" id="risk-values" aria-live="polite" aria-busy="true"></dl>
+        <div id="risk-alerts-list" class="risk-alerts-list"></div>
+        <p class="panel-note" id="risk-note"></p>
+      </section>
+
+      <!-- System Health Panel -->
+      <section class="card" aria-labelledby="health-title">
+        <div class="card-head">
+          <h2 id="health-title">System Health & Circuit Breakers</h2>
+          <span class="badge" id="health-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="health-values" aria-live="polite" aria-busy="true"></dl>
+        <p class="panel-note" id="health-note"></p>
       </section>
     </div>
   </main>
 
   <footer class="site-footer">
-    <h2>Safety</h2>
+    <h2>Safety & Directives</h2>
     <ul>
-      <li>Paper / shadow only — real money is OFF and cannot be enabled from this UI.</li>
-      <li>The order ticket can only submit to the paper simulator; every order needs a server-issued Risk Gate ALLOW.</li>
-      <li>Live trading requires a human-approved, Risk-Gate-checked process outside this UI.</li>
-      <li>Backtests describe history only — past performance is not a prediction.</li>
+      <li>Paper / shadow mode only — real money is OFF and cannot be enabled from this UI.</li>
+      <li>The order ticket can only submit to the paper simulator; every order requires a server-issued Risk Gate ALLOW.</li>
+      <li>AI functions as an advisory research council; AI cannot execute orders or modify risk limits.</li>
+      <li>Backtests describe historical simulation only — past performance is not a prediction.</li>
     </ul>
     <p class="muted" id="safety">No live-money capability is implied by this UI.</p>
   </footer>

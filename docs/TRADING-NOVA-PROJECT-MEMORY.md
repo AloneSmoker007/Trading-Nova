@@ -54,6 +54,25 @@ Remaining NEXT-TASK items (feature gaps, not bugs):
 - Seed snapshot vs execution-store dual persistence still needs a single durable writer (Jules/PR #46 territory).
 - PR #34 Neon CI remains stale and needs rebase/audit, not a silent merge.
 
+## Completed Terminal Upgrade (2026-10-08)
+- Completed professional dark-themed trading terminal v2 (`web/index.html`, `web/style.css`, `web/app.js`).
+- Implemented 7-role server-side Multi-Brain AI Council (`server/ai.js`) with consensus, dissent, opportunity score, uncertainty, and Roman Urdu explanations.
+- Extended paper order ticket (`server/orders.js`) supporting MARKET, LIMIT, STOP_LOSS, and TAKE_PROFIT order types with stopPrice and takeProfitPrice parameters.
+- Added Strategy Lab endpoint and Turtle strategy implementation (`server/strategies.js`).
+- Implemented Human Brain & Journal entry endpoint (`server/api.js`, `server/state.js`) with SHA256 hash-chain integrity verification.
+- Added full integration test suite (`tests/terminal-v2.test.js`), bringing total passing tests to 464.
+
+## Completed PostgreSQL Persistence & Schema Certification (2026-10-08)
+- Audited and rebased/integrated PR #34 PostgreSQL store enhancements into main.
+- Added `store.list(namespace)` and `store.assertReady()` to verify migration schema integrity (`001_initial.sql` and `002_constraints.sql`).
+- Added credential-redacting error handling on PostgreSQL store initialization.
+- Added real PostgreSQL integration tests (`tests/postgres.integration.test.js`, `tests/task-25-postgres.test.js`), total passing tests now 465.
+
+## Completed Market Data Fallback & Source Health (2026-10-08)
+- Added CoinGecko price fallback in `server/market.js` when primary Binance ticker endpoint is unreachable or rate limited.
+- Added `getSourceHealth()` to track primary vs fallback health status, freshness, and trust scores.
+- Added test coverage in `tests/market-data-fallback.test.js` (total passing tests now 467).
+
 ## Promotion path
 Paper → Shadow → validated sandbox/testnet → explicit human approval → separately reviewed limited live → controlled live.
 
