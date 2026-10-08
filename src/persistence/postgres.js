@@ -27,6 +27,10 @@ export class PostgresStore {
     const r=await client.query("SELECT value FROM trading_state WHERE namespace=$1 AND state_id=$2",[namespace,id]);
     return r.rows[0] ? structuredClone(r.rows[0].value) : null;
   }
+  async list(namespace){
+    const r=await this.pool.query("SELECT value FROM trading_state WHERE namespace=$1 ORDER BY state_id",[namespace]);
+    return r.rows.map(row=>structuredClone(row.value));
+  }
   async transactIdempotent(key,operation){
     if(!key) throw new Error("idempotency key required");
     if(typeof operation!=="function") throw new Error("operation required");
@@ -76,16 +80,34 @@ export class PostgresStore {
   async assertReady(){
     const migrations=await this.pool.query("SELECT version FROM trading_schema_migrations ORDER BY version");
     const versions=new Set(migrations.rows.map(row=>row.version));
-    return versions.has("001_initial.sql") && versions.has("002_constraints.sql");
+    const required=["001_initial.sql","002_constraints.sql"];
+    const missing=required.filter(version=>!versions.has(version));
+    if(missing.length) throw new Error("required PostgreSQL migrations are not applied");
+    return true;
   }
 }
-export async function createPostgresStore({connectionString,max=10,idleTimeoutMillis=10000}={}){
+export async function createPostgresStore({connectionString,max=10,idleTimeoutMillis=10000,schema}={}){
   if(!connectionString) throw new Error("POSTGRES_URL required");
   const {Pool}=await import("pg");
-  const store=new PostgresStore(new Pool({connectionString,max,idleTimeoutMillis}));
+  const config={connectionString,max,idleTimeoutMillis};
+  if(schema!==undefined){
+    if(typeof schema!=="string"||!/^[a-z][a-z0-9_]{0,62}$/.test(schema)) throw new Error("invalid PostgreSQL schema");
+    // Neon poolers reject custom startup options, so set the path per connection.
+    config.onConnect=client=>client.query("SELECT set_config('search_path',$1,false)",[schema]);
+  }
+  const store=new PostgresStore(new Pool(config));
   try {
     await store.health();
+    if(schema!==undefined){
+      const result=await store.pool.query("SELECT current_schema() AS schema");
+      if(result.rows[0]?.schema!==schema){
+        const error=new Error("schema selection failed");
+        error.code="SCHEMA_MISMATCH";
+        throw error;
+      }
+    }
   } catch (error) {
+    await store.pool.end().catch(()=>{});
     const failure=new Error("requested PostgreSQL schema is unavailable");
     if(typeof error?.code==="string"&&/^[A-Z][A-Z0-9_]{0,31}$/.test(error.code)) failure.code=error.code;
     failure.safeDetail=String(error?.message??"")

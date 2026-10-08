@@ -27,8 +27,10 @@ const files=(await readdir(dir))
   .filter(x=>x.endsWith(".sql") && !LEGACY_MIGRATIONS.has(x))
   .sort();
 
-const store=await createPostgresStore({connectionString});
+let store;
+let activeMigration="database setup";
 try{
+  store=await createPostgresStore({connectionString,schema:process.env.TRADING_NOVA_DB_SCHEMA});
   await withDeadline(store.withTransaction(async client=>{
     // Transaction-local DB-side timeouts: a single migration statement or lock
     // wait can never hold the advisory-locked transaction open indefinitely.
@@ -37,6 +39,7 @@ try{
     await client.query("CREATE TABLE IF NOT EXISTS trading_schema_migrations(version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())");
     const {createHash}=await import("node:crypto");
     for(const file of files){
+      activeMigration=file;
       const sql=await readFile(path.join(dir,file),"utf8");
       const checksum=createHash("sha256").update(sql).digest("hex");
       const existing=await client.query("SELECT checksum FROM trading_schema_migrations WHERE version=$1",[file]);
@@ -57,9 +60,13 @@ try{
   and MIGRATE_STATEMENT_TIMEOUT_MS can raise the bounds).
 `);
     // Best-effort teardown, then exit: a wedged run must not hang CI.
-    try{ await Promise.race([store.pool.end(),new Promise(r=>setTimeout(r,2000))]); }catch{}
+    try{ await Promise.race([store?.pool.end(),new Promise(r=>setTimeout(r,2000))]); }catch{}
     process.exit(1);
   }
-  throw error;
+  const code=typeof error?.code==="string"&&/^[A-Z][A-Z0-9_]{0,31}$/.test(error.code)?error.code:"unknown";
+  const detail=typeof error?.safeDetail==="string"&&error.safeDetail?`: ${error.safeDetail}`:"";
+  console.error(`[db:migrate] ${activeMigration} failed (error code ${code}${detail}); database details redacted.`);
+  try{ await store?.pool.end(); }catch{}
+  process.exitCode=1;
 }
-console.log(JSON.stringify({ok:true,migrations:files.length,legacyIgnored:[...LEGACY_MIGRATIONS],statementTimeoutMs,lockTimeoutMs,deadlineMs}));
+if(process.exitCode!==1) console.log(JSON.stringify({ok:true,migrations:files.length,legacyIgnored:[...LEGACY_MIGRATIONS],statementTimeoutMs,lockTimeoutMs,deadlineMs}));

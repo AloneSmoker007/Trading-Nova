@@ -176,3 +176,41 @@ jobs:
       - name: Print server log on failure
         if: failure()
         run: cat /tmp/trading-nova-server.log
+
+  neon-postgres:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Create isolated Neon test schema
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+        run: node scripts/neon-ci-schema.js prepare
+      - name: Apply migrations to isolated Neon schema
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          TRADING_NOVA_DB_SCHEMA: ${{ env.TRADING_NOVA_DB_SCHEMA }}
+        run: node scripts/migrate.js
+      - name: Run real Neon PostgreSQL integration tests
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          TRADING_NOVA_DB_SCHEMA: ${{ env.TRADING_NOVA_DB_SCHEMA }}
+          TRADING_NOVA_REAL_DB_TEST: "1"
+        run: node scripts/neon-ci-test.js
+      - name: Verify Neon-backed server startup and readiness
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          TRADING_NOVA_DB_SCHEMA: ${{ env.TRADING_NOVA_DB_SCHEMA }}
+        run: node scripts/neon-ci-readiness.js
+      - name: Remove isolated Neon test schema
+        if: always() && env.TRADING_NOVA_DB_SCHEMA != ''
+        env:
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+          TRADING_NOVA_DB_SCHEMA: ${{ env.TRADING_NOVA_DB_SCHEMA }}
+        run: node scripts/neon-ci-schema.js cleanup

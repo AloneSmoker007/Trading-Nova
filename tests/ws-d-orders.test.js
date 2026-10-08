@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync, rmSync, writeFileSync} from "node:fs";
+import {existsSync, mkdtempSync, rmSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createPaperExecution} from "../src/execution/paper.js";
 import {appendJournalEntry} from "../src/journal/journal.js";
 import {applyFill} from "../server/orders.js";
 import {buildPortfolioState} from "../src/risk/portfolio.js";
+import {DurableStore} from "../src/persistence/store.js";
 import {fakeFetch, jsonResponse, startTestServer, ticker24hPayload} from "./ws-d-helpers.js";
 
 const validOrder = (key = "paper-order-test") => ({
@@ -19,6 +20,22 @@ const validOrder = (key = "paper-order-test") => ({
 
 function tickerFetch() {
   return fakeFetch([["/ticker/24hr", jsonResponse(200, ticker24hPayload())]]);
+}
+
+function asyncStore({healthy = true} = {}) {
+  const durable = new DurableStore();
+  return {
+    health: async () => healthy,
+    get: async (...args) => durable.get(...args),
+    put: async (...args) => durable.put(...args),
+    list: async (namespace) => [...durable.state.entries()]
+      .filter(([key]) => key.startsWith(`${namespace}:`))
+      .map(([, value]) => value),
+    transactIdempotent: (key, operation) => durable.transactIdempotent(key, (tx) => operation({
+      get: async (...args) => tx.get(...args),
+      put: async (...args) => tx.put(...args)
+    }))
+  };
 }
 
 async function withServer(fn, options = {}) {
@@ -151,6 +168,41 @@ test("paper fills survive restart and update the portfolio", async () => {
     await srv.close();
     rmSync(dir, {recursive: true, force: true});
   }
+});
+
+test("async database store persists orders across service restart without local-file fallback", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-db-orders-"));
+  const stateFile = join(dir, "paper-state.json");
+  const executionStateFile = join(dir, "paper-orders.json");
+  const store = asyncStore();
+  let srv = await startTestServer({fetchImpl: tickerFetch(), stateFile, executionStateFile, store});
+  try {
+    const order = validOrder("database-restart-key");
+    const first = await post(srv.base, order);
+    assert.equal(first.status, 200);
+    assert.equal(existsSync(executionStateFile), false);
+
+    await srv.close();
+    srv = await startTestServer({fetchImpl: tickerFetch(), stateFile, executionStateFile, store});
+    const replay = await post(srv.base, order);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.data.state, "replayed");
+
+    const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
+    assert.equal(portfolio.data.portfolio.positions[0].quantity, 0.01);
+  } finally {
+    await srv.close();
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
+
+test("unhealthy configured database fails closed instead of using local persistence", async () => {
+  await withServer(async ({srv, executionStateFile}) => {
+    const result = await post(srv.base, validOrder("database-down-key"));
+    assert.equal(result.status, 500);
+    assert.equal(result.body.error.code, "paper-order-state-unavailable");
+    assert.equal(existsSync(executionStateFile), false);
+  }, {store: asyncStore({healthy: false})});
 });
 
 test("cumulative exposure is gated across distinct orders", async () => {

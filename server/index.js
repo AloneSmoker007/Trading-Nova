@@ -7,10 +7,10 @@
 //   npm run serve          # start the server
 //   open http://127.0.0.1:7411/
 //
-// The server exposes the read-only JSON API (see server/app.js) plus the static
-// dashboard in web/. Order submission is intentionally NOT wired (server/api.js).
+// The server exposes the dashboard, read API and Risk-Gate-protected paper orders.
 
 import {readConfig} from "../src/config.js";
+import {createPostgresStore} from "../src/persistence/postgres.js";
 import {createNovaServer} from "./app.js";
 
 function parsePort(raw) {
@@ -32,20 +32,44 @@ const config = readConfig();
 const port = parsePort(process.env.NOVA_PORT ?? process.env.PORT);
 const host = "127.0.0.1"; // loopback only — never bind a public interface
 
-const server = createNovaServer({
-  tradingMode: config.tradingMode,
-  log: (event, details) => console.log(`[${event}]`, JSON.stringify(details))
-});
+let store;
+let startupFailed = false;
+try {
+  if (process.env.POSTGRES_URL !== undefined) {
+    store = await createPostgresStore({
+      connectionString: process.env.POSTGRES_URL,
+      schema: process.env.TRADING_NOVA_DB_SCHEMA
+    });
+    if (!(await store.health())) throw new Error("database health check failed");
+    await store.assertReady();
+  }
+} catch {
+  await store?.pool.end().catch(() => {});
+  console.error("PostgreSQL persistence is unavailable or migrations are missing; server did not start.");
+  process.exitCode = 1;
+  startupFailed = true;
+}
 
-server.listen(port, host, () => {
-  const address = server.address();
-  console.log("Trading Nova web — PAPER / SHADOW ONLY, real money OFF, read-only.");
-  console.log(`Listening on http://${host}:${address.port}/ (tradingMode=${config.tradingMode})`);
-});
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
-    console.log(`\n${signal} — shutting down.`);
-    server.close(() => process.exit(0));
+if (!startupFailed) {
+  const server = createNovaServer({
+    store,
+    tradingMode: config.tradingMode,
+    log: (event, details) => console.log(`[${event}]`, JSON.stringify(details))
   });
+
+  server.listen(port, host, () => {
+    const address = server.address();
+    console.log("Trading Nova web — PAPER / SHADOW ONLY, real money OFF, read-only.");
+    console.log(`Listening on http://${host}:${address.port}/ (tradingMode=${config.tradingMode}, persistence=${store ? "postgres" : "local"})`);
+  });
+
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      console.log(`\n${signal} — shutting down.`);
+      server.close(async () => {
+        await store?.pool.end().catch(() => {});
+        process.exit(0);
+      });
+    });
+  }
 }
