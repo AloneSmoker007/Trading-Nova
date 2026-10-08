@@ -38,12 +38,13 @@ export function createApi({
   market,
   stateFile,
   executionStateFile,
+  store,
   now = () => Date.now(),
   tradingMode = "paper",
   startedAt = Date.now()
 }) {
   const paperNote = "Paper/shadow only. Real money OFF. This API is read-only for GET endpoints.";
-  const paperOrderService = createPaperOrderService({market, stateFile, executionStateFile, now, tradingMode});
+  const paperOrderService = createPaperOrderService({market, stateFile, executionStateFile, store, now, tradingMode});
 
   async function health() {
     const t = now();

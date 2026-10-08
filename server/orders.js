@@ -98,11 +98,13 @@ export function createPaperOrderService({
   market,
   stateFile,
   executionStateFile = "db/paper-orders.json",
+  store: configuredStore,
   now = () => Date.now(),
   tradingMode = "paper",
   maxMarketAgeMs = 10000
 }) {
-  const store = new DurableStore();
+  const store = configuredStore ?? new DurableStore();
+  const databaseBacked = configuredStore !== undefined;
   const engine = new PersistentPaperEngine(store);
   let initialization;
   let storeError = null;
@@ -117,6 +119,17 @@ export function createPaperOrderService({
   async function initialize() {
     if (!initialization) {
       initialization = (async () => {
+        if (databaseBacked) {
+          try {
+            if (typeof store.health === "function" && !(await store.health())) {
+              throw new Error("database health check failed");
+            }
+            await stateValues("paper-fills");
+          } catch {
+            storeError = "paper-order-state-unavailable";
+          }
+          return;
+        }
         try {
           const text = await readFile(executionStateFile, "utf8");
           store.restore(JSON.parse(text));
@@ -130,6 +143,7 @@ export function createPaperOrderService({
   }
 
   async function persist() {
+    if (databaseBacked) return;
     const temporary = `${executionStateFile}.${randomUUID()}.tmp`;
     try {
       await mkdir(dirname(executionStateFile), {recursive: true});
@@ -160,14 +174,16 @@ export function createPaperOrderService({
     return snapshot;
   }
 
-  function fills() {
+  async function stateValues(namespace) {
+    if (typeof store.list === "function") return store.list(namespace);
+    const prefix = `${namespace}:`;
     return [...store.state.entries()]
-      .filter(([key]) => key.startsWith("paper-fills:"))
-      .map(([, fill]) => fill);
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, value]) => value);
   }
 
-  function currentPortfolio(base) {
-    const saved = store.get("paper-portfolio", "current");
+  async function currentPortfolio(base, fillValues) {
+    const saved = await store.get("paper-portfolio", "current");
     if (saved) {
       try {
         return validatePortfolioState(saved);
@@ -176,7 +192,7 @@ export function createPaperOrderService({
       }
     }
     let portfolio = base.portfolio;
-    for (const fill of fills()) {
+    for (const fill of fillValues) {
       if (fill?.status !== "RECONCILED" || !Number.isFinite(fill.quantity)
           || !Number.isFinite(fill.price) || !["BUY", "SELL"].includes(fill.side)) return null;
       try {
@@ -223,13 +239,14 @@ export function createPaperOrderService({
       if (!(await initialize())) return {state: "error", reason: storeError};
       const base = await baseState();
       if (base.error) return {state: "error", reason: base.reason || base.error};
-      const portfolio = currentPortfolio(base);
+      const fillValues = await stateValues("paper-fills");
+      const portfolio = await currentPortfolio(base, fillValues);
       if (!portfolio) return {state: "error", reason: "paper-order-state-invalid"};
-      const hasOrders = fills().length > 0;
-      if (!hasOrders && base.state === "empty" && !store.get("paper-portfolio", "current")) {
+      const hasOrders = fillValues.length > 0;
+      if (!hasOrders && base.state === "empty" && !(await store.get("paper-portfolio", "current"))) {
         return {state: "empty", portfolio: null, limits: null, updatedAt: null, ageMs: null};
       }
-      const latestFill = fills().reduce((latest, fill) => Math.max(latest, fill.timestamp || 0), 0);
+      const latestFill = fillValues.reduce((latest, fill) => Math.max(latest, fill.timestamp || 0), 0);
       const updatedAt = latestFill || base.updatedAt || null;
       return {
         state: "ok",
@@ -250,7 +267,7 @@ export function createPaperOrderService({
       const parsed = parseOrderRequest(body);
       if (parsed.error) return {status: 400, body: {ok: false, state: "error", error: parsed.error}};
       const order = parsed.order;
-      const prior = store.get("paper-fills", order.idempotencyKey);
+      const prior = await store.get("paper-fills", order.idempotencyKey);
       if (prior) {
         const intentHash = hashOrderPayload({...order, price: 0});
         if (prior.intentHash !== intentHash) {
@@ -261,15 +278,16 @@ export function createPaperOrderService({
 
       const base = await baseState();
       if (base.error) return fail(500, base.error, "paper portfolio state is unavailable", base.reason);
-      let portfolio = currentPortfolio(base);
+      let portfolio = await currentPortfolio(base, await stateValues("paper-fills"));
       if (!portfolio) return fail(500, "paper-portfolio-invalid", "paper portfolio state is invalid");
       const marketState = await freshPortfolio(portfolio, order.symbol);
       if (marketState.fresh) {
         portfolio = marketState.portfolio;
-        store.put("paper-portfolio", "current", portfolio);
         try {
+          await store.put("paper-portfolio", "current", portfolio);
           await persist();
         } catch {
+          storeError ||= "paper-order-state-unavailable";
           return fail(500, "paper-order-state-unavailable", "paper order state is unavailable");
         }
       }
@@ -339,7 +357,7 @@ export function createPaperOrderService({
   async function getOrders() {
     return serialize(async () => {
       if (!(await initialize())) return {state: "error", reason: storeError};
-      const orderFills = fills().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      const orderFills = (await stateValues("paper-fills")).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       return {state: "ok", fills: orderFills, total: orderFills.length};
     });
   }
