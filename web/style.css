@@ -335,3 +335,33 @@ th { color: var(--muted); font-weight: 700; }
   .journal-form-row { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
 }
+
+
+/* Personal AI tutor — dynamic text is rendered with textContent, never HTML. */
+.tutor-card { margin-block: 1rem; }
+.tutor-messages {
+  display: flex;
+  flex-direction: column;
+  gap: .65rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  padding: .75rem;
+  border: 1px solid var(--border, #344054);
+  border-radius: .6rem;
+  background: var(--panel, #101828);
+}
+.tutor-message {
+  max-width: min(90%, 54rem);
+  margin: 0;
+  padding: .7rem .85rem;
+  border-radius: .65rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+.tutor-assistant { align-self: flex-start; border: 1px solid var(--border, #344054); }
+.tutor-user { align-self: flex-end; background: var(--accent-soft, #183b56); }
+.tutor-form { display: grid; gap: .5rem; margin-top: .85rem; }
+.tutor-form textarea { width: 100%; resize: vertical; }
+.tutor-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.tutor-actions .muted { font-size: .82rem; }
