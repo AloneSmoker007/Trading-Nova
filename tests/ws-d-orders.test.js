@@ -5,6 +5,8 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createPaperExecution} from "../src/execution/paper.js";
 import {appendJournalEntry} from "../src/journal/journal.js";
+import {applyFill} from "../server/orders.js";
+import {buildPortfolioState} from "../src/risk/portfolio.js";
 import {fakeFetch, jsonResponse, startTestServer, ticker24hPayload} from "./ws-d-helpers.js";
 
 const validOrder = (key = "paper-order-test") => ({
@@ -115,7 +117,12 @@ test("duplicate idempotency key replays the same fill and rejects changed intent
     assert.equal(replay.body.data.state, "replayed");
     assert.equal(replay.body.data.fill.orderId, first.body.data.fill.orderId);
 
-    const conflict = await post(srv.base, {...order, price: order.price + 1});
+    const priceChange = await post(srv.base, {...order, price: order.price + 1});
+    assert.equal(priceChange.status, 200);
+    assert.equal(priceChange.body.data.state, "replayed");
+    assert.equal(priceChange.body.data.fill.orderId, first.body.data.fill.orderId);
+
+    const conflict = await post(srv.base, {...order, quantity: order.quantity + 0.01});
     assert.equal(conflict.status, 409);
     assert.equal(conflict.body.error.code, "idempotency-key-reused");
   });
@@ -249,4 +256,37 @@ test("oversized request bodies are rejected without parsing or execution", async
     assert.equal(res.status, 413);
     assert.equal(res.body.error.code, "body-too-large");
   });
+});
+
+test("paper fills at the live market last, not a client-chosen underpriced notional", async () => {
+  await withServer(async ({srv}) => {
+    const res = await post(srv.base, {...validOrder("client-underprice"), price: 1});
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.fill.price, 42000.5);
+    assert.equal(res.body.data.order.price, 42000.5);
+    assert.equal(res.body.data.verdict.orderNotional, 0.01 * 42000.5);
+    const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
+    assert.equal(portfolio.data.portfolio.positions[0].quantity, 0.01);
+    assert.ok(portfolio.data.portfolio.cash < 10000);
+  });
+});
+
+test("a buy that would spend more cash than the account has is refused", async () => {
+  await withServer(async ({srv}) => {
+    const res = await post(srv.base, {...validOrder("no-cash"), quantity: 0.3, price: 42000.5});
+    assert.equal(res.status, 400);
+    assert.equal(res.body.verdict.decision, "NO_TRADE");
+    assert.ok(res.body.verdict.reasons.includes("INSUFFICIENT_CASH"));
+    const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
+    assert.deepEqual(portfolio.data.portfolio.positions, []);
+  });
+});
+
+test("applyFill flattens a closed position even when quantity is float dust", () => {
+  const opened = applyFill(
+    buildPortfolioState({cash: 10000, startingEquity: 10000, positions: []}),
+    {symbol: "BTCUSDT", side: "BUY", quantity: 0.1, price: 100}
+  );
+  const closed = applyFill(opened, {symbol: "BTCUSDT", side: "SELL", quantity: 0.1, price: 100});
+  assert.deepEqual(closed.positions, []);
 });

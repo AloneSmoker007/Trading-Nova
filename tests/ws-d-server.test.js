@@ -102,6 +102,14 @@ test("unknown API routes 404 as JSON; wrong methods 405 with Allow", async () =>
     assert.equal(res.status, 405);
     assert.equal(res.headers.get("allow"), "GET, HEAD");
     await res.json();
+
+    const unavailable = await fetch(srv.base + "/api/market/BTCUSDT", {method: "HEAD"});
+    assert.equal(unavailable.status, 503);
+    assert.equal(await unavailable.text(), "");
+
+    const healthHead = await fetch(srv.base + "/api/health", {method: "HEAD"});
+    assert.equal(healthHead.status, 200);
+    assert.equal(await healthHead.text(), "");
   } finally {
     await srv.close();
   }

@@ -2,7 +2,7 @@
 
 **Last locked:** 2026-10-08  
 **Repository:** `AloneSmoker007/Trading-Nova`  
-**Main at lock:** `d4df166a68dae82f9c70d86d1bf5e7661dfb20b2`
+**Main at lock:** `ff6f844e80eba437e5416874c822cea74d4f1709`
 
 ## User goal
 Build a realistic trading web app that the user can personally use to learn trading. The current account uses fake money, but market conditions and paper execution should be as realistic as practical.
@@ -40,7 +40,19 @@ Build a realistic trading web app that the user can personally use to learn trad
 Phase 8 certifies the current personal paper/shadow release only. Real-money execution is explicitly blocked. The current main release does not prove profitability, Internet production exposure or independent penetration testing.
 
 ## Known next infrastructure gate
-Open PR #34 adds isolated real-PostgreSQL/Neon CI and paper-order persistence/restart/idempotency verification, but its base is stale relative to current main and it must be audited/rebased before any merge decision. PR #44 is only Codespaces web-preview preparation and does not change trading behavior.
+Open PR #34 adds isolated real-PostgreSQL/Neon CI and paper-order persistence/restart/idempotency verification, but its base is stale relative to current main and it must be audited/rebased before any merge decision. Open PR #46 is Jules's paper-trading terminal/API layer and must not be duplicated or redesigned here.
+
+## 2026-10-08 QA / bug-fix pass
+Bounded QA on current `main` (HEAD `ff6f844`). Live money stayed blocked. Confirmed fixes:
+- Paper fills now use the live market last, not a client-chosen price, so notional/Risk Gate cannot be underpriced.
+- Buys that would spend more cash than the account has fail closed (`INSUFFICIENT_CASH`).
+- Closed positions flatten on float dust (`0.1 - 0.1`) instead of leaving a ghost lot.
+- SMA-cross sizes fractional BTC instead of flooring high-price names to zero.
+- API HEAD now returns the real GET status/length with an empty body (no fake 200).
+
+Remaining NEXT-TASK items (feature gaps, not bugs):
+- Seed snapshot vs execution-store dual persistence still needs a single durable writer (Jules/PR #46 territory).
+- PR #34 Neon CI remains stale and needs rebase/audit, not a silent merge.
 
 ## Promotion path
 Paper → Shadow → validated sandbox/testnet → explicit human approval → separately reviewed limited live → controlled live.

@@ -31,7 +31,7 @@ function makeSmaCross(shortPeriod = 10, longPeriod = 30) {
     prevShort = short;
     prevLong = long;
     if (signal === "golden" && position === 0 && cash > 0) {
-      const quantity = Math.floor((cash * 0.95) / candle.close);
+      const quantity = (cash * 0.95) / candle.close;
       return quantity > 0 ? {side: "BUY", quantity} : null;
     }
     if (signal === "death" && position > 0) return {side: "SELL", quantity: position};
