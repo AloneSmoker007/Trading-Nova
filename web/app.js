@@ -692,6 +692,64 @@
     });
   }
 
+  var tutorHistory = [];
+  var tutorBusy = false;
+
+  function addTutorMessage(role, text) {
+    var messages = $("tutor-messages");
+    if (!messages) return;
+    var node = el("p", "tutor-message " + (role === "model" ? "tutor-assistant" : "tutor-user"), text);
+    messages.appendChild(node);
+    while (messages.children.length > 30) messages.removeChild(messages.firstChild);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function submitTutorMessage(event) {
+    event.preventDefault();
+    if (tutorBusy) return;
+    var input = $("tutor-input");
+    var message = input.value.trim();
+    if (!message || message.length > 2000) return;
+    var symbol = readSymbol() || "BTCUSDT";
+    var priorHistory = tutorHistory.slice(-8);
+    tutorBusy = true;
+    $("tutor-send-btn").disabled = true;
+    input.disabled = true;
+    setBadge("tutor-badge", "loading", "THINKING…");
+    note("tutor-note", "Tutor jawab tayyar kar raha hai…");
+    addTutorMessage("user", message);
+    input.value = "";
+    return api("/api/tutor/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: message, history: priorHistory, symbol: symbol })
+    }).then(function (result) {
+      if (result.status === 200 && result.body && result.body.ok === true && result.body.data) {
+        var answer = result.body.data.answer;
+        addTutorMessage("model", answer);
+        tutorHistory.push({ role: "user", text: message }, { role: "model", text: answer });
+        tutorHistory = tutorHistory.slice(-8);
+        setBadge("tutor-badge", "ok", "PAPER ONLY");
+        note("tutor-note", result.body.data.note || "AI educational advice only. No order was submitted.");
+      } else {
+        var failure = result.body && result.body.error;
+        var messageText = failure && typeof failure.message === "string" ? failure.message : "Tutor filhal available nahi. Thori dair baad dobara try karein.";
+        addTutorMessage("model", messageText);
+        setBadge("tutor-badge", "unavailable", "UNAVAILABLE");
+        note("tutor-note", "Koi order place nahi hua. " + messageText);
+      }
+    }).catch(function () {
+      addTutorMessage("model", "Tutor server tak pohanch nahi saka. Server status check karke dobara try karein.");
+      setBadge("tutor-badge", "unavailable", "OFFLINE");
+      note("tutor-note", "Network ya local server error. Koi order place nahi hua.");
+    }).finally(function () {
+      tutorBusy = false;
+      $("tutor-send-btn").disabled = false;
+      input.disabled = false;
+      input.focus();
+    });
+  }
+
   function submitJournalEntry(event) {
     event.preventDefault();
     var title = $("journal-title-input").value.trim();
@@ -751,6 +809,7 @@
     });
     $("order-form").addEventListener("submit", submitPaperOrder);
     $("journal-form").addEventListener("submit", submitJournalEntry);
+    $("tutor-form").addEventListener("submit", submitTutorMessage);
 
     setInterval(function () {
       if (!document.hidden && $("auto-input").checked) refreshAll();
