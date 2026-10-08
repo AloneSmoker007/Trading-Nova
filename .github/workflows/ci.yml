@@ -4,6 +4,12 @@ on:
     branches: ["main","feat/**","fix/**","hardening/**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      run_market_soak:
+        description: "Run the opt-in live Binance public market-data evidence soak"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -103,3 +109,25 @@ jobs:
       - run: npm run db:migrate
       - run: node scripts/seed-recovery-drill.js
       - run: npm run recovery:drill
+
+  market-data-evidence:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_market_soak == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MARKET_BINANCE_BASE_URL: "https://api.binance.us"
+      MARKET_SOAK_DURATION_MS: "120000"
+      MARKET_SOAK_INTERVAL_MS: "5000"
+      MARKET_REQUEST_TIMEOUT_MS: "5000"
+      MARKET_REQUEST_DEADLINE_MS: "15000"
+      MARKET_MAX_ERROR_RATE: "0.05"
+      MARKET_MAX_LATENCY_MS: "2000"
+      MARKET_MAX_AGE_MS: "120000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - name: Run public Binance market-data evidence soak
+        run: npm run market:soak
