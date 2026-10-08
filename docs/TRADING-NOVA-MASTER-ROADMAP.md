@@ -237,3 +237,46 @@ Separation of duties, full automated-activity reconstruction, model inventory, m
 
 **Phases 15–20 code foundation:** implemented with fail-closed tests. They do not fabricate external operational evidence.
 
+
+
+## 21. LOCKED USER PRODUCT CONTRACT — 2026-10-08
+
+This is the current user-facing target and takes precedence over stale execution wording elsewhere in this document.
+
+### Product goal
+Trading-Nova is a realistic, browser-based trading terminal for learning and paper trading. It uses **fake money** while following real market conditions as closely as the available data allows. Real-money execution remains OFF.
+
+### Locked feature set
+- Real-time/near-real-time market prices and charts.
+- Watchlists, markets, portfolio, positions, orders, fills, P&L and trade history.
+- Market, limit, stop, take-profit and other safe paper order types supported by the engine.
+- Realistic paper fills: spread, fees, slippage, partial fills, rejects, latency and restart recovery.
+- Technical indicators, fundamentals, market regime and portfolio analytics.
+- Real-time public news, sentiment and internet research with source/evidence tracking and freshness.
+- Multi-brain AI council: technical, fundamental, news, sentiment, strategy, risk and research roles.
+- Human Brain: user preferences, journal, theses, mistakes, outcomes and durable personal learning memory.
+- Internet Brain: fresh public information and research; untrusted web content never becomes an execution command.
+- Market Brain: price/volume/order-flow/derivatives/intermarket context where data is available.
+- Profit-oriented opportunity ranking based on evidence and **risk-adjusted expected value**, never guaranteed profit.
+- Consensus, dissent, uncertainty, evidence quality and WAIT/NO-TRADE as first-class outputs.
+- Backtesting, out-of-sample, walk-forward, robustness, benchmark and realistic-cost analysis.
+- Famous-trader/known-strategy simulation and paper-only copy/signal experiments using documented public methodology; never fabricate private positions or trades.
+- Strategy Lab, challenger strategies, shadow trading, performance comparison and promotion/revalidation.
+- Advanced portfolio risk: exposure, concentration, correlation, volatility, liquidity, drawdown, daily/weekly loss limits and kill switch.
+- AI trade explanations, journal review, loss autopsy, alerts and learning reports.
+- Professional responsive web UI; backend remains authoritative for all trading state and risk decisions.
+- Gemini API is an AI provider, server-side only. AI can research/explain/propose but cannot execute around the deterministic Risk Gate.
+
+### Explicit exclusions for the current release
+- No real-money orders.
+- No withdrawals/transfers.
+- No broker/exchange live credentials.
+- No claim of guaranteed profitability.
+- No autonomous increase of leverage, risk limits or safety settings.
+
+### Future promotion path
+Paper → Shadow → validated sandbox/testnet → explicit human approval → separately reviewed limited live → controlled live. Each higher tier requires new evidence and certification.
+
+### Current implementation rule
+Do not restart or redesign the repository. First close existing certification/infrastructure gaps, then implement the locked product capabilities in dependency order. Every task follows: gap → spec → risk → implement → test → review → CI → PR → merge only when green → checkpoint.
+
