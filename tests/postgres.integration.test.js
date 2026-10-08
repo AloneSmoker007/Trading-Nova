@@ -7,16 +7,25 @@ const enabled = process.env.TRADING_NOVA_REAL_DB_TEST === "1";
 const run = enabled ? test : test.skip;
 const auditRun = enabled && process.env.TRADING_NOVA_SKIP_AUDIT_TEST !== "1" ? test : test.skip;
 
-run("PostgreSQL real integration: health, persistence and migration state", async()=>{
-  const store=await createPostgresStore({connectionString:process.env.POSTGRES_URL,max:2});
+async function withStore(work){
+  const store=await createPostgresStore({
+    connectionString:process.env.POSTGRES_URL,
+    max:2
+  });
+  try{ await work(store); }
+  finally{ await store.pool.end(); }
+}
+
+run("PostgreSQL real integration: health, persistence and migration state", async()=>withStore(async store=>{
   assert.equal(await store.health(),true);
+  assert.equal(await store.assertReady(),true);
   const id=randomUUID();
   await store.put("integration",id,{value:"ok"});
   assert.deepEqual(await store.get("integration",id),{value:"ok"});
   const migrations=await store.pool.query("SELECT version FROM trading_schema_migrations ORDER BY version");
   assert.ok(migrations.rows.some((row)=>row.version==="001_initial.sql"));
-  await store.pool.end();
-});
+  assert.ok(migrations.rows.some((row)=>row.version==="002_constraints.sql"));
+}));
 
 run("PostgreSQL real integration: transaction rollback is durable", async()=>{
   const store=await createPostgresStore({connectionString:process.env.POSTGRES_URL,max:2});

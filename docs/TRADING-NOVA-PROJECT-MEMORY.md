@@ -62,6 +62,12 @@ Remaining NEXT-TASK items (feature gaps, not bugs):
 - Implemented Human Brain & Journal entry endpoint (`server/api.js`, `server/state.js`) with SHA256 hash-chain integrity verification.
 - Added full integration test suite (`tests/terminal-v2.test.js`), bringing total passing tests to 464.
 
+## Completed PostgreSQL Persistence & Schema Certification (2026-10-08)
+- Audited and rebased/integrated PR #34 PostgreSQL store enhancements into main.
+- Added `store.list(namespace)` and `store.assertReady()` to verify migration schema integrity (`001_initial.sql` and `002_constraints.sql`).
+- Added credential-redacting error handling on PostgreSQL store initialization.
+- Added real PostgreSQL integration tests (`tests/postgres.integration.test.js`, `tests/task-25-postgres.test.js`), total passing tests now 465.
+
 ## Promotion path
 Paper → Shadow → validated sandbox/testnet → explicit human approval → separately reviewed limited live → controlled live.
 
