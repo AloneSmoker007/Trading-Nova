@@ -8,6 +8,10 @@ import {createPaperOrderService} from "../server/orders.js";
 
 const enabled = process.env.TRADING_NOVA_REAL_DB_TEST === "1";
 const run = enabled ? test : test.skip;
+// Tests that require exclusive schema state (they count rows in a namespace or
+// rebuild shared portfolio state) run only against a fresh or isolated
+// database. The shared-Neon CI job sets TRADING_NOVA_SKIP_AUDIT_TEST=1 and
+// skips them the same way as the destructive audit-tamper test below.
 const auditRun = enabled && process.env.TRADING_NOVA_SKIP_AUDIT_TEST !== "1" ? test : test.skip;
 
 async function withStore(work){
@@ -68,7 +72,7 @@ auditRun("PostgreSQL real integration: audit hash chain verifies and detects tam
   assert.equal(await store.verifyAudit(),false);
 }));
 
-run("PostgreSQL real integration: paper orders survive restart and replay idempotently", async()=>{
+auditRun("PostgreSQL real integration: paper orders survive restart and replay idempotently", async()=>{
   const stateFile=join(tmpdir(),`trading-nova-neon-state-${randomUUID()}.json`);
   const executionStateFile=join(tmpdir(),`trading-nova-neon-orders-${randomUUID()}.json`);
   const market={getTicker:async()=>({state:"ok",ageMs:0,data:{last:42000.5}})};

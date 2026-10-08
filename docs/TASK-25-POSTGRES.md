@@ -39,3 +39,11 @@ suite there, verifies PostgreSQL-backed server startup/health, then removes
 only that schema. The normal PostgreSQL-service CI job does not depend on this
 secret. Integration writes are isolated by schema; the account needs permission
 to create and remove the run-specific schema.
+
+Schema isolation never depends on session state: statements are
+schema-qualified and transactions set `search_path` transaction-locally, so
+isolation holds on pooled endpoints (e.g. Neon's transaction-mode pooler) and
+cannot leak into co-tenants sharing a pooled server connection. The integration
+tests that count rows or rebuild shared portfolio state require an exclusive
+schema and are skipped when `TRADING_NOVA_SKIP_AUDIT_TEST=1` (the shared-database
+CI job), matching the audit-tamper test.
