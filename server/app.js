@@ -6,6 +6,7 @@ import {createMarketService} from "./market.js";
 import {createApi} from "./api.js";
 import {readStatic} from "./static.js";
 import {TokenBucket} from "../src/security/rate-limit.js";
+import {createTradingTutor} from "./tutor.js";
 
 const REPO_ROOT=join(dirname(fileURLToPath(import.meta.url)),"..");
 const MAX_URL_LENGTH=2048;
@@ -22,6 +23,7 @@ function sendJson(res,status,body,extra={}){const {omitBody=false,...headers}=ex
 
 function matchApi(pathname){
   if(pathname==="/api/health")return{name:"health",params:{}};
+  if(pathname==="/api/tutor/chat")return{name:"tutorChat",params:{}};
   if(pathname==="/api/markets")return{name:"markets",params:{}};
   let m=/^\/api\/market\/([^\/]+)$/.exec(pathname);if(m)return{name:"marketData",params:{symbol:m[1]}};
   m=/^\/api\/indicators\/([^\/]+)$/.exec(pathname);if(m)return{name:"indicators",params:{symbol:m[1]}};
@@ -39,7 +41,7 @@ function matchApi(pathname){
 
 export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),stateFile=join(REPO_ROOT,"db","paper-state.json"),executionStateFile=join(REPO_ROOT,"db","paper-orders.json"),store,webRoot=join(REPO_ROOT,"web"),tradingMode="paper",log=null}={}){
   if(tradingMode!=="paper")throw new Error("Trading Nova web server is paper-only; non-paper modes are blocked.");
-  const market=createMarketService({fetchImpl,now});const startedAt=now();const api=createApi({market,stateFile,executionStateFile,store,now,tradingMode:"paper",startedAt});const orderLimiters=new Map();
+  const market=createMarketService({fetchImpl,now});const startedAt=now();const api=createApi({market,stateFile,executionStateFile,store,now,tradingMode:"paper",startedAt});const orderLimiters=new Map();const tutorLimiters=new Map();const tutorChat=createTradingTutor({fetchImpl,now});
   const server=createServer(async(req,res)=>{const method=req.method||"GET";try{
     if(typeof req.url!=="string"||req.url.length===0||req.url.length>MAX_URL_LENGTH){sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
     let url;try{url=new URL(req.url,"http://127.0.0.1");}catch{sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
@@ -47,8 +49,15 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
     if(pathname.startsWith("/api/")){
       const route=matchApi(pathname);
       if(!route){sendJson(res,404,{ok:false,state:"error",error:{code:"not-found",message:"unknown API route"}},{omitBody:method==="HEAD"});return;}
-      const allowed=(route.name==="submitPaperOrder"||route.name==="addJournalEntry")?["POST"]:["GET","HEAD"];
+      const allowed=(route.name==="submitPaperOrder"||route.name==="addJournalEntry"||route.name==="tutorChat")?["POST"]:["GET","HEAD"];
       if(!allowed.includes(method)){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:allowed.join(", ")});return;}
+      if(route.name==="tutorChat"){
+        const clientKey=req.socket.remoteAddress||"unknown";let limiter=tutorLimiters.get(clientKey);if(!limiter){limiter=new TokenBucket({capacity:10,refillPerSecond:1/12,now});tutorLimiters.set(clientKey,limiter);}if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"AI Tutor requests are temporarily rate limited."}},{ "Retry-After":"12" });return;}
+        const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
+        let input;try{input=JSON.parse(request.body||"");}catch{sendJson(res,400,{ok:false,state:"error",error:{code:"invalid-json",message:"request body must be valid JSON"}});return;}
+        let context=null;const symbol=typeof input?.symbol==="string"?input.symbol.trim().toUpperCase():"";if(/^[A-Z0-9]{2,24}$/.test(symbol)){try{const quote=await market.getTicker(symbol);if(quote?.data){context={symbol,marketState:quote.state,stale:Boolean(quote.stale),ageMs:Number.isFinite(quote.ageMs)?quote.ageMs:null,ticker:{last:quote.data.last,bid:quote.data.bid,ask:quote.data.ask,changePct24h:quote.data.changePct24h,quoteVolume24h:quote.data.quoteVolume24h}};}}catch{context={symbol,marketState:"unavailable",stale:true};}}
+        const out=await tutorChat(input,context);sendJson(res,out.status,out.body);return;
+      }
       if(route.name==="submitPaperOrder"){
         const clientKey=req.socket.remoteAddress||"unknown";let limiter=orderLimiters.get(clientKey);if(!limiter){limiter=new TokenBucket({capacity:PAPER_ORDER_RATE_CAPACITY,refillPerSecond:PAPER_ORDER_RATE_REFILL_PER_SECOND,now});orderLimiters.set(clientKey,limiter);}if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"too many paper-order requests"}},{"Retry-After":"2"});return;}
         const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
