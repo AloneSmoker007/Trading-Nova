@@ -68,6 +68,11 @@ Remaining NEXT-TASK items (feature gaps, not bugs):
 - Added credential-redacting error handling on PostgreSQL store initialization.
 - Added real PostgreSQL integration tests (`tests/postgres.integration.test.js`, `tests/task-25-postgres.test.js`), total passing tests now 465.
 
+## Completed Market Data Fallback & Source Health (2026-10-08)
+- Added CoinGecko price fallback in `server/market.js` when primary Binance ticker endpoint is unreachable or rate limited.
+- Added `getSourceHealth()` to track primary vs fallback health status, freshness, and trust scores.
+- Added test coverage in `tests/market-data-fallback.test.js` (total passing tests now 467).
+
 ## Promotion path
 Paper → Shadow → validated sandbox/testnet → explicit human approval → separately reviewed limited live → controlled live.
 
