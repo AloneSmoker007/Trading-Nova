@@ -27,6 +27,7 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run security:secrets
+      - run: npm audit --audit-level=high
 
   postgres-integration:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

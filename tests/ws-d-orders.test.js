@@ -210,12 +210,11 @@ test("client-supplied gate artifacts are rejected and engine refuses missing art
   }), /risk gate artifact required/);
 });
 
-test("non-paper mode cannot submit orders", async () => {
-  await withServer(async ({srv}) => {
-    const res = await post(srv.base, validOrder("non-paper"));
-    assert.equal(res.status, 403);
-    assert.equal(res.body.error.code, "trading-mode-not-paper");
-  }, {tradingMode: "live"});
+test("non-paper mode cannot start the web server", async () => {
+  await assert.rejects(
+    () => startTestServer({fetchImpl: tickerFetch(), tradingMode: "live"}),
+    /paper-only; non-paper modes are blocked/
+  );
 });
 
 test("malformed JSON is rejected before reaching execution", async () => {
