@@ -30,7 +30,10 @@ run("PostgreSQL real integration: health, persistence and migration state", asyn
   const id=randomUUID();
   await store.put("integration",id,{value:"ok"});
   assert.deepEqual(await store.get("integration",id),{value:"ok"});
-  const migrations=await store.pool.query("SELECT version FROM trading_schema_migrations ORDER BY version");
+  // Raw statements must run inside a store transaction so the schema-scoped
+  // search_path applies: an unqualified statement outside a transaction on a
+  // pooled endpoint resolves in the default schema, not the run's schema.
+  const migrations=await store.withTransaction(client=>client.query("SELECT version FROM trading_schema_migrations ORDER BY version"));
   assert.ok(migrations.rows.some((row)=>row.version==="001_initial.sql"));
   assert.ok(migrations.rows.some((row)=>row.version==="002_constraints.sql"));
 }));
@@ -68,7 +71,7 @@ auditRun("PostgreSQL real integration: audit hash chain verifies and detects tam
     store.appendAudit({type:"INTEGRATION",id:randomUUID()})
   ]);
   assert.equal(await store.verifyAudit(),true);
-  await store.pool.query("UPDATE trading_audit SET hash=$1 WHERE sequence=$2",[first.hash==="tampered"?"x":"tampered",first.sequence]);
+  await store.withTransaction(client=>client.query("UPDATE trading_audit SET hash=$1 WHERE sequence=$2",[first.hash==="tampered"?"x":"tampered",first.sequence]));
   assert.equal(await store.verifyAudit(),false);
 }));
 
