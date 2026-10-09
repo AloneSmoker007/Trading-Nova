@@ -16,7 +16,8 @@
 import {healthSnapshot} from "../src/observability/health.js";
 import {runBacktestV2} from "../src/backtest/engine-v2.js";
 import {computeIndicators} from "./indicators.js";
-import {loadPaperState, appendJournalToFile} from "./state.js";
+import {loadPaperState, appendJournalToFile, MAX_JOURNAL_ENTRIES} from "./state.js";
+import {appendJournalEntry, verifyJournal} from "../src/journal/journal.js";
 import {createPaperOrderService} from "./orders.js";
 import {createStrategy, STRATEGY_DESCRIPTIONS} from "./strategies.js";
 import {computeAiCouncil} from "./ai.js";
@@ -150,6 +151,31 @@ export function createApi({
   }
 
   async function journal() {
+    if (store) {
+      let snapshot;
+      try {
+        snapshot = await store.get("paper-journal", "main");
+      } catch {
+        return fail(503, "unavailable", "journal-unavailable", "journal storage is temporarily unavailable");
+      }
+      const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
+      const verified = entries.length === 0 || verifyJournal(entries);
+      return ok({
+        state: snapshot ? "ok" : "empty",
+        entries: entries.slice(-MAX_JOURNAL_ENTRIES),
+        total: entries.length,
+        returned: Math.min(entries.length, MAX_JOURNAL_ENTRIES),
+        verified,
+        integrity: verified ? "verified" : "broken",
+        updatedAt: Number.isFinite(snapshot?.updatedAt) ? snapshot.updatedAt : null,
+        ageMs: Number.isFinite(snapshot?.updatedAt) ? Math.max(0, now() - snapshot.updatedAt) : null,
+        note: !verified
+          ? "WARNING: journal hash chain does NOT verify — treat this history as untrusted."
+          : snapshot
+            ? "PostgreSQL-backed hash-chained journal verified by src/journal/journal.js."
+            : "No journal entries saved yet. " + paperNote
+      });
+    }
     const s = await loadPaperState(stateFile, now());
     if (s.state === "error") return fail(500, "error", "paper-state-error", "paper state could not be read", s.reason);
     if (s.state === "empty") {
@@ -369,16 +395,33 @@ export function createApi({
       return fail(400, "error", "invalid-entry", "journal entry text is required");
     }
     try {
-      const record = await appendJournalToFile(stateFile, {
-        type: typeof parsed.type === "string" ? parsed.type : "thesis",
-        symbol: typeof parsed.symbol === "string" ? parsed.symbol.toUpperCase() : "GENERAL",
-        title: typeof parsed.title === "string" ? parsed.title : "User Entry",
+      const entryData = {
+        timestamp: now(),
+        type: typeof parsed.type === "string" ? parsed.type.slice(0, 40) : "thesis",
+        symbol: typeof parsed.symbol === "string" ? parsed.symbol.toUpperCase().slice(0, 24) : "GENERAL",
+        title: typeof parsed.title === "string" ? parsed.title.slice(0, 160) : "User Entry",
         text: parsed.text.trim(),
-        tags: Array.isArray(parsed.tags) ? parsed.tags : []
-      }, now());
-      return ok({state: "ok", record, note: "Journal entry hash-chained and appended."});
+        tags: Array.isArray(parsed.tags)
+          ? parsed.tags.filter((tag) => typeof tag === "string").slice(0, 20).map((tag) => tag.slice(0, 40))
+          : []
+      };
+      let record;
+      if (store) {
+        record = await store.withTransaction(async (client) => {
+          await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", ["trading_nova:journal:main"]);
+          const snapshot = await store.get("paper-journal", "main", client);
+          const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
+          if (entries.length > 0 && !verifyJournal(entries)) throw new Error("journal integrity check failed");
+          record = appendJournalEntry(entries, entryData);
+          await store.put("paper-journal", "main", {version: 1, updatedAt: entryData.timestamp, entries}, client);
+          return record;
+        });
+      } else {
+        record = await appendJournalToFile(stateFile, {...entryData, timestamp: undefined}, entryData.timestamp);
+      }
+      return ok({state: "ok", record, note: store ? "PostgreSQL-backed journal entry hash-chained and appended." : "Journal entry hash-chained and appended."});
     } catch {
-      return fail(500, "error", "journal-save-failed", "could not save journal entry");
+      return fail(500, "error", "journal-save-failed", "could not save journal entry safely");
     }
   }
 
