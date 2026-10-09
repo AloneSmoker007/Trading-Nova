@@ -165,6 +165,8 @@ test("in-memory paper execution fails closed at capacity without evicting replay
   const secondVerdict = verdictFor({symbol:secondOrder.symbol,side:secondOrder.side,quantity:secondOrder.quantity,price:secondOrder.price});
   assert.throws(() => ex.submit(secondOrder, {gateArtifact:secondVerdict.artifact}), /paper_execution_capacity_reached/);
   assert.deepEqual(ex.get(first.id), first);
+  assert.deepEqual(ex.submit(order, {}), first,
+    "a capacity rejection must not invalidate an existing idempotency key");
 });
 
 test("in-memory paper execution capacity must be a positive safe integer", () => {
