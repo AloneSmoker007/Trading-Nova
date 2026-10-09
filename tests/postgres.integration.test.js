@@ -15,6 +15,17 @@ const run = enabled ? test : test.skip;
 // skips them the same way as the destructive audit-tamper test below.
 const auditRun = enabled && process.env.TRADING_NOVA_SKIP_AUDIT_TEST !== "1" ? test : test.skip;
 
+function journalScopedStore(store, journalId) {
+  return {
+    health: store.health.bind(store),
+    withTransaction: store.withTransaction.bind(store),
+    get: (namespace, id, client) => store.get(namespace, namespace === "paper-journal" ? journalId : id, client),
+    put: (namespace, id, value, client) => store.put(namespace, namespace === "paper-journal" ? journalId : id, value, client),
+    list: store.list.bind(store),
+    transactIdempotent: store.transactIdempotent.bind(store)
+  };
+}
+
 async function withStore(work){
   const store=await createPostgresStore({
     connectionString:process.env.POSTGRES_URL,
@@ -46,12 +57,13 @@ run("PostgreSQL real integration: journal survives a fresh store connection", as
     schema: process.env.TRADING_NOVA_DB_SCHEMA
   });
   const marker = `journal-restart-${randomUUID()}`;
+  const journalId = `journal-test-${randomUUID()}`;
   try {
     const api = createApi({
       market: {},
       stateFile: join(tmpdir(), `trading-nova-journal-${randomUUID()}.json`),
       executionStateFile: join(tmpdir(), `trading-nova-orders-${randomUUID()}.json`),
-      store: firstStore
+      store: journalScopedStore(firstStore, journalId)
     });
     const written = await api.addJournalEntry(JSON.stringify({text: marker, symbol: "BTCUSDT"}));
     assert.equal(written.status, 200, JSON.stringify(written.body));
@@ -70,7 +82,7 @@ run("PostgreSQL real integration: journal survives a fresh store connection", as
       market: {},
       stateFile: join(tmpdir(), `trading-nova-journal-recover-${randomUUID()}.json`),
       executionStateFile: join(tmpdir(), `trading-nova-orders-recover-${randomUUID()}.json`),
-      store: secondStore
+      store: journalScopedStore(secondStore, journalId)
     });
     const recovered = await recoveredApi.journal();
     assert.equal(recovered.status, 200);
