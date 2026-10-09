@@ -120,3 +120,47 @@ test("market cache capacity must be a positive integer", () => {
   assert.throws(() => createMarketService({maxCacheEntries: 0}), /maxCacheEntries/);
   assert.throws(() => createMarketService({maxCacheEntries: 1.5}), /maxCacheEntries/);
 });
+
+
+test("concurrent requests for the same market key share one upstream read", async () => {
+  let requestCount = 0;
+  let markStarted;
+  let releaseResponse;
+  const started = new Promise(resolve => { markStarted = resolve; });
+  const blockedResponse = new Promise(resolve => { releaseResponse = resolve; });
+  const fetchImpl = async (url) => {
+    const parsed = new URL(String(url));
+    if (!parsed.pathname.endsWith("/api/v3/ticker/24hr")) {
+      return {ok: false, status: 404, json: async () => ({})};
+    }
+    requestCount++;
+    markStarted();
+    return blockedResponse;
+  };
+
+  const market = createMarketService({fetchImpl, ttlMs: 10000});
+  const first = market.getTicker("AAA");
+  await started;
+  const second = market.getTicker("AAA");
+  releaseResponse({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      symbol: "AAA",
+      lastPrice: "10",
+      bidPrice: "9.99",
+      askPrice: "10.01",
+      highPrice: "11",
+      lowPrice: "9",
+      volume: "100",
+      quoteVolume: "1000",
+      priceChangePercent: "1"
+    })
+  });
+
+  const [one, two] = await Promise.all([first, second]);
+  assert.equal(requestCount, 1);
+  assert.equal(one.state, "ok");
+  assert.equal(two.state, "ok");
+  assert.equal(two.cached, true);
+});
