@@ -35,6 +35,20 @@ function num(v) {
   return Number.isFinite(v) ? v : null;
 }
 
+function unpackJournalSnapshot(value) {
+  if (!value) return null;
+  if (typeof value.payload === "string") {
+    try {
+      const parsed = JSON.parse(value.payload);
+      return parsed && typeof parsed === "object" && Array.isArray(parsed.entries) ? parsed : {invalid: true};
+    } catch {
+      return {invalid: true};
+    }
+  }
+  // Compatibility with snapshots written by the first PostgreSQL-backed draft.
+  return Array.isArray(value.entries) ? value : {invalid: true};
+}
+
 export function createApi({
   market,
   stateFile,
@@ -158,20 +172,22 @@ export function createApi({
       } catch {
         return fail(503, "unavailable", "journal-unavailable", "journal storage is temporarily unavailable");
       }
-      const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
+      const decoded = unpackJournalSnapshot(snapshot);
+      if (decoded?.invalid) return fail(503, "unavailable", "journal-invalid", "journal storage could not be verified");
+      const entries = Array.isArray(decoded?.entries) ? decoded.entries : [];
       const verified = entries.length === 0 || verifyJournal(entries);
       return ok({
-        state: snapshot ? "ok" : "empty",
+        state: decoded ? "ok" : "empty",
         entries: entries.slice(-MAX_JOURNAL_ENTRIES),
         total: entries.length,
         returned: Math.min(entries.length, MAX_JOURNAL_ENTRIES),
         verified,
         integrity: verified ? "verified" : "broken",
-        updatedAt: Number.isFinite(snapshot?.updatedAt) ? snapshot.updatedAt : null,
-        ageMs: Number.isFinite(snapshot?.updatedAt) ? Math.max(0, now() - snapshot.updatedAt) : null,
+        updatedAt: Number.isFinite(decoded?.updatedAt) ? decoded.updatedAt : null,
+        ageMs: Number.isFinite(decoded?.updatedAt) ? Math.max(0, now() - decoded.updatedAt) : null,
         note: !verified
           ? "WARNING: journal hash chain does NOT verify — treat this history as untrusted."
-          : snapshot
+          : decoded
             ? "PostgreSQL-backed hash-chained journal verified by src/journal/journal.js."
             : "No journal entries saved yet. " + paperNote
       });
@@ -409,11 +425,16 @@ export function createApi({
       if (store) {
         record = await store.withTransaction(async (client) => {
           await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", ["trading_nova:journal:main"]);
-          const snapshot = await store.get("paper-journal", "main", client);
+          const saved = await store.get("paper-journal", "main", client);
+          const snapshot = unpackJournalSnapshot(saved);
+          if (snapshot?.invalid) throw new Error("journal storage is invalid");
           const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
           if (entries.length > 0 && !verifyJournal(entries)) throw new Error("journal integrity check failed");
           record = appendJournalEntry(entries, entryData);
-          await store.put("paper-journal", "main", {version: 1, updatedAt: entryData.timestamp, entries}, client);
+          // Store the canonical serialized snapshot as text inside JSONB. JSONB
+          // reorders object keys, which would otherwise invalidate the legacy
+          // hash chain because its hashes intentionally preserve insertion order.
+          await store.put("paper-journal", "main", {payload: JSON.stringify({version: 1, updatedAt: entryData.timestamp, entries})}, client);
           return record;
         });
       } else {
