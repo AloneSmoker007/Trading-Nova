@@ -243,6 +243,7 @@ test("market cache freshness starts when the upstream response completes", async
   const first = await market.getTicker("AAA");
   assert.equal(first.state, "ok");
   assert.equal(first.ageMs, 0);
+  assert.equal(market.lastSuccessAt(), 1_250, "last-success timestamp starts after upstream completion");
 
   time += 120;
   const cached = await market.getTicker("AAA");
