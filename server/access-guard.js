@@ -7,21 +7,23 @@ const COOKIE = "nova_private_session";
 const SESSION_MS = 12 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 8;
-const attempts = new Map();
-const MAX_TRACKED_IPS = 10000;
-let loginChecks = 0;
+const SATURATED_LOGIN_STATE = Object.freeze({saturated: true});
+const DEFAULT_MAX_TRACKED_IPS = 10000;
 
-function getAttemptState(ip, now) {
-  loginChecks += 1;
-  if (loginChecks % 64 === 0 || attempts.size >= MAX_TRACKED_IPS) {
+function getAttemptState(attempts, ip, now, maxTrackedIps, checks) {
+  checks.count += 1;
+  if (checks.count % 64 === 0 || attempts.size >= maxTrackedIps) {
     for (const [key, state] of attempts) {
       if (now - state.start >= LOGIN_WINDOW_MS) attempts.delete(key);
     }
   }
-  if (!attempts.has(ip) && attempts.size >= MAX_TRACKED_IPS) {
-    attempts.delete(attempts.keys().next().value);
-  }
-  return attempts.get(ip);
+  const existing = attempts.get(ip);
+  if (existing) return existing;
+  // Do not evict an active IP: attacker-controlled key churn must not reset
+  // another client's failed-login counter. New IPs fail closed until capacity
+  // is freed by the normal window expiry or a successful login.
+  if (attempts.size >= maxTrackedIps) return SATURATED_LOGIN_STATE;
+  return undefined;
 }
 
 function equalText(a, b) {
@@ -68,7 +70,10 @@ export function validatePrivateAccessConfig({password, secret}) {
   }
 }
 
-export function createAccessGuard({password, secret, production = false, now = () => Date.now()} = {}) {
+export function createAccessGuard({password, secret, production = false, now = () => Date.now(), maxTrackedIps = DEFAULT_MAX_TRACKED_IPS} = {}) {
+  if (!Number.isSafeInteger(maxTrackedIps) || maxTrackedIps < 1) throw new RangeError("maxTrackedIps must be a positive safe integer");
+  const attempts = new Map();
+  const checks = {count: 0};
   const enabled = typeof password === "string" && password.length > 0
     && typeof secret === "string" && Buffer.byteLength(secret) >= 32;
   if (production && !enabled) validatePrivateAccessConfig({password, secret});
@@ -100,7 +105,8 @@ export function createAccessGuard({password, secret, production = false, now = (
       if (!hostMatchesOrigin(req)) { send(res, 403, ERROR_PAGE); return true; }
       const ip = req.socket.remoteAddress || "unknown";
       const t = now();
-      const state = getAttemptState(ip, t);
+      const state = getAttemptState(attempts, ip, t, maxTrackedIps, checks);
+      if (state === SATURATED_LOGIN_STATE) { send(res, 429, ERROR_PAGE, {"Retry-After": String(Math.ceil(LOGIN_WINDOW_MS / 1000))}); return true; }
       if (state && t - state.start < LOGIN_WINDOW_MS && state.count >= LOGIN_MAX_ATTEMPTS) {
         send(res, 429, ERROR_PAGE, {"Retry-After": String(Math.ceil((LOGIN_WINDOW_MS - (t - state.start)) / 1000))}); return true;
       }
