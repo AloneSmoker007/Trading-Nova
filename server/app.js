@@ -48,6 +48,7 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
     let url;try{url=new URL(req.url,"http://127.0.0.1");}catch{sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
     const pathname=url.pathname;
     if(await accessGuard.handle(req,res,pathname,readRequestBody))return;
+    if(pathname==="/api/auth/status") { if(method!=="GET"&&method!=="HEAD"){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:"GET, HEAD"});return;} sendJson(res,200,{ok:true,data:{privateAccessEnabled:accessGuard.enabled}},{omitBody:method==="HEAD"});return; }
     if(pathname.startsWith("/api/")){
       const route=matchApi(pathname);
       if(!route){sendJson(res,404,{ok:false,state:"error",error:{code:"not-found",message:"unknown API route"}},{omitBody:method==="HEAD"});return;}
