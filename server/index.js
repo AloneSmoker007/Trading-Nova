@@ -12,6 +12,7 @@
 import {readConfig} from "../src/config.js";
 import {createPostgresStore} from "../src/persistence/postgres.js";
 import {createNovaServer} from "./app.js";
+import {validatePrivateAccessConfig} from "./access-guard.js";
 
 function parsePort(raw) {
   if (raw === undefined || raw === "") return 7411;
@@ -28,9 +29,22 @@ function parsePort(raw) {
   return port;
 }
 
+const production = process.env.NODE_ENV === "production";
+if (production) {
+  try {
+    validatePrivateAccessConfig({password: process.env.NOVA_ACCESS_PASSWORD, secret: process.env.NOVA_SESSION_SECRET});
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+  if (!process.env.POSTGRES_URL) {
+    console.error("POSTGRES_URL is required in hosted production; local-file persistence is disabled.");
+    process.exit(1);
+  }
+}
 const config = readConfig();
 const port = parsePort(process.env.NOVA_PORT ?? process.env.PORT);
-const host = "127.0.0.1"; // loopback only — never bind a public interface
+const host = production ? "0.0.0.0" : "127.0.0.1";
 
 let store;
 let startupFailed = false;

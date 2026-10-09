@@ -4,6 +4,7 @@ import {randomUUID} from "node:crypto";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createPostgresStore} from "../src/persistence/postgres.js";
+import {createApi} from "../server/api.js";
 import {createPaperOrderService} from "../server/orders.js";
 
 const enabled = process.env.TRADING_NOVA_REAL_DB_TEST === "1";
@@ -13,6 +14,17 @@ const run = enabled ? test : test.skip;
 // database. The shared-Neon CI job sets TRADING_NOVA_SKIP_AUDIT_TEST=1 and
 // skips them the same way as the destructive audit-tamper test below.
 const auditRun = enabled && process.env.TRADING_NOVA_SKIP_AUDIT_TEST !== "1" ? test : test.skip;
+
+function journalScopedStore(store, journalId) {
+  return {
+    health: store.health.bind(store),
+    withTransaction: store.withTransaction.bind(store),
+    get: (namespace, id, client) => store.get(namespace, namespace === "paper-journal" ? journalId : id, client),
+    put: (namespace, id, value, client) => store.put(namespace, namespace === "paper-journal" ? journalId : id, value, client),
+    list: store.list.bind(store),
+    transactIdempotent: store.transactIdempotent.bind(store)
+  };
+}
 
 async function withStore(work){
   const store=await createPostgresStore({
@@ -37,6 +49,49 @@ run("PostgreSQL real integration: health, persistence and migration state", asyn
   assert.ok(migrations.rows.some((row)=>row.version==="001_initial.sql"));
   assert.ok(migrations.rows.some((row)=>row.version==="002_constraints.sql"));
 }));
+
+run("PostgreSQL real integration: journal survives a fresh store connection", async () => {
+  const firstStore = await createPostgresStore({
+    connectionString: process.env.POSTGRES_URL,
+    max: 2,
+    schema: process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  const marker = `journal-restart-${randomUUID()}`;
+  const journalId = `journal-test-${randomUUID()}`;
+  try {
+    const api = createApi({
+      market: {},
+      stateFile: join(tmpdir(), `trading-nova-journal-${randomUUID()}.json`),
+      executionStateFile: join(tmpdir(), `trading-nova-orders-${randomUUID()}.json`),
+      store: journalScopedStore(firstStore, journalId)
+    });
+    const written = await api.addJournalEntry(JSON.stringify({text: marker, symbol: "BTCUSDT"}));
+    assert.equal(written.status, 200, JSON.stringify(written.body));
+    assert.equal(written.body.data.record.entry.text, marker);
+  } finally {
+    await firstStore.pool.end();
+  }
+
+  const secondStore = await createPostgresStore({
+    connectionString: process.env.POSTGRES_URL,
+    max: 2,
+    schema: process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  try {
+    const recoveredApi = createApi({
+      market: {},
+      stateFile: join(tmpdir(), `trading-nova-journal-recover-${randomUUID()}.json`),
+      executionStateFile: join(tmpdir(), `trading-nova-orders-recover-${randomUUID()}.json`),
+      store: journalScopedStore(secondStore, journalId)
+    });
+    const recovered = await recoveredApi.journal();
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.body.data.verified, true);
+    assert.ok(recovered.body.data.entries.some((entry) => entry.entry.text === marker));
+  } finally {
+    await secondStore.pool.end();
+  }
+});
 
 run("PostgreSQL real integration: transaction rollback is durable", async()=>withStore(async store=>{
   const id=randomUUID();

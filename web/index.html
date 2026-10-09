@@ -20,6 +20,7 @@
       <div class="header-badges">
         <span class="badge badge-paper">PAPER / SHADOW ONLY</span>
         <span class="badge" id="header-gate-badge" data-state="ok">RISK GATE ACTIVE</span>
+        <button type="button" id="logout-btn" class="logout-button" hidden>Sign out</button>
       </div>
     </div>
   </header>
@@ -252,6 +253,27 @@
           </table>
         </div>
         <p class="panel-note" id="lab-note">Simulated with realistic fees (0.1%) & slippage (5 bps). Historical simulation only.</p>
+      </section>
+
+      <!-- Personal AI Trading Tutor -->
+      <section class="card tutor-card" aria-labelledby="tutor-title">
+        <div class="card-head">
+          <h2 id="tutor-title">Personal AI Trading Tutor</h2>
+          <span class="badge" id="tutor-badge" data-state="loading">PAPER ONLY</span>
+        </div>
+        <p class="panel-note">Roman Urdu mein sawal poochho: chart, indicators, risk, orders ya P/L samjho. Is version mein live internet/news research abhi enabled nahi. Tutor order place nahi kar sakta.</p>
+        <div id="tutor-messages" class="tutor-messages" role="log" aria-live="polite" aria-relevant="additions">
+          <p class="tutor-message tutor-assistant">Assalam-o-alaikum! Main tumhara trading tutor hoon. RSI, candles, risk ya kisi paper trade ke bare mein sawal poochho. Main uncertainty bhi explain karunga.</p>
+        </div>
+        <form id="tutor-form" class="tutor-form">
+          <label for="tutor-input">Tumhara sawal</label>
+          <textarea id="tutor-input" rows="3" maxlength="2000" placeholder="Misal: RSI 70 ka kya matlab hai aur trade fail kab ho sakti hai?" required></textarea>
+          <div class="tutor-actions">
+            <span class="muted">Max 2000 characters · AI advice only</span>
+            <button id="tutor-send-btn" type="submit">Ask Tutor</button>
+          </div>
+        </form>
+        <p class="panel-note" id="tutor-note" role="status" aria-live="polite">Gemini server configuration required. API key browser mein kabhi nahi jayegi.</p>
       </section>
 
       <!-- Human Brain & Journal -->

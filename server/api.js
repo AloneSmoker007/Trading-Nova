@@ -16,7 +16,8 @@
 import {healthSnapshot} from "../src/observability/health.js";
 import {runBacktestV2} from "../src/backtest/engine-v2.js";
 import {computeIndicators} from "./indicators.js";
-import {loadPaperState, appendJournalToFile} from "./state.js";
+import {loadPaperState, appendJournalToFile, MAX_JOURNAL_ENTRIES} from "./state.js";
+import {appendJournalEntry, verifyJournal} from "../src/journal/journal.js";
 import {createPaperOrderService} from "./orders.js";
 import {createStrategy, STRATEGY_DESCRIPTIONS} from "./strategies.js";
 import {computeAiCouncil} from "./ai.js";
@@ -32,6 +33,20 @@ const fail = (status, state, code, message, reason) => ({
 
 function num(v) {
   return Number.isFinite(v) ? v : null;
+}
+
+function unpackJournalSnapshot(value) {
+  if (!value) return null;
+  if (typeof value.payload === "string") {
+    try {
+      const parsed = JSON.parse(value.payload);
+      return parsed && typeof parsed === "object" && Array.isArray(parsed.entries) ? parsed : {invalid: true};
+    } catch {
+      return {invalid: true};
+    }
+  }
+  // Compatibility with snapshots written by the first PostgreSQL-backed draft.
+  return Array.isArray(value.entries) ? value : {invalid: true};
 }
 
 export function createApi({
@@ -150,6 +165,33 @@ export function createApi({
   }
 
   async function journal() {
+    if (store) {
+      let snapshot;
+      try {
+        snapshot = await store.get("paper-journal", "main");
+      } catch {
+        return fail(503, "unavailable", "journal-unavailable", "journal storage is temporarily unavailable");
+      }
+      const decoded = unpackJournalSnapshot(snapshot);
+      if (decoded?.invalid) return fail(503, "unavailable", "journal-invalid", "journal storage could not be verified");
+      const entries = Array.isArray(decoded?.entries) ? decoded.entries : [];
+      const verified = entries.length === 0 || verifyJournal(entries);
+      return ok({
+        state: decoded ? "ok" : "empty",
+        entries: entries.slice(-MAX_JOURNAL_ENTRIES),
+        total: entries.length,
+        returned: Math.min(entries.length, MAX_JOURNAL_ENTRIES),
+        verified,
+        integrity: verified ? "verified" : "broken",
+        updatedAt: Number.isFinite(decoded?.updatedAt) ? decoded.updatedAt : null,
+        ageMs: Number.isFinite(decoded?.updatedAt) ? Math.max(0, now() - decoded.updatedAt) : null,
+        note: !verified
+          ? "WARNING: journal hash chain does NOT verify — treat this history as untrusted."
+          : decoded
+            ? "PostgreSQL-backed hash-chained journal verified by src/journal/journal.js."
+            : "No journal entries saved yet. " + paperNote
+      });
+    }
     const s = await loadPaperState(stateFile, now());
     if (s.state === "error") return fail(500, "error", "paper-state-error", "paper state could not be read", s.reason);
     if (s.state === "empty") {
@@ -369,16 +411,39 @@ export function createApi({
       return fail(400, "error", "invalid-entry", "journal entry text is required");
     }
     try {
-      const record = await appendJournalToFile(stateFile, {
-        type: typeof parsed.type === "string" ? parsed.type : "thesis",
-        symbol: typeof parsed.symbol === "string" ? parsed.symbol.toUpperCase() : "GENERAL",
-        title: typeof parsed.title === "string" ? parsed.title : "User Entry",
+      const entryData = {
+        timestamp: now(),
+        type: typeof parsed.type === "string" ? parsed.type.slice(0, 40) : "thesis",
+        symbol: typeof parsed.symbol === "string" ? parsed.symbol.toUpperCase().slice(0, 24) : "GENERAL",
+        title: typeof parsed.title === "string" ? parsed.title.slice(0, 160) : "User Entry",
         text: parsed.text.trim(),
-        tags: Array.isArray(parsed.tags) ? parsed.tags : []
-      }, now());
-      return ok({state: "ok", record, note: "Journal entry hash-chained and appended."});
-    } catch {
-      return fail(500, "error", "journal-save-failed", "could not save journal entry");
+        tags: Array.isArray(parsed.tags)
+          ? parsed.tags.filter((tag) => typeof tag === "string").slice(0, 20).map((tag) => tag.slice(0, 40))
+          : []
+      };
+      let record;
+      if (store) {
+        record = await store.withTransaction(async (client) => {
+          await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", ["trading_nova:journal:main"]);
+          const saved = await store.get("paper-journal", "main", client);
+          const snapshot = unpackJournalSnapshot(saved);
+          if (snapshot?.invalid) throw new Error("journal storage is invalid");
+          const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
+          if (entries.length > 0 && !verifyJournal(entries)) throw new Error("journal integrity check failed");
+          record = appendJournalEntry(entries, entryData);
+          // Store the canonical serialized snapshot as text inside JSONB. JSONB
+          // reorders object keys, which would otherwise invalidate the legacy
+          // hash chain because its hashes intentionally preserve insertion order.
+          await store.put("paper-journal", "main", {payload: JSON.stringify({version: 1, updatedAt: entryData.timestamp, entries})}, client);
+          return record;
+        });
+      } else {
+        record = await appendJournalToFile(stateFile, {...entryData, timestamp: undefined}, entryData.timestamp);
+      }
+      return ok({state: "ok", record, note: store ? "PostgreSQL-backed journal entry hash-chained and appended." : "Journal entry hash-chained and appended."});
+    } catch (error) {
+      const reason = typeof error?.code === "string" && /^[A-Z0-9_]{1,16}$/.test(error.code) ? error.code : undefined;
+      return fail(500, "error", "journal-save-failed", "could not save journal entry safely", reason);
     }
   }
 
