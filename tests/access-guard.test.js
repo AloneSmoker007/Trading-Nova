@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {URLSearchParams} from "node:url";
 import {createAccessGuard, validatePrivateAccessConfig} from "../server/access-guard.js";
 
 const passphrase = ["test-only","strong","password"].join("-");
