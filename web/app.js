@@ -794,6 +794,26 @@
     });
   }
 
+  function configureLogout() {
+    var button = $("logout-btn");
+    if (!button) return;
+    api("/api/auth/status").then(function (result) {
+      var enabled = result.status === 200 && result.body && result.body.ok === true
+        && result.body.data && result.body.data.privateAccessEnabled === true;
+      button.hidden = !enabled;
+    }).catch(function () {
+      button.hidden = true;
+    });
+    button.addEventListener("click", function () {
+      button.disabled = true;
+      api("/api/auth/logout", {method: "POST"}).then(function () {
+        window.location.reload();
+      }).catch(function () {
+        button.disabled = false;
+      });
+    });
+  }
+
   function boot() {
     $("controls").addEventListener("submit", function (event) {
       event.preventDefault();
@@ -810,6 +830,7 @@
     $("order-form").addEventListener("submit", submitPaperOrder);
     $("journal-form").addEventListener("submit", submitJournalEntry);
     $("tutor-form").addEventListener("submit", submitTutorMessage);
+    configureLogout();
 
     setInterval(function () {
       if (!document.hidden && $("auto-input").checked) refreshAll();
