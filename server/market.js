@@ -38,6 +38,7 @@ export function createMarketService({
   }
   const provider = createCryptoProvider({fetchImpl, sources, now});
   const cache = new Map(); // insertion order is LRU order; key -> {data, at}
+  const inFlight = new Map(); // coalesce concurrent upstream reads for the same key
   let lastSuccessAt = null;
   let primarySuccessAt = null;
   let fallbackSuccessAt = null;
@@ -65,23 +66,39 @@ export function createMarketService({
       touch(key, hit);
       return {state: "ok", data: hit.data, stale: false, ageMs: t - hit.at, cached: true};
     }
-    let res;
+
+    const pending = inFlight.get(key);
+    if (pending) {
+      const shared = await pending;
+      return {...shared, cached: true};
+    }
+
+    const request = (async () => {
+      let res;
+      try {
+        res = await fetcher();
+      } catch {
+        res = {ok: false, reason: "network-error"};
+      }
+      if (res && res.ok === true) {
+        remember(key, {data: res.data, at: t});
+        lastSuccessAt = t;
+        return {state: "ok", data: res.data, stale: false, ageMs: 0, cached: false};
+      }
+      const reason = res && typeof res.reason === "string" ? res.reason : "unavailable";
+      if (hit && t - hit.at <= staleWindowMs) {
+        touch(key, hit);
+        return {state: "stale", data: hit.data, stale: true, ageMs: t - hit.at, cached: true, reason};
+      }
+      return {state: "unavailable", reason};
+    })();
+
+    inFlight.set(key, request);
     try {
-      res = await fetcher();
-    } catch {
-      res = {ok: false, reason: "network-error"};
+      return await request;
+    } finally {
+      if (inFlight.get(key) === request) inFlight.delete(key);
     }
-    if (res && res.ok === true) {
-      remember(key, {data: res.data, at: t});
-      lastSuccessAt = t;
-      return {state: "ok", data: res.data, stale: false, ageMs: 0, cached: false};
-    }
-    const reason = res && typeof res.reason === "string" ? res.reason : "unavailable";
-    if (hit && t - hit.at <= staleWindowMs) {
-      touch(key, hit);
-      return {state: "stale", data: hit.data, stale: true, ageMs: t - hit.at, cached: true, reason};
-    }
-    return {state: "unavailable", reason};
   }
 
   return {
