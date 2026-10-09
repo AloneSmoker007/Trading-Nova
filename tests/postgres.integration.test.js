@@ -54,7 +54,7 @@ run("PostgreSQL real integration: journal survives a fresh store connection", as
       store: firstStore
     });
     const written = await api.addJournalEntry(JSON.stringify({text: marker, symbol: "BTCUSDT"}));
-    assert.equal(written.status, 200);
+    assert.equal(written.status, 200, JSON.stringify(written.body));
     assert.equal(written.body.data.record.entry.text, marker);
   } finally {
     await firstStore.pool.end();
