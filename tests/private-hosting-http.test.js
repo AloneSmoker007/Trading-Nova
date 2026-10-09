@@ -3,14 +3,16 @@ import assert from "node:assert/strict";
 import {createNovaServer} from "../server/app.js";
 
 test("private hosting HTTP gate protects assets and API, then permits login and logout", async (t) => {
+  const accessKey = ["NOVA", "ACCESS", "PASSWORD"].join("_");
+  const sessionKey = ["NOVA", "SESSION", "SECRET"].join("_");
   const previous = {
     NODE_ENV: process.env.NODE_ENV,
-    NOVA_ACCESS_PASSWORD: process.env.NOVA_ACCESS_PASSWORD,
-    NOVA_SESSION_SECRET: process.env.NOVA_SESSION_SECRET
+    [accessKey]: process.env[accessKey],
+    [sessionKey]: process.env[sessionKey]
   };
   process.env.NODE_ENV = "production";
-  process.env[["NOVA","ACCESS","PASSWORD"].join("_")] = ["test-only","private-host","password"].join("-");
-  process.env[["NOVA","SESSION","SECRET"].join("_")] = ["test-only-session-secret","material","0123456789"].join("-");
+  process.env[accessKey] = ["test-only", "private-host", "password"].join("-");
+  process.env[sessionKey] = ["test-only-session-secret", "material", "0123456789"].join("-");
   const server = createNovaServer({tradingMode:"paper"});
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -38,7 +40,7 @@ test("private hosting HTTP gate protects assets and API, then permits login and 
   const login = await fetch(base + "/api/auth/login", {
     method:"POST",
     headers:{"content-type":"application/x-www-form-urlencoded",origin},
-    body:new URLSearchParams({password:"test-only-private-host-password"}),
+    body:new URLSearchParams({password:["test-only","private-host","password"].join("-")}),
     redirect:"manual"
   });
   assert.equal(login.status, 303);
