@@ -18,6 +18,7 @@ import {sourceHealth} from "../src/market-data/source-health.js";
 const DEFAULT_TTL_MS = 5000;             // serve from cache for 5s (protects the public upstream)
 const DEFAULT_STALE_WINDOW_MS = 300000;  // after upstream failure, serve stale for up to 5min
 const DEFAULT_MAX_CACHE_ENTRIES = 1000;  // hard memory bound for user-controlled symbol/cache keys
+const DEFAULT_MAX_IN_FLIGHT = 32;       // hard bound for simultaneous distinct upstream reads
 
 const SYMBOL_TO_COINGECKO_ID = Object.freeze({
   BTCUSDT: "bitcoin",
@@ -31,10 +32,14 @@ export function createMarketService({
   ttlMs = DEFAULT_TTL_MS,
   staleWindowMs = DEFAULT_STALE_WINDOW_MS,
   maxCacheEntries = DEFAULT_MAX_CACHE_ENTRIES,
+  maxInFlight = DEFAULT_MAX_IN_FLIGHT,
   sources
 } = {}) {
   if (!Number.isInteger(maxCacheEntries) || maxCacheEntries < 1) {
     throw new TypeError("maxCacheEntries must be a positive integer");
+  }
+  if (!Number.isInteger(maxInFlight) || maxInFlight < 1) {
+    throw new TypeError("maxInFlight must be a positive integer");
   }
   const provider = createCryptoProvider({fetchImpl, sources, now});
   const cache = new Map(); // insertion order is LRU order; key -> {data, at}
@@ -71,6 +76,16 @@ export function createMarketService({
     if (pending) {
       const shared = await pending;
       return {...shared, cached: true};
+    }
+
+    // Different cache keys cannot coalesce. Cap their simultaneous upstream
+    // work so a burst of unique symbols cannot grow inFlight without bound.
+    if (inFlight.size >= maxInFlight) {
+      if (hit && t - hit.at <= staleWindowMs) {
+        touch(key, hit);
+        return {state: "stale", data: hit.data, stale: true, ageMs: t - hit.at, cached: true, reason: "upstream-capacity"};
+      }
+      return {state: "unavailable", reason: "upstream-capacity"};
     }
 
     const request = (async () => {
@@ -161,4 +176,4 @@ export function createMarketService({
   };
 }
 
-export {DEFAULT_TTL_MS, DEFAULT_STALE_WINDOW_MS, DEFAULT_MAX_CACHE_ENTRIES};
+export {DEFAULT_TTL_MS, DEFAULT_STALE_WINDOW_MS, DEFAULT_MAX_CACHE_ENTRIES, DEFAULT_MAX_IN_FLIGHT};
