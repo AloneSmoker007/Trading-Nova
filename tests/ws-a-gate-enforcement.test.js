@@ -150,3 +150,17 @@ test("every engine order corresponds to a gate-evaluable order object (contract 
   assert.equal(fill.symbol, "BTCUSDT");
   assert.equal(fill.side, "BUY");
 });
+
+
+test("cloning a genuine gate artifact does not preserve execution authority", () => {
+  const ex = createPaperExecution();
+  const order = {symbol:"BTC",side:"BUY",quantity:1,price:100};
+  const verdict = verdictFor(order);
+  assert.equal(verdict.decision,"ALLOW");
+  // Same public fields and hashes, but not the exact object issued by the gate.
+  const clonedArtifact = {...verdict.artifact};
+  assert.deepEqual(clonedArtifact, verdict.artifact);
+  assert.throws(() => ex.submit({...PAPER_ORDER}, {gateArtifact:clonedArtifact}), /unknown or forged/);
+  // The original, issued artifact remains valid.
+  assert.equal(ex.submit({...PAPER_ORDER}, {gateArtifact:verdict.artifact}).status,"FILLED");
+});
