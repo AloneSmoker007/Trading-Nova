@@ -7,6 +7,7 @@ import {createApi} from "./api.js";
 import {readStatic} from "./static.js";
 import {TokenBucket} from "../src/security/rate-limit.js";
 import {createTradingTutor,validateInput} from "./tutor.js";
+import {createAccessGuard} from "./access-guard.js";
 
 const REPO_ROOT=join(dirname(fileURLToPath(import.meta.url)),"..");
 const MAX_URL_LENGTH=2048;
@@ -41,11 +42,12 @@ function matchApi(pathname){
 
 export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),stateFile=join(REPO_ROOT,"db","paper-state.json"),executionStateFile=join(REPO_ROOT,"db","paper-orders.json"),store,webRoot=join(REPO_ROOT,"web"),tradingMode="paper",log=null}={}){
   if(tradingMode!=="paper")throw new Error("Trading Nova web server is paper-only; non-paper modes are blocked.");
-  const market=createMarketService({fetchImpl,now});const startedAt=now();const api=createApi({market,stateFile,executionStateFile,store,now,tradingMode:"paper",startedAt});const orderLimiters=new Map();const tutorLimiters=new Map();const tutorChat=createTradingTutor({fetchImpl,now});
+  const market=createMarketService({fetchImpl,now});const startedAt=now();const api=createApi({market,stateFile,executionStateFile,store,now,tradingMode:"paper",startedAt});const orderLimiters=new Map();const tutorLimiters=new Map();const tutorChat=createTradingTutor({fetchImpl,now});const accessGuard=createAccessGuard({password:process.env.NOVA_ACCESS_PASSWORD,secret:process.env.NOVA_SESSION_SECRET,production:process.env.NODE_ENV==="production",now});
   const server=createServer(async(req,res)=>{const method=req.method||"GET";try{
     if(typeof req.url!=="string"||req.url.length===0||req.url.length>MAX_URL_LENGTH){sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
     let url;try{url=new URL(req.url,"http://127.0.0.1");}catch{sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
     const pathname=url.pathname;
+    if(await accessGuard.handle(req,res,pathname,readRequestBody))return;
     if(pathname.startsWith("/api/")){
       const route=matchApi(pathname);
       if(!route){sendJson(res,404,{ok:false,state:"error",error:{code:"not-found",message:"unknown API route"}},{omitBody:method==="HEAD"});return;}
