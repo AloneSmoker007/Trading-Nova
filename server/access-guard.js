@@ -62,12 +62,12 @@ export function createAccessGuard({password, secret, production = false, now = (
     const header = req.headers.cookie || "";
     const match = header.split(";").map((part) => part.trim()).find((part) => part.startsWith(COOKIE + "="));
     if (!match) return false;
-    let token;
-    try { token = decodeURIComponent(match.slice(COOKIE.length + 1)); } catch { return false; }
-    const dot = token.lastIndexOf(".");
+    let sessionCookieValue;
+    try { sessionCookieValue = decodeURIComponent(match.slice(COOKIE.length + 1)); } catch { return false; }
+    const dot = sessionCookieValue.lastIndexOf(".");
     if (dot < 1) return false;
-    const payload = token.slice(0, dot);
-    const supplied = token.slice(dot + 1);
+    const payload = sessionCookieValue.slice(0, dot);
+    const supplied = sessionCookieValue.slice(dot + 1);
     if (!equalText(supplied, sign(payload, secret))) return false;
     let session;
     try { session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")); } catch { return false; }
