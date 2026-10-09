@@ -19,10 +19,13 @@ test("bounded client limiter evicts the least-recently-used key at capacity", ()
 test("bounded client limiter prunes idle entries before evicting active ones", () => {
   let time = 1_000;
   const map = new Map();
-  const options = {now: () => time, capacity: 2, refillPerSecond: 1, maxEntries: 2, idleMs: 500};
+  const options = {now: () => time, capacity: 2, refillPerSecond: 1, maxEntries: 2, idleMs: 1_000};
   const active = getBoundedTokenBucket(map, "active", options);
+  time += 100;
   getBoundedTokenBucket(map, "idle", options);
-  time += 501;
+  time += 700;
+  active.consume();
+  time += 900;
   const next = getBoundedTokenBucket(map, "next", options);
   assert.equal(map.size, 2);
   assert.equal(map.has("idle"), false);
