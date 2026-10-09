@@ -164,3 +164,51 @@ test("concurrent requests for the same market key share one upstream read", asyn
   assert.equal(two.state, "ok");
   assert.equal(two.cached, true);
 });
+
+
+test("market service caps concurrent distinct upstream reads", async () => {
+  let requestCount = 0;
+  let markStarted;
+  let releaseResponse;
+  const started = new Promise(resolve => { markStarted = resolve; });
+  const blockedResponse = new Promise(resolve => { releaseResponse = resolve; });
+  const fetchImpl = async (url) => {
+    const parsed = new URL(String(url));
+    if (!parsed.pathname.endsWith("/api/v3/ticker/24hr")) {
+      return {ok: false, status: 404, json: async () => ({})};
+    }
+    requestCount++;
+    markStarted();
+    return blockedResponse;
+  };
+
+  const market = createMarketService({fetchImpl, ttlMs: 10000, maxInFlight: 1});
+  const first = market.getTicker("AAA");
+  await started;
+  const overflow = await market.getTicker("BBB");
+  assert.equal(overflow.state, "unavailable");
+  assert.equal(overflow.reason, "upstream-capacity");
+  assert.equal(requestCount, 1);
+
+  releaseResponse({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      symbol: "AAA",
+      lastPrice: "10",
+      bidPrice: "9.99",
+      askPrice: "10.01",
+      highPrice: "11",
+      lowPrice: "9",
+      volume: "100",
+      quoteVolume: "1000",
+      priceChangePercent: "1"
+    })
+  });
+  assert.equal((await first).state, "ok");
+});
+
+test("market service validates in-flight capacity", () => {
+  assert.throws(() => createMarketService({maxInFlight: 0}), /maxInFlight/);
+  assert.throws(() => createMarketService({maxInFlight: 1.25}), /maxInFlight/);
+});
