@@ -41,8 +41,9 @@ export function hashOrderPayload(order) {
 // engines must refuse any order without a matching, actually-issued artifact.
 
 const GATE_ARTIFACT_VERSION = 1;
-const issuedGateArtifacts = new Map();
-const GATE_ARTIFACT_LIMIT = 10000;
+// Weak keys bind authorization to the exact artifact object actually issued
+// by the gate, without retaining completed artifacts or imposing a churnable cap.
+const issuedGateArtifacts = new WeakMap();
 
 function issueGateArtifact({ orderHash, configHash }) {
   const artifact = Object.freeze({
@@ -52,12 +53,7 @@ function issueGateArtifact({ orderHash, configHash }) {
     configHash,
     issuedAt: Date.now()
   });
-  const key = orderHash + ":" + configHash;
-  if (issuedGateArtifacts.has(key)) return issuedGateArtifacts.get(key);
-  if (issuedGateArtifacts.size >= GATE_ARTIFACT_LIMIT) {
-    issuedGateArtifacts.delete(issuedGateArtifacts.keys().next().value);
-  }
-  issuedGateArtifacts.set(key, artifact);
+  issuedGateArtifacts.set(artifact, Object.freeze({orderHash, configHash}));
   return artifact;
 }
 
@@ -74,7 +70,7 @@ export function assertGateArtifact(artifact, order) {
   if (typeof artifact.configHash !== "string" || artifact.configHash.length === 0) {
     throw new Error("risk gate artifact invalid: config hash missing");
   }
-  const issued = issuedGateArtifacts.get(artifact.orderHash + ":" + artifact.configHash);
+  const issued = issuedGateArtifacts.get(artifact);
   if (!issued || issued.orderHash !== artifact.orderHash || issued.configHash !== artifact.configHash) {
     throw new Error("risk gate artifact invalid: unknown or forged artifact");
   }
