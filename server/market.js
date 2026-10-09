@@ -15,8 +15,9 @@ import {createCryptoProvider} from "../src/market-data/providers/crypto.js";
 import {assessFreshness} from "../src/market-data/quality.js";
 import {sourceHealth} from "../src/market-data/source-health.js";
 
-const DEFAULT_TTL_MS = 5000;          // serve from cache for 5s (protects the public upstream)
-const DEFAULT_STALE_WINDOW_MS = 300000; // after upstream failure, serve stale for up to 5min
+const DEFAULT_TTL_MS = 5000;             // serve from cache for 5s (protects the public upstream)
+const DEFAULT_STALE_WINDOW_MS = 300000;  // after upstream failure, serve stale for up to 5min
+const DEFAULT_MAX_CACHE_ENTRIES = 1000;  // hard memory bound for user-controlled symbol/cache keys
 
 const SYMBOL_TO_COINGECKO_ID = Object.freeze({
   BTCUSDT: "bitcoin",
@@ -29,18 +30,39 @@ export function createMarketService({
   now = () => Date.now(),
   ttlMs = DEFAULT_TTL_MS,
   staleWindowMs = DEFAULT_STALE_WINDOW_MS,
+  maxCacheEntries = DEFAULT_MAX_CACHE_ENTRIES,
   sources
 } = {}) {
+  if (!Number.isInteger(maxCacheEntries) || maxCacheEntries < 1) {
+    throw new TypeError("maxCacheEntries must be a positive integer");
+  }
   const provider = createCryptoProvider({fetchImpl, sources, now});
-  const cache = new Map(); // key -> {data, at}
+  const cache = new Map(); // insertion order is LRU order; key -> {data, at}
   let lastSuccessAt = null;
   let primarySuccessAt = null;
   let fallbackSuccessAt = null;
+
+  function touch(key, value) {
+    cache.delete(key);
+    cache.set(key, value);
+  }
+
+  function remember(key, value) {
+    // Evict exactly the least-recently-used entry before adding a new key.
+    // This is a data cache (not a rate limiter): eviction only causes a refetch;
+    // it cannot reset security state or alter trading/risk decisions.
+    if (!cache.has(key) && cache.size >= maxCacheEntries) {
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey !== undefined) cache.delete(oldestKey);
+    }
+    touch(key, value);
+  }
 
   async function read(key, fetcher) {
     const t = now();
     const hit = cache.get(key);
     if (hit && t - hit.at <= ttlMs) {
+      touch(key, hit);
       return {state: "ok", data: hit.data, stale: false, ageMs: t - hit.at, cached: true};
     }
     let res;
@@ -50,12 +72,13 @@ export function createMarketService({
       res = {ok: false, reason: "network-error"};
     }
     if (res && res.ok === true) {
-      cache.set(key, {data: res.data, at: t});
+      remember(key, {data: res.data, at: t});
       lastSuccessAt = t;
       return {state: "ok", data: res.data, stale: false, ageMs: 0, cached: false};
     }
     const reason = res && typeof res.reason === "string" ? res.reason : "unavailable";
     if (hit && t - hit.at <= staleWindowMs) {
+      touch(key, hit);
       return {state: "stale", data: hit.data, stale: true, ageMs: t - hit.at, cached: true, reason};
     }
     return {state: "unavailable", reason};
@@ -121,4 +144,4 @@ export function createMarketService({
   };
 }
 
-export {DEFAULT_TTL_MS, DEFAULT_STALE_WINDOW_MS};
+export {DEFAULT_TTL_MS, DEFAULT_STALE_WINDOW_MS, DEFAULT_MAX_CACHE_ENTRIES};
