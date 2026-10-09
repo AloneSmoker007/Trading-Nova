@@ -28,7 +28,7 @@ The server refuses production startup if the access password, session secret, or
 
 1. Run the full GitHub Actions suite on this branch and resolve failures.
 2. Verify the Neon connection, migrations, and persistence across a restart using a non-production test account/data set.
-3. Audit every persisted feature. The current journal snapshot code still uses the local state file, so journal persistence across a free host restart is **not yet certified** even though paper-order storage can use PostgreSQL. Do not claim all data is durable until that path is migrated and tested.
+3. With `POSTGRES_URL` configured, journal entries now use the PostgreSQL `paper-journal` state record and verify the hash chain before appending. Local non-database mode still uses the local state file. The suite includes a real-PostgreSQL recovery test that reconnects with a fresh store; confirm that test passes on the current PR before deployment. Do not treat this as a substitute for a production backup/restore drill.
 4. Configure runtime secrets in the hosting dashboard; never add their values to GitHub files, issues, logs, or screenshots.
 5. Confirm unauthenticated requests to both `/` and sensitive API routes are blocked before sharing the URL.
 
