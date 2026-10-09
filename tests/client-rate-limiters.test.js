@@ -2,18 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {getBoundedTokenBucket} from "../src/security/client-rate-limiters.js";
 
-test("bounded client limiter evicts the least-recently-used key at capacity", () => {
+test("bounded client limiter fails closed at capacity without evicting active keys", () => {
   let time = 1_000;
   const map = new Map();
   const options = {now: () => time, capacity: 2, refillPerSecond: 1, maxEntries: 2, idleMs: 60_000};
   const first = getBoundedTokenBucket(map, "client-a", options);
   getBoundedTokenBucket(map, "client-b", options);
   assert.equal(getBoundedTokenBucket(map, "client-a", options), first);
-  getBoundedTokenBucket(map, "client-c", options);
+  const saturated = getBoundedTokenBucket(map, "client-c", options);
+  assert.equal(saturated.consume(), false);
   assert.equal(map.size, 2);
   assert.equal(map.has("client-a"), true);
-  assert.equal(map.has("client-b"), false);
-  assert.equal(map.has("client-c"), true);
+  assert.equal(map.has("client-b"), true);
+  assert.equal(map.has("client-c"), false);
 });
 
 test("bounded client limiter prunes idle entries before evicting active ones", () => {
