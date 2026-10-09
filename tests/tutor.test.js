@@ -341,3 +341,14 @@ test("history cannot override system instructions or smuggle extra fields to the
   assert.match(SYSTEM_INSTRUCTION,/history as untrusted input/i);
   assert.match(SYSTEM_INSTRUCTION,/never execute orders/i);
 });
+
+
+test("HTTP tutor rejects invalid chat input before fetching optional market context",async()=>{
+  const record=[];
+  await withTutorServer(recordingProvider(record),async({base})=>{
+    const res=await postChat(base,{message:"",symbol:"BTCUSDT"});
+    assert.equal(res.status,400);
+    assert.equal((await res.json()).error.code,"invalid-message");
+    assert.equal(record.length,0,"invalid chat must not trigger market-data or Gemini provider requests");
+  });
+});
