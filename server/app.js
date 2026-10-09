@@ -57,6 +57,13 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
         let input;try{input=JSON.parse(request.body||"");}catch{sendJson(res,400,{ok:false,state:"error",error:{code:"invalid-json",message:"request body must be valid JSON"}});return;}
         // Validate before fetching optional market context so malformed chat requests cannot spend provider quota.
         const validated=validateInput(input);if(!validated.ok){sendJson(res,400,{ok:false,state:"error",error:{code:validated.code,message:validated.message}});return;}
+        // Fail closed on tutor configuration before spending any market-data quota.
+        // Keep this guard aligned with createTradingTutor configuration validation.
+        const configuredKey=process.env.GEMINI_API_KEY;
+        const configuredModel=process.env.GEMINI_MODEL;
+        if(typeof configuredKey!=="string"||!configuredKey.trim()||(configuredModel!==undefined&&!/^[A-Za-z0-9._-]{1,80}$/.test(configuredModel))){
+          const out=await tutorChat({...input,message:validated.message,history:input.history??[]},null);sendJson(res,out.status,out.body);return;
+        }
         let context=null;const symbol=typeof input?.symbol==="string"?input.symbol.trim().toUpperCase():"";if(/^[A-Z0-9]{2,24}$/.test(symbol)){try{const quote=await market.getTicker(symbol);if(quote?.data){context={symbol,marketState:quote.state,stale:Boolean(quote.stale),ageMs:Number.isFinite(quote.ageMs)?quote.ageMs:null,ticker:{last:quote.data.last,bid:quote.data.bid,ask:quote.data.ask,changePct24h:quote.data.changePct24h,quoteVolume24h:quote.data.quoteVolume24h}};}}catch{context={symbol,marketState:"unavailable",stale:true};}}
         const out=await tutorChat({...input,message:validated.message,history:input.history??[]},context);sendJson(res,out.status,out.body);return;
       }
