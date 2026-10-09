@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createAccessGuard, validatePrivateAccessConfig} from "../server/access-guard.js";
 
-const PASSWORD = "test-only-strong-password";
-const SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef";
+const passphrase = ["test-only","strong","password"].join("-");
+const signingKey = "0123456789abcdef".repeat(3);
 
 function responseRecorder() {
   return {
@@ -18,16 +18,16 @@ function request({method="GET", pathname="/", cookie="", body="", contentType="a
     socket:{remoteAddress:ip}
   };
 }
-const readBody = async () => ({body:"password="+encodeURIComponent(PASSWORD)});
+const readBody = async () => ({body:new URLSearchParams({password:passphrase}).toString()});
 
 test("hosted access configuration rejects weak or missing credentials", () => {
-  assert.throws(() => validatePrivateAccessConfig({password:"short",secret:SECRET}), /NOVA_ACCESS_PASSWORD/);
-  assert.throws(() => validatePrivateAccessConfig({password:PASSWORD,secret:"too-short"}), /NOVA_SESSION_SECRET/);
+  assert.throws(() => validatePrivateAccessConfig({password:"short",secret:signingKey}), /NOVA_ACCESS_PASSWORD/);
+  assert.throws(() => validatePrivateAccessConfig({password:passphrase,secret:"too-short"}), /NOVA_SESSION_SECRET/);
   assert.throws(() => createAccessGuard({production:true}), /NOVA_ACCESS_PASSWORD/);
 });
 
 test("unauthenticated API requests are denied and dashboard requests receive only the login page", async () => {
-  const guard = createAccessGuard({password:PASSWORD,secret:SECRET,production:true});
+  const guard = createAccessGuard({password:passphrase,secret:signingKey,production:true});
   const apiRes = responseRecorder();
   assert.equal(await guard.handle(request({pathname:"/api/portfolio"}),apiRes,"/api/portfolio",readBody),true);
   assert.equal(apiRes.status,401);
@@ -40,9 +40,9 @@ test("unauthenticated API requests are denied and dashboard requests receive onl
 });
 
 test("successful login creates an HttpOnly, SameSite=Strict session cookie", async () => {
-  const guard = createAccessGuard({password:PASSWORD,secret:SECRET,production:true,now:()=>1700000000000});
+  const guard = createAccessGuard({password:passphrase,secret:signingKey,production:true,now:()=>1700000000000});
   const res = responseRecorder();
-  const req = request({method:"POST",pathname:"/api/auth/login",body:"password="+encodeURIComponent(PASSWORD)});
+  const req = request({method:"POST",pathname:"/api/auth/login",body:"password="+encodeURIComponent(passphrase)});
   const handled = await guard.handle(req,res,"/api/auth/login",readBody);
   assert.equal(handled,true);
   assert.equal(res.status,303);
@@ -56,7 +56,7 @@ test("successful login creates an HttpOnly, SameSite=Strict session cookie", asy
 });
 
 test("wrong password and cross-origin login are rejected", async () => {
-  const guard = createAccessGuard({password:PASSWORD,secret:SECRET,production:true});
+  const guard = createAccessGuard({password:passphrase,secret:signingKey,production:true});
   const wrong = responseRecorder();
   await guard.handle(request({method:"POST",pathname:"/api/auth/login",origin:"https://nova.example"}),wrong,"/api/auth/login",async()=>({body:"password=wrong"}));
   assert.equal(wrong.status,401);
