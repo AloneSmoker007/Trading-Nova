@@ -42,7 +42,7 @@ test("unauthenticated API requests are denied and dashboard requests receive onl
 test("successful login creates an HttpOnly, SameSite=Strict session cookie", async () => {
   const guard = createAccessGuard({password:passphrase,secret:signingKey,production:true,now:()=>1700000000000});
   const res = responseRecorder();
-  const req = request({method:"POST",pathname:"/api/auth/login",body:"password="+encodeURIComponent(passphrase)});
+  const req = request({method:"POST",pathname:"/api/auth/login",body:new URLSearchParams({password:passphrase}).toString()});
   const handled = await guard.handle(req,res,"/api/auth/login",readBody);
   assert.equal(handled,true);
   assert.equal(res.status,303);
