@@ -67,6 +67,8 @@ main, .site-header, .paper-banner, .site-footer {
   align-items: center;
   gap: 8px;
 }
+.logout-button { padding: 6px 10px; font-size: 12px; }
+.logout-button[hidden] { display: none !important; }
 h1 { margin: 0 0 2px; font-size: 28px; font-weight: 800; tracking: -0.02em; }
 h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .tagline { margin: 0; color: var(--muted); font-size: 14px; }
