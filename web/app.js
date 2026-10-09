@@ -398,7 +398,8 @@
       var body = result.body;
       if (result.status === 200 && body && body.ok === true && Array.isArray(body.data?.fills)) {
         var fills = body.data.fills;
-        setBadge("orders-badge", fills.length ? "ok" : "empty", fills.length ? "RECONCILED (" + fills.length + ")" : "NO FILLS");
+        var totalOrders = Number.isSafeInteger(body.data.total) ? body.data.total : fills.length;
+        setBadge("orders-badge", totalOrders ? "ok" : "empty", totalOrders ? "RECONCILED (" + totalOrders + ")" : "NO FILLS");
         fills.slice(0, 10).forEach(function (f) {
           var tr = el("tr");
           tr.appendChild(el("td", null, fmtTime(f.timestamp)));
