@@ -639,8 +639,10 @@
     var form = $("order-form");
     orderSubmissionInProgress = true;
     form.setAttribute("aria-busy", "true");
-    Array.prototype.forEach.call(form.querySelectorAll("input, select, button"), function (control) {
+    var disabledControls = Array.prototype.map.call(form.querySelectorAll("input, select, button"), function (control) {
+      var wasDisabled = control.disabled;
       control.disabled = true;
+      return {control: control, wasDisabled: wasDisabled};
     });
 
     setBadge("order-badge", "loading", "CHECKING GATE");
@@ -687,8 +689,8 @@
     }).finally(function () {
       orderSubmissionInProgress = false;
       form.setAttribute("aria-busy", "false");
-      Array.prototype.forEach.call(form.querySelectorAll("input, select, button"), function (control) {
-        control.disabled = false;
+      disabledControls.forEach(function (entry) {
+        entry.control.disabled = entry.wasDisabled;
       });
     });
   }
