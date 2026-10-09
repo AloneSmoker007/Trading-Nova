@@ -62,7 +62,8 @@ export function createAccessGuard({password, secret, production = false, now = (
     const header = req.headers.cookie || "";
     const match = header.split(";").map((part) => part.trim()).find((part) => part.startsWith(COOKIE + "="));
     if (!match) return false;
-    const token = decodeURIComponent(match.slice(COOKIE.length + 1));
+    let token;
+    try { token = decodeURIComponent(match.slice(COOKIE.length + 1)); } catch { return false; }
     const dot = token.lastIndexOf(".");
     if (dot < 1) return false;
     const payload = token.slice(0, dot);
