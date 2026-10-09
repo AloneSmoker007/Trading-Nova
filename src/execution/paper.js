@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { assertGateArtifact, hashOrderPayload, normalizeSide, normalizeSymbol } from "../risk/gate.js";
 
-const IDEMPOTENCY_CACHE_LIMIT = 10000;
+const DEFAULT_MAX_ORDERS = 10000;
 
-export function createPaperExecution() {
+export function createPaperExecution({maxOrders = DEFAULT_MAX_ORDERS} = {}) {
+  if (!Number.isSafeInteger(maxOrders) || maxOrders < 1) throw new RangeError("maxOrders must be a positive safe integer");
   const orders=new Map(), idempotency=new Map();
   return {
     submit(order, context = {}) {
@@ -18,16 +19,20 @@ export function createPaperExecution() {
         if (record.payloadHash !== payloadHash) throw new Error("idempotency_key_reuse_with_different_payload");
         return Object.freeze({...record.fill});
       }
+      // Bound both the in-memory fill history and replay-key registry. Never
+      // evict an idempotency key: doing so could let a delayed retry execute a
+      // previously completed order a second time. Existing replays are handled
+      // above even when the engine is at capacity.
+      if (orders.size >= maxOrders || (order.idempotencyKey && idempotency.size >= maxOrders)) {
+        throw new Error("paper_execution_capacity_reached");
+      }
       // RISK GATE ENFORCEMENT: no execution without a genuine evaluateRiskGate
       // ALLOW artifact bound to exactly this order payload + approved config.
       assertGateArtifact(context.gateArtifact, normalized);
       const id=randomUUID();
       const fill={id,orderId:id,tier:"paper",symbol:normalized.symbol,side:normalized.side,quantity:order.quantity,price:order.price,status:"FILLED",filledAt:Date.now()};
       orders.set(id,fill);
-      if (order.idempotencyKey) {
-        if (idempotency.size >= IDEMPOTENCY_CACHE_LIMIT) idempotency.delete(idempotency.keys().next().value);
-        idempotency.set(order.idempotencyKey,{fill,payloadHash});
-      }
+      if (order.idempotencyKey) idempotency.set(order.idempotencyKey,{fill,payloadHash});
       return Object.freeze({...fill});
     },
     get(id) { const fill=orders.get(id); return fill ? Object.freeze({...fill}) : null; }
