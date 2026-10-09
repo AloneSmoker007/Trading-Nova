@@ -323,10 +323,19 @@ export function createApi({
     return ok({state: "ok", council, note: "Advisory AI multi-brain research council. Cannot bypass Risk Gate."});
   }
 
-  async function orders() {
-    const res = await paperOrderService.getOrders();
+  async function orders(query) {
+    const rawLimit = query?.get("limit");
+    const rawOffset = query?.get("offset");
+    const limit = rawLimit === null || rawLimit === undefined || rawLimit === "" ? 100 : Number(rawLimit);
+    const offset = rawOffset === null || rawOffset === undefined || rawOffset === "" ? 0 : Number(rawOffset);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200
+        || !Number.isSafeInteger(offset) || offset < 0 || offset > 1000000) {
+      return fail(400, "error", "invalid-order-page", "limit must be 1-200 and offset must be a non-negative integer");
+    }
+    const res = await paperOrderService.getOrders({limit, offset});
     if (res.state === "error") return fail(500, "error", "paper-orders-error", "could not fetch orders");
-    return ok({state: "ok", fills: res.fills, total: res.total, note: paperNote});
+    return ok({state: "ok", fills: res.fills, total: res.total, limit: res.limit,
+      offset: res.offset, hasMore: res.hasMore, note: paperNote});
   }
 
   async function riskStatus() {
