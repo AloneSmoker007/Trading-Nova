@@ -35,9 +35,10 @@ test("tampered journal is reported and cannot be appended to", async () => {
   const store = memoryStore();
   const instance = api(store);
   await instance.addJournalEntry(JSON.stringify({text: "Original"}));
-  const snapshot = await store.get("paper-journal", "main");
+  const saved = await store.get("paper-journal", "main");
+  const snapshot = JSON.parse(saved.payload);
   snapshot.entries[0].entry.text = "Tampered";
-  await store.put("paper-journal", "main", snapshot);
+  await store.put("paper-journal", "main", {payload: JSON.stringify(snapshot)});
   const read = await instance.journal();
   assert.equal(read.body.data.verified, false);
   assert.equal(read.body.data.integrity, "broken");
