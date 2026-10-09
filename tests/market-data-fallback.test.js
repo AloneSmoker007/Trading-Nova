@@ -77,3 +77,46 @@ test("market service returns primary Binance ticker when available", async () =>
   const primarySource = health.find(s => s.name === "binance-primary");
   assert.equal(primarySource.status, "healthy");
 });
+
+
+test("market cache stays bounded and evicts the least-recently-used key", async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    const parsed = new URL(String(url));
+    if (parsed.pathname.endsWith("/api/v3/ticker/24hr")) {
+      const symbol = parsed.searchParams.get("symbol");
+      requests.push(symbol);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          symbol,
+          lastPrice: "10",
+          bidPrice: "9.99",
+          askPrice: "10.01",
+          highPrice: "11",
+          lowPrice: "9",
+          volume: "100",
+          quoteVolume: "1000",
+          priceChangePercent: "1"
+        })
+      };
+    }
+    return {ok: false, status: 404, json: async () => ({})};
+  };
+
+  const market = createMarketService({fetchImpl, ttlMs: 10000, maxCacheEntries: 2});
+  await market.getTicker("AAA");
+  await market.getTicker("BBB");
+  const recent = await market.getTicker("AAA");
+  assert.equal(recent.cached, true);
+  await market.getTicker("CCC"); // evicts BBB, not the recently-used AAA
+  await market.getTicker("BBB");
+
+  assert.deepEqual(requests, ["AAA", "BBB", "CCC", "BBB"]);
+});
+
+test("market cache capacity must be a positive integer", () => {
+  assert.throws(() => createMarketService({maxCacheEntries: 0}), /maxCacheEntries/);
+  assert.throws(() => createMarketService({maxCacheEntries: 1.5}), /maxCacheEntries/);
+});
