@@ -150,3 +150,24 @@ test("every engine order corresponds to a gate-evaluable order object (contract 
   assert.equal(fill.symbol, "BTCUSDT");
   assert.equal(fill.side, "BUY");
 });
+
+
+test("in-memory paper execution fails closed at capacity without evicting replay keys", () => {
+  const ex = createPaperExecution({maxOrders:1});
+  const order = {...PAPER_ORDER, idempotencyKey:"capacity-first"};
+  const verdict = verdictFor({symbol:order.symbol,side:order.side,quantity:order.quantity,price:order.price});
+  const first = ex.submit(order, {gateArtifact:verdict.artifact});
+
+  // Replays remain safe and available at capacity.
+  assert.deepEqual(ex.submit(order, {}), first);
+
+  const secondOrder = {...PAPER_ORDER, idempotencyKey:"capacity-second", symbol:"ETH"};
+  const secondVerdict = verdictFor({symbol:secondOrder.symbol,side:secondOrder.side,quantity:secondOrder.quantity,price:secondOrder.price});
+  assert.throws(() => ex.submit(secondOrder, {gateArtifact:secondVerdict.artifact}), /paper_execution_capacity_reached/);
+  assert.deepEqual(ex.get(first.id), first);
+});
+
+test("in-memory paper execution capacity must be a positive safe integer", () => {
+  assert.throws(() => createPaperExecution({maxOrders:0}), /maxOrders/);
+  assert.throws(() => createPaperExecution({maxOrders:1.5}), /maxOrders/);
+});
