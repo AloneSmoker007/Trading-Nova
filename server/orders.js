@@ -354,11 +354,22 @@ export function createPaperOrderService({
     });
   }
 
-  async function getOrders() {
+  async function getOrders({limit = 100, offset = 0} = {}) {
     return serialize(async () => {
       if (!(await initialize())) return {state: "error", reason: storeError};
-      const orderFills = (await stateValues("paper-fills")).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      return {state: "ok", fills: orderFills, total: orderFills.length};
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200
+          || !Number.isSafeInteger(offset) || offset < 0) {
+        return {state: "error", reason: "invalid-order-page"};
+      }
+      if (typeof store.listPage === "function") {
+        const page = await store.listPage("paper-fills", {limit, offset});
+        return {state: "ok", fills: page.items, total: page.total, limit, offset,
+          hasMore: offset + page.items.length < page.total};
+      }
+      const orderFills = (await stateValues("paper-fills"))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      return {state: "ok", fills: orderFills.slice(offset, offset + limit), total: orderFills.length,
+        limit, offset, hasMore: offset + limit < orderFills.length};
     });
   }
 
