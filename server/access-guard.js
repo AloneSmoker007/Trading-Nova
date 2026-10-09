@@ -8,6 +8,21 @@ const SESSION_MS = 12 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 8;
 const attempts = new Map();
+const MAX_TRACKED_IPS = 10000;
+let loginChecks = 0;
+
+function getAttemptState(ip, now) {
+  loginChecks += 1;
+  if (loginChecks % 64 === 0 || attempts.size >= MAX_TRACKED_IPS) {
+    for (const [key, state] of attempts) {
+      if (now - state.start >= LOGIN_WINDOW_MS) attempts.delete(key);
+    }
+  }
+  if (!attempts.has(ip) && attempts.size >= MAX_TRACKED_IPS) {
+    attempts.delete(attempts.keys().next().value);
+  }
+  return attempts.get(ip);
+}
 
 function equalText(a, b) {
   const left = createHash("sha256").update(String(a)).digest();
@@ -85,7 +100,7 @@ export function createAccessGuard({password, secret, production = false, now = (
       if (!hostMatchesOrigin(req)) { send(res, 403, ERROR_PAGE); return true; }
       const ip = req.socket.remoteAddress || "unknown";
       const t = now();
-      const state = attempts.get(ip);
+      const state = getAttemptState(ip, t);
       if (state && t - state.start < LOGIN_WINDOW_MS && state.count >= LOGIN_MAX_ATTEMPTS) {
         send(res, 429, ERROR_PAGE, {"Retry-After": String(Math.ceil((LOGIN_WINDOW_MS - (t - state.start)) / 1000))}); return true;
       }
