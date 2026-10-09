@@ -386,3 +386,26 @@ test("tutor hard deadline returns sanitized 503 when provider ignores AbortSigna
   assert.equal(serialized.includes(sentinel),false);
   assert.equal(serialized.includes("stack"),false);
 });
+
+test("tutor hard deadline also bounds response.json()", async () => {
+  const started = Date.now();
+  let signalSeen;
+  const tutor = createTradingTutor({
+    env: providerEnv(),
+    timeoutMs: 25,
+    fetchImpl: (_url, options) => {
+      signalSeen = options.signal;
+      // Fetch returns promptly, but the body reader never settles. The deadline
+      // must cover response.json() too, not only the initial HTTP request.
+      return Promise.resolve({ok: true, json: () => new Promise(() => {})});
+    }
+  });
+
+  const result = await tutor({message: "RSI kya hai?"});
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error.code, "tutor-provider-unavailable");
+  assert.ok(Date.now() - started < 1000, "deadline must bound a stalled response body");
+  assert.equal(signalSeen.aborted, true);
+  assert.equal(JSON.stringify(result).includes("stack"), false);
+});
+
