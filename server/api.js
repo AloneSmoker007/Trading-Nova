@@ -441,8 +441,9 @@ export function createApi({
         record = await appendJournalToFile(stateFile, {...entryData, timestamp: undefined}, entryData.timestamp);
       }
       return ok({state: "ok", record, note: store ? "PostgreSQL-backed journal entry hash-chained and appended." : "Journal entry hash-chained and appended."});
-    } catch {
-      return fail(500, "error", "journal-save-failed", "could not save journal entry safely");
+    } catch (error) {
+      const reason = typeof error?.code === "string" && /^[A-Z0-9_]{1,16}$/.test(error.code) ? error.code : undefined;
+      return fail(500, "error", "journal-save-failed", "could not save journal entry safely", reason);
     }
   }
 
