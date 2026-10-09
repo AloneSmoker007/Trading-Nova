@@ -2,6 +2,8 @@ import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
 
 const nodeGlobals = {
+  AbortController: "readonly",
+  Buffer: "readonly",
   console: "readonly",
   process: "readonly",
   structuredClone: "readonly",
@@ -16,7 +18,7 @@ const nodeGlobals = {
 
 export default defineConfig([
   {
-    files: ["src/**/*.js", "scripts/**/*.js", "tests/**/*.js", "eslint.config.js"],
+    files: ["src/**/*.js", "server/**/*.js", "scripts/**/*.js", "tests/**/*.js", "eslint.config.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
