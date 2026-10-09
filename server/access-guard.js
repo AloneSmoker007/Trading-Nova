@@ -1,6 +1,7 @@
 // server/access-guard.js — single-owner password gate for private hosted deployments.
 // The password and signing secret must come from the host's environment settings, never source control.
 import {createHmac, timingSafeEqual, createHash} from "node:crypto";
+import {URLSearchParams} from "node:url";
 
 const COOKIE = "nova_private_session";
 const SESSION_MS = 12 * 60 * 60 * 1000;
