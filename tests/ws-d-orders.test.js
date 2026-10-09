@@ -65,6 +65,22 @@ async function post(base, body, raw = false) {
   return {status: response.status, body: await response.json()};
 }
 
+async function postWithTimeout(base, body, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(base + "/api/paper/orders", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    return {status: response.status, body: await response.json()};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 test("valid paper order requires ALLOW and persists a reconciled fill", async () => {
   await withServer(async ({srv}) => {
     const res = await post(srv.base, validOrder());
@@ -79,31 +95,27 @@ test("valid paper order requires ALLOW and persists a reconciled fill", async ()
 });
 
 test("unsupported non-market paper order types fail closed without creating fills", async () => {
+  const store = asyncStore();
   await withServer(async ({srv}) => {
     for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
-      const result = await post(srv.base, {...validOrder("unsupported-" + type), type});
+      const result = await postWithTimeout(srv.base, {...validOrder("unsupported-" + type), type});
       assert.equal(result.status, 400, type);
       assert.equal(result.body.error.code, "unsupported-order-type", type);
     }
-
-    const history = await fetch(srv.base + "/api/orders").then((res) => res.json());
-    assert.equal(history.data.total, 0);
-    assert.deepEqual(history.data.fills, []);
-  });
+    assert.deepEqual(await store.list("paper-fills"), []);
+  }, {store});
 });
 
 test("market paper orders reject unused stop/take-profit trigger fields", async () => {
+  const store = asyncStore();
   await withServer(async ({srv}) => {
     for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
-      const result = await post(srv.base, {...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
+      const result = await postWithTimeout(srv.base, {...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
       assert.equal(result.status, 400);
       assert.equal(result.body.error.code, "unsupported-order-trigger");
     }
-
-    const history = await fetch(srv.base + "/api/orders").then((res) => res.json());
-    assert.equal(history.data.total, 0);
-    assert.deepEqual(history.data.fills, []);
-  });
+    assert.deepEqual(await store.list("paper-fills"), []);
+  }, {store});
 });
 
 test("Risk Gate NO_TRADE returns reasons and does not create a fill", async () => {
