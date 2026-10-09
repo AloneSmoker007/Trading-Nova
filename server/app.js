@@ -6,7 +6,7 @@ import {createMarketService} from "./market.js";
 import {createApi} from "./api.js";
 import {readStatic} from "./static.js";
 import {TokenBucket} from "../src/security/rate-limit.js";
-import {createTradingTutor} from "./tutor.js";
+import {createTradingTutor,validateInput} from "./tutor.js";
 
 const REPO_ROOT=join(dirname(fileURLToPath(import.meta.url)),"..");
 const MAX_URL_LENGTH=2048;
@@ -55,8 +55,10 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
         const clientKey=req.socket.remoteAddress||"unknown";let limiter=tutorLimiters.get(clientKey);if(!limiter){limiter=new TokenBucket({capacity:10,refillPerSecond:1/12,now});tutorLimiters.set(clientKey,limiter);}if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"AI Tutor requests are temporarily rate limited."}},{ "Retry-After":"12" });return;}
         const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
         let input;try{input=JSON.parse(request.body||"");}catch{sendJson(res,400,{ok:false,state:"error",error:{code:"invalid-json",message:"request body must be valid JSON"}});return;}
+        // Validate before fetching optional market context so malformed chat requests cannot spend provider quota.
+        const validated=validateInput(input);if(!validated.ok){sendJson(res,400,{ok:false,state:"error",error:{code:validated.code,message:validated.message}});return;}
         let context=null;const symbol=typeof input?.symbol==="string"?input.symbol.trim().toUpperCase():"";if(/^[A-Z0-9]{2,24}$/.test(symbol)){try{const quote=await market.getTicker(symbol);if(quote?.data){context={symbol,marketState:quote.state,stale:Boolean(quote.stale),ageMs:Number.isFinite(quote.ageMs)?quote.ageMs:null,ticker:{last:quote.data.last,bid:quote.data.bid,ask:quote.data.ask,changePct24h:quote.data.changePct24h,quoteVolume24h:quote.data.quoteVolume24h}};}}catch{context={symbol,marketState:"unavailable",stale:true};}}
-        const out=await tutorChat(input,context);sendJson(res,out.status,out.body);return;
+        const out=await tutorChat({...input,message:validated.message,history:input.history??[]},context);sendJson(res,out.status,out.body);return;
       }
       if(route.name==="submitPaperOrder"){
         const clientKey=req.socket.remoteAddress||"unknown";let limiter=orderLimiters.get(clientKey);if(!limiter){limiter=new TokenBucket({capacity:PAPER_ORDER_RATE_CAPACITY,refillPerSecond:PAPER_ORDER_RATE_REFILL_PER_SECOND,now});orderLimiters.set(clientKey,limiter);}if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"too many paper-order requests"}},{"Retry-After":"2"});return;}
