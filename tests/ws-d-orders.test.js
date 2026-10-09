@@ -196,6 +196,31 @@ test("async database store persists orders across service restart without local-
   }
 });
 
+test("order history supports bounded pages with stable totals and rejects invalid pagination", async () => {
+  await withServer(async ({srv}) => {
+    for (const key of ["page-order-a", "page-order-b", "page-order-c"]) {
+      const res = await post(srv.base, validOrder(key));
+      assert.equal(res.status, 200);
+    }
+    const first = await fetch(srv.base + "/api/orders?limit=2&offset=0").then((r) => r.json());
+    assert.equal(first.ok, true);
+    assert.equal(first.data.fills.length, 2);
+    assert.equal(first.data.total, 3);
+    assert.equal(first.data.limit, 2);
+    assert.equal(first.data.offset, 0);
+    assert.equal(first.data.hasMore, true);
+
+    const second = await fetch(srv.base + "/api/orders?limit=2&offset=2").then((r) => r.json());
+    assert.equal(second.data.fills.length, 1);
+    assert.equal(second.data.total, 3);
+    assert.equal(second.data.hasMore, false);
+
+    const invalid = await fetch(srv.base + "/api/orders?limit=201");
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json()).error.code, "invalid-order-page");
+  });
+});
+
 test("unhealthy configured database fails closed instead of using local persistence", async () => {
   await withServer(async ({srv, executionStateFile}) => {
     const result = await post(srv.base, validOrder("database-down-key"));
