@@ -352,3 +352,13 @@ test("HTTP tutor rejects invalid chat input before fetching optional market cont
     assert.equal(record.length,0,"invalid chat must not trigger market-data or Gemini provider requests");
   });
 });
+
+test("HTTP tutor checks missing Gemini configuration before optional market lookup",async()=>{
+  const record=[];
+  await withTutorServer(recordingProvider(record),async({base})=>{
+    const res=await postChat(base,{message:"BTC ka risk kya hai?",symbol:"BTCUSDT"});
+    assert.equal(res.status,503);
+    assert.equal((await res.json()).error.code,"tutor-not-configured");
+    assert.equal(record.length,0,"missing tutor configuration must not trigger market-data or Gemini provider requests");
+  },{keyed:false});
+});
