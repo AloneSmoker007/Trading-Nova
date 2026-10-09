@@ -4,6 +4,7 @@ import {randomUUID} from "node:crypto";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createPostgresStore} from "../src/persistence/postgres.js";
+import {createApi} from "../server/api.js";
 import {createPaperOrderService} from "../server/orders.js";
 
 const enabled = process.env.TRADING_NOVA_REAL_DB_TEST === "1";
@@ -37,6 +38,48 @@ run("PostgreSQL real integration: health, persistence and migration state", asyn
   assert.ok(migrations.rows.some((row)=>row.version==="001_initial.sql"));
   assert.ok(migrations.rows.some((row)=>row.version==="002_constraints.sql"));
 }));
+
+run("PostgreSQL real integration: journal survives a fresh store connection", async () => {
+  const firstStore = await createPostgresStore({
+    connectionString: process.env.POSTGRES_URL,
+    max: 2,
+    schema: process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  const marker = `journal-restart-${randomUUID()}`;
+  try {
+    const api = createApi({
+      market: {},
+      stateFile: join(tmpdir(), `trading-nova-journal-${randomUUID()}.json`),
+      executionStateFile: join(tmpdir(), `trading-nova-orders-${randomUUID()}.json`),
+      store: firstStore
+    });
+    const written = await api.addJournalEntry(JSON.stringify({text: marker, symbol: "BTCUSDT"}));
+    assert.equal(written.status, 200);
+    assert.equal(written.body.data.record.entry.text, marker);
+  } finally {
+    await firstStore.pool.end();
+  }
+
+  const secondStore = await createPostgresStore({
+    connectionString: process.env.POSTGRES_URL,
+    max: 2,
+    schema: process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  try {
+    const recoveredApi = createApi({
+      market: {},
+      stateFile: join(tmpdir(), `trading-nova-journal-recover-${randomUUID()}.json`),
+      executionStateFile: join(tmpdir(), `trading-nova-orders-recover-${randomUUID()}.json`),
+      store: secondStore
+    });
+    const recovered = await recoveredApi.journal();
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.body.data.verified, true);
+    assert.ok(recovered.body.data.entries.some((entry) => entry.entry.text === marker));
+  } finally {
+    await secondStore.pool.end();
+  }
+});
 
 run("PostgreSQL real integration: transaction rollback is durable", async()=>withStore(async store=>{
   const id=randomUUID();
