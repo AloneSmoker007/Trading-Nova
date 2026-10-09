@@ -108,6 +108,20 @@ export class DurableStore {
     return verifyJournal(this.journal);
   }
 
+  listPage(namespace, {limit = 100, offset = 0} = {}) {
+    if (!namespace || !Number.isSafeInteger(limit) || limit < 1 || limit > 200
+        || !Number.isSafeInteger(offset) || offset < 0) {
+      throw new Error("invalid list page");
+    }
+    const prefix = `${namespace}:`;
+    const rows = [...this.state.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({key, value}))
+      .sort((a, b) => (b.value?.timestamp || 0) - (a.value?.timestamp || 0)
+        || b.key.localeCompare(a.key));
+    return {items: rows.slice(offset, offset + limit).map(({value}) => clone(value)), total: rows.length};
+  }
+
   snapshot() {
     const state = clone(Object.fromEntries(this.state));
     const idempotency = clone(Object.fromEntries(this.idempotency));
