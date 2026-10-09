@@ -40,7 +40,7 @@ test("private hosting HTTP gate protects assets and API, then permits login and 
   const login = await fetch(base + "/api/auth/login", {
     method:"POST",
     headers:{"content-type":"application/x-www-form-urlencoded",origin},
-    body:new URLSearchParams({password:["test-only","private-host","password"].join("-")}),
+    body:new globalThis.URLSearchParams({password:["test-only","private-host","password"].join("-")}),
     redirect:"manual"
   });
   assert.equal(login.status, 303);
