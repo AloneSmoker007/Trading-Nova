@@ -212,3 +212,41 @@ test("market service validates in-flight capacity", () => {
   assert.throws(() => createMarketService({maxInFlight: 0}), /maxInFlight/);
   assert.throws(() => createMarketService({maxInFlight: 1.25}), /maxInFlight/);
 });
+
+test("market cache freshness starts when the upstream response completes", async () => {
+  let time = 1_000;
+  const fetchImpl = async (url) => {
+    const parsed = new URL(String(url));
+    if (parsed.pathname.endsWith("/api/v3/ticker/24hr")) {
+      // Simulate a slow upstream read without using real wall-clock sleeps.
+      time += 250;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          symbol: "AAA",
+          lastPrice: "10",
+          bidPrice: "9.99",
+          askPrice: "10.01",
+          highPrice: "11",
+          lowPrice: "9",
+          volume: "100",
+          quoteVolume: "1000",
+          priceChangePercent: "1"
+        })
+      };
+    }
+    return {ok: false, status: 404, json: async () => ({})};
+  };
+
+  const market = createMarketService({fetchImpl, now: () => time, ttlMs: 10000});
+  const first = await market.getTicker("AAA");
+  assert.equal(first.state, "ok");
+  assert.equal(first.ageMs, 0);
+
+  time += 120;
+  const cached = await market.getTicker("AAA");
+  assert.equal(cached.cached, true);
+  assert.equal(cached.ageMs, 120);
+});
+
