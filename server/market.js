@@ -96,9 +96,12 @@ export function createMarketService({
         res = {ok: false, reason: "network-error"};
       }
       if (res && res.ok === true) {
-        remember(key, {data: res.data, at: t});
-        lastSuccessAt = t;
-        return {state: "ok", data: res.data, stale: false, ageMs: 0, cached: false};
+        // A cache entry becomes fresh when the upstream read completes, not
+        // when it begins; otherwise slow fetches make new data look older.
+        const completedAt = now();
+        remember(key, {data: res.data, at: completedAt});
+        lastSuccessAt = completedAt;
+        return {state: "ok", data: res.data, stale: false, ageMs: Math.max(0, now() - completedAt), cached: false};
       }
       const reason = res && typeof res.reason === "string" ? res.reason : "unavailable";
       if (hit && t - hit.at <= staleWindowMs) {
