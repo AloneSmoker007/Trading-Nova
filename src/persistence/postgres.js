@@ -92,6 +92,15 @@ export class PostgresStore {
     const r=await client.query(`SELECT value FROM ${this.table("trading_state")} WHERE namespace=$1 ORDER BY state_id ASC`,[namespace]);
     return r.rows.map((row)=>structuredClone(row.value));
   }
+  async listPage(namespace,{limit=100,offset=0}={}){
+    if(!namespace||!Number.isSafeInteger(limit)||limit<1||limit>200
+      ||!Number.isSafeInteger(offset)||offset<0) throw new Error("invalid list page");
+    const [page,count]=await Promise.all([
+      this.pool.query(`SELECT value FROM ${this.table("trading_state")} WHERE namespace=$1 ORDER BY COALESCE((value->>'timestamp')::bigint,0) DESC,state_id DESC LIMIT $2 OFFSET $3`,[namespace,limit,offset]),
+      this.pool.query(`SELECT COUNT(*)::bigint AS total FROM ${this.table("trading_state")} WHERE namespace=$1`,[namespace])
+    ]);
+    return {items:page.rows.map(row=>structuredClone(row.value)),total:Number(count.rows[0]?.total??0)};
+  }
   async health(){ const r=await this.pool.query("SELECT 1 AS ok"); return r.rows[0]?.ok===1; }
   async assertReady(){
     const migrations=await this.pool.query(`SELECT version FROM ${this.table("trading_schema_migrations")} ORDER BY version`);
