@@ -103,3 +103,34 @@ test("login attempts are throttled after eight wrong passwords", async () => {
   assert.equal(blocked.status,429);
   assert.ok(Number(blocked.headers["Retry-After"]) > 0);
 });
+
+
+test("login throttle fails closed at capacity without evicting an active IP", async () => {
+  const guard = createAccessGuard({password:passphrase,secret:signingKey,production:true,maxTrackedIps:1});
+  const firstIp = "198.51.100.80";
+  const overflowIp = "198.51.100.81";
+  const wrongPassword = async () => ({body:"password=wrong"});
+
+  const first = responseRecorder();
+  await guard.handle(request({method:"POST",ip:firstIp}),first,"/api/auth/login",wrongPassword);
+  assert.equal(first.status,401);
+
+  const overflow = responseRecorder();
+  await guard.handle(request({method:"POST",ip:overflowIp}),overflow,"/api/auth/login",wrongPassword);
+  assert.equal(overflow.status,429);
+  assert.ok(Number(overflow.headers["Retry-After"]) > 0);
+
+  for (let i=1;i<8;i+=1) {
+    const response = responseRecorder();
+    await guard.handle(request({method:"POST",ip:firstIp}),response,"/api/auth/login",wrongPassword);
+    assert.equal(response.status,401);
+  }
+  const blockedFirst = responseRecorder();
+  await guard.handle(request({method:"POST",ip:firstIp}),blockedFirst,"/api/auth/login",wrongPassword);
+  assert.equal(blockedFirst.status,429);
+});
+
+test("login throttle capacity must be a positive safe integer", () => {
+  assert.throws(() => createAccessGuard({password:passphrase,secret:signingKey,maxTrackedIps:0}), /maxTrackedIps/);
+  assert.throws(() => createAccessGuard({password:passphrase,secret:signingKey,maxTrackedIps:1.5}), /maxTrackedIps/);
+});
