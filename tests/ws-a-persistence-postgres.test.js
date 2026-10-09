@@ -46,6 +46,24 @@ function sqlIndex(calls, fragment) {
   return calls.findIndex(([sql]) => sql.includes(fragment));
 }
 
+test("PostgresStore listPage bounds rows and reports total count", async () => {
+  const calls = [];
+  const pool = {
+    async connect() { throw new Error("listPage must not open a transaction"); },
+    async query(sql, args) {
+      calls.push([sql, args]);
+      if (sql.includes("COUNT(*)")) return {rows: [{total: "9"}]};
+      return {rows: [{value: {timestamp: 300}}, {value: {timestamp: 200}}]};
+    }
+  };
+  const store = new PostgresStore(pool);
+  const page = await store.listPage("paper-fills", {limit: 2, offset: 4});
+  assert.deepEqual(page, {items: [{timestamp: 300}, {timestamp: 200}], total: 9});
+  assert.ok(calls.some(([sql, args]) => sql.includes("LIMIT $2 OFFSET $3")
+    && args[0] === "paper-fills" && args[1] === 2 && args[2] === 4));
+  await assert.rejects(store.listPage("paper-fills", {limit: 201}), /invalid list page/);
+});
+
 test("M7: per-key advisory lock is taken before the idempotency lookup", async () => {
   const pool = fakePool();
   const store = new PostgresStore(pool);
