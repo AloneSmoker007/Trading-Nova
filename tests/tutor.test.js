@@ -362,3 +362,27 @@ test("HTTP tutor checks missing Gemini configuration before optional market look
     assert.equal(record.length,0,"missing tutor configuration must not trigger market-data or Gemini provider requests");
   },{keyed:false});
 });
+
+
+test("tutor hard deadline returns sanitized 503 when provider ignores AbortSignal",async()=>{
+  const started=Date.now();
+  let signalSeen;
+  const tutor=createTradingTutor({
+    env:providerEnv(),
+    timeoutMs:25,
+    fetchImpl:(_url,options)=>{
+      signalSeen=options.signal;
+      // Deliberately ignore the signal and never settle: the hard deadline must
+      // bound the entire provider operation independently of transport behavior.
+      return new Promise(()=>{});
+    }
+  });
+  const result=await tutor({message:"RSI kya hai?"});
+  assert.equal(result.status,503);
+  assert.equal(result.body.error.code,"tutor-provider-unavailable");
+  assert.ok(Date.now()-started<1000,"hard deadline must not wait for the default 12-second timeout");
+  assert.equal(signalSeen.aborted,true,"deadline should still abort cooperative transports");
+  const serialized=JSON.stringify(result);
+  assert.equal(serialized.includes(sentinel),false);
+  assert.equal(serialized.includes("stack"),false);
+});
