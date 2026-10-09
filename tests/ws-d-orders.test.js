@@ -95,27 +95,25 @@ test("valid paper order requires ALLOW and persists a reconciled fill", async ()
 });
 
 test("unsupported non-market paper order types fail closed without creating fills", async () => {
-  const store = asyncStore();
-  await withServer(async ({srv}) => {
+  await withServer(async ({srv, executionStateFile}) => {
     for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
       const result = await postWithTimeout(srv.base, {...validOrder("unsupported-" + type), type});
       assert.equal(result.status, 400, type);
       assert.equal(result.body.error.code, "unsupported-order-type", type);
     }
-    assert.deepEqual(await store.list("paper-fills"), []);
-  }, {store});
+    assert.equal(existsSync(executionStateFile), false, "rejected order types must never persist an execution record");
+  });
 });
 
 test("market paper orders reject unused stop/take-profit trigger fields", async () => {
-  const store = asyncStore();
-  await withServer(async ({srv}) => {
+  await withServer(async ({srv, executionStateFile}) => {
     for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
       const result = await postWithTimeout(srv.base, {...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
       assert.equal(result.status, 400);
       assert.equal(result.body.error.code, "unsupported-order-trigger");
     }
-    assert.deepEqual(await store.list("paper-fills"), []);
-  }, {store});
+    assert.equal(existsSync(executionStateFile), false, "unused trigger fields must never persist an execution record");
+  });
 });
 
 test("Risk Gate NO_TRADE returns reasons and does not create a fill", async () => {
