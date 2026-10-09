@@ -65,3 +65,41 @@ test("wrong password and cross-origin login are rejected", async () => {
   await guard.handle(request({method:"POST",pathname:"/api/auth/login",origin:"https://attacker.example"}),cross,"/api/auth/login",readBody);
   assert.equal(cross.status,403);
 });
+
+
+test("expired sessions are rejected and logout clears the session cookie", async () => {
+  let clock = 1700000000000;
+  const guard = createAccessGuard({password:passphrase,secret:signingKey,production:true,now:()=>clock});
+  const login = responseRecorder();
+  await guard.handle(request({method:"POST",pathname:"/api/auth/login",ip:"198.51.100.44"}),login,"/api/auth/login",readBody);
+  assert.equal(login.status,303);
+  const cookie = login.headers["Set-Cookie"].split(";")[0];
+  assert.equal(guard.authenticated({headers:{cookie}}),true);
+
+  clock += 12 * 60 * 60 * 1000 + 1;
+  assert.equal(guard.authenticated({headers:{cookie}}),false);
+
+  clock = 1700000000000;
+  const freshLogin = responseRecorder();
+  await guard.handle(request({method:"POST",pathname:"/api/auth/login",ip:"198.51.100.45"}),freshLogin,"/api/auth/login",readBody);
+  const freshCookie = freshLogin.headers["Set-Cookie"].split(";")[0];
+  const logout = responseRecorder();
+  await guard.handle(request({method:"POST",pathname:"/api/auth/logout",cookie:freshCookie,ip:"198.51.100.45"}),logout,"/api/auth/logout",readBody);
+  assert.equal(logout.status,303);
+  assert.match(logout.headers["Set-Cookie"],/Max-Age=0/);
+  assert.match(logout.headers["Set-Cookie"],/HttpOnly/);
+});
+
+test("login attempts are throttled after eight wrong passwords", async () => {
+  const guard = createAccessGuard({password:passphrase,secret:signingKey,production:true});
+  const ip = "198.51.100.46";
+  for (let i=0;i<8;i+=1) {
+    const response = responseRecorder();
+    await guard.handle(request({method:"POST",pathname:"/api/auth/login",ip}),response,"/api/auth/login",async()=>({body:"password=wrong"}));
+    assert.equal(response.status,401);
+  }
+  const blocked = responseRecorder();
+  await guard.handle(request({method:"POST",pathname:"/api/auth/login",ip}),blocked,"/api/auth/login",readBody);
+  assert.equal(blocked.status,429);
+  assert.ok(Number(blocked.headers["Retry-After"]) > 0);
+});
