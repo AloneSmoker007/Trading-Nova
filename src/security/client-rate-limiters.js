@@ -2,10 +2,11 @@ import {TokenBucket} from "./rate-limit.js";
 
 export const MAX_CLIENT_RATE_LIMITERS = 10_000;
 export const CLIENT_RATE_LIMITER_IDLE_MS = 15 * 60 * 1000;
+const SATURATED_LIMITER = Object.freeze({last: 0, consume: () => false});
 
 /**
  * Get a per-client token bucket without allowing attacker-controlled client keys
- * to grow the process memory indefinitely.
+ * to grow process memory or evict another active client's rate limit.
  */
 export function getBoundedTokenBucket(map, key, {
   now = () => Date.now(),
@@ -33,8 +34,9 @@ export function getBoundedTokenBucket(map, key, {
     }
   }
 
-  // Map insertion order acts as LRU: existing keys are moved to the end above.
-  while (map.size >= maxEntries) map.delete(map.keys().next().value);
+  // Fail closed for new clients at capacity. Never evict an active client's
+  // limiter: otherwise an attacker could churn client keys to reset throttles.
+  if (map.size >= maxEntries) return SATURATED_LIMITER;
 
   const limiter = new TokenBucket({capacity, refillPerSecond, now});
   map.set(key, limiter);
