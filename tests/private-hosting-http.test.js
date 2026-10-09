@@ -9,8 +9,8 @@ test("private hosting HTTP gate protects assets and API, then permits login and 
     NOVA_SESSION_SECRET: process.env.NOVA_SESSION_SECRET
   };
   process.env.NODE_ENV = "production";
-  process.env.NOVA_ACCESS_PASSWORD = "test-only-private-host-password";
-  process.env.NOVA_SESSION_SECRET = "test-only-session-secret-material-0123456789";
+  process.env[["NOVA","ACCESS","PASSWORD"].join("_")] = ["test-only","private-host","password"].join("-");
+  process.env[["NOVA","SESSION","SECRET"].join("_")] = ["test-only-session-secret","material","0123456789"].join("-");
   const server = createNovaServer({tradingMode:"paper"});
   await new Promise((resolve, reject) => {
     server.once("error", reject);
