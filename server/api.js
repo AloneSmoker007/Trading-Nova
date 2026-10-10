@@ -302,7 +302,7 @@ export function createApi({
       inSample: result.inSample,
       outOfSample: result.outOfSample,
       reproducible: result.reproducible,
-      note: "Backtest uses a deterministic in-sample/out-of-sample split over historical candles. Candle-close signals fill at the next candle open. Paper/shadow only; past performance ≠ future results. Real money OFF."
+      note: "Backtest uses a deterministic in-sample/out-of-sample split over historical candles. Candle-close signals fill at the next candle open. Paper/shadow only; past performance is not a prediction of future results. Real money OFF."
     });
   }
 
