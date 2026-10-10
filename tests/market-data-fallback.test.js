@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createMarketService} from "../server/market.js";
 
-test("market service falls back to CoinGecko price when Binance ticker fails", async () => {
+test("market service falls back to a mark-only CoinGecko price when Binance ticker fails", async () => {
+  const now = Date.parse("2026-10-10T12:00:00.000Z");
   const fetchImpl = async (url) => {
     const urlStr = String(url);
     if (urlStr.includes("binance.com")) {
@@ -20,7 +21,7 @@ test("market service falls back to CoinGecko price when Binance ticker fails", a
             current_price: 65432.1,
             total_volume: 12345678,
             price_change_percentage_24h: 2.5,
-            last_updated: "2026-10-08T12:00:00.000Z"
+            last_updated: new Date(now).toISOString()
           }
         ]
       };
@@ -28,18 +29,84 @@ test("market service falls back to CoinGecko price when Binance ticker fails", a
     return {ok: false, status: 404, json: async () => ({})};
   };
 
-  const market = createMarketService({fetchImpl, ttlMs: 0});
+  const market = createMarketService({fetchImpl, ttlMs: 0, now: () => now});
   const ticker = await market.getTicker("BTCUSDT");
 
   assert.equal(ticker.state, "ok");
   assert.equal(ticker.data.symbol, "BTCUSDT");
   assert.equal(ticker.data.last, 65432.1);
   assert.equal(ticker.data.source, "coingecko-fallback");
+  assert.equal(ticker.data.sourceUpdatedAt, now);
+  assert.equal(ticker.ageMs, 0);
+  assert.equal(ticker.data.bid, undefined, "a reference mark must not invent an executable bid");
+  assert.equal(ticker.data.ask, undefined, "a reference mark must not invent an executable ask");
 
   const health = market.getSourceHealth();
   assert.equal(health.length, 2);
   const fallbackSource = health.find(s => s.name === "coingecko-fallback");
   assert.equal(fallbackSource.status, "healthy");
+});
+
+test("market service rejects CoinGecko fallback marks older than the stale window", async () => {
+  const now = Date.parse("2026-10-10T12:00:00.000Z");
+  const fetchImpl = async (url) => {
+    const urlStr = String(url);
+    if (urlStr.includes("binance.com")) {
+      return {ok: false, status: 503, json: async () => ({msg: "temporarily unavailable"})};
+    }
+    if (urlStr.includes("coingecko.com")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [{
+          id: "bitcoin",
+          symbol: "btc",
+          name: "Bitcoin",
+          current_price: 65432.1,
+          total_volume: 12345678,
+          price_change_percentage_24h: 2.5,
+          last_updated: new Date(now - 600000).toISOString()
+        }]
+      };
+    }
+    return {ok: false, status: 404, json: async () => ({})};
+  };
+
+  const market = createMarketService({fetchImpl, now: () => now, staleWindowMs: 300000});
+  const ticker = await market.getTicker("BTCUSDT");
+  assert.equal(ticker.state, "unavailable");
+  assert.equal(ticker.reason, "fallback-source-stale");
+  assert.equal(ticker.data, undefined);
+});
+
+test("market service rejects CoinGecko fallback marks without a source timestamp", async () => {
+  const now = Date.parse("2026-10-10T12:00:00.000Z");
+  const fetchImpl = async (url) => {
+    const urlStr = String(url);
+    if (urlStr.includes("binance.com")) {
+      return {ok: false, status: 503, json: async () => ({msg: "temporarily unavailable"})};
+    }
+    if (urlStr.includes("coingecko.com")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [{
+          id: "bitcoin",
+          symbol: "btc",
+          name: "Bitcoin",
+          current_price: 65432.1,
+          total_volume: 12345678,
+          price_change_percentage_24h: 2.5
+        }]
+      };
+    }
+    return {ok: false, status: 404, json: async () => ({})};
+  };
+
+  const market = createMarketService({fetchImpl, now: () => now});
+  const ticker = await market.getTicker("BTCUSDT");
+  assert.equal(ticker.state, "unavailable");
+  assert.equal(ticker.reason, "fallback-source-timestamp-missing");
 });
 
 test("market service returns primary Binance ticker when available", async () => {
