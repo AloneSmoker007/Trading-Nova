@@ -360,6 +360,10 @@ button:hover { filter: brightness(1.1); }
 .risk-alert-item.critical { background: var(--err-bg); color: var(--err-fg); border: 1px solid var(--err-fg); }
 
 .table-wrap { overflow-x: auto; margin-top: 10px; }
+.lab-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-block: 10px; }
+.lab-controls .field { flex: 1 1 230px; }
+.lab-controls .muted { margin-block: 4px 0; font-size: 12px; }
+.lab-controls button { min-height: 40px; }
 table { border-collapse: collapse; width: 100%; font-size: 12px; }
 caption { text-align: left; color: var(--muted); padding-bottom: 6px; font-size: 11px; text-transform: uppercase; font-weight: 600; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--panel-border); font-variant-numeric: tabular-nums; }
