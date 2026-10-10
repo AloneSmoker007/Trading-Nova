@@ -358,9 +358,36 @@ export function createPaperOrderService({
           }
         };
       }
+      let projectedPortfolio = portfolio;
+      if (execution) {
+        try {
+          // Simulate the exact executable price and fee before asking the Risk
+          // Gate. This is a calculation only; persistence still happens after
+          // a genuine ALLOW artifact is issued.
+          projectedPortfolio = applyFill(portfolio, {
+            symbol: order.symbol,
+            side: order.side,
+            quantity: order.quantity,
+            price: execution.executionPrice,
+            markPrice: execution.referencePrice,
+            fee: execution.fee
+          });
+        } catch {
+          return {
+            status: 400,
+            body: {
+              ok: false,
+              state: "error",
+              error: {code: "risk-gate-rejected", message: "projected post-fill portfolio is invalid"},
+              verdict: {decision: "NO_TRADE", reasons: ["PROJECTED_PORTFOLIO_UNAVAILABLE"]}
+            }
+          };
+        }
+      }
       const verdict = evaluateRiskGate({
         order: gatedOrder,
         portfolio: marketState.portfolio,
+        projectedPortfolio,
         riskConfig: RISK_CONFIG,
         dataFresh: marketState.fresh,
         killSwitch: base.limits?.ok === false,
