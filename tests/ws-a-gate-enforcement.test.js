@@ -61,6 +61,105 @@ test("paper engine refuses artifacts bound to a different price, quantity, side 
   assert.throws(() => ex.submit({ ...PAPER_ORDER, reduceOnly: true }, { gateArtifact: verdict.artifact }), /order hash mismatch/);
 });
 
+test("Risk Gate blocks an order whose estimated execution cost breaches daily loss", () => {
+  const cfg = createRiskConfig({
+    version: "cost-daily-loss",
+    maxPositionNotional: 100000,
+    maxGrossExposure: 100000,
+    maxDailyLoss: 1000,
+    maxDrawdown: 0.5,
+    maxLeverage: 10
+  });
+  const state = portfolio({
+    equity: 9001,
+    cash: 9001,
+    dailyPnl: -999,
+    drawdown: 0.0999,
+    peakEquity: 10000
+  });
+  const verdict = evaluateRiskGate({
+    order: {symbol: "BTC", side: "BUY", quantity: 1, price: 100},
+    portfolio: state,
+    riskConfig: cfg.config,
+    approvedConfigHash: cfg.hash,
+    estimatedExecutionCost: 2
+  });
+  assert.equal(verdict.decision, "NO_TRADE");
+  assert.ok(verdict.reasons.includes("MAX_DAILY_LOSS"));
+  assert.equal(verdict.artifact, undefined);
+});
+
+test("Risk Gate projects execution cost into peak-to-equity drawdown", () => {
+  const cfg = createRiskConfig({
+    version: "cost-drawdown",
+    maxPositionNotional: 100000,
+    maxGrossExposure: 100000,
+    maxDailyLoss: 100000,
+    maxDrawdown: 0.1,
+    maxLeverage: 10
+  });
+  const state = portfolio({
+    equity: 9001,
+    cash: 9001,
+    dailyPnl: -999,
+    drawdown: 0.0999,
+    peakEquity: 10000
+  });
+  const verdict = evaluateRiskGate({
+    order: {symbol: "BTC", side: "BUY", quantity: 1, price: 100},
+    portfolio: state,
+    riskConfig: cfg.config,
+    approvedConfigHash: cfg.hash,
+    estimatedExecutionCost: 2
+  });
+  assert.equal(verdict.decision, "NO_TRADE");
+  assert.ok(verdict.reasons.includes("MAX_DRAWDOWN"));
+  assert.equal(verdict.artifact, undefined);
+});
+
+test("Risk Gate uses post-cost equity for projected leverage", () => {
+  const cfg = createRiskConfig({
+    version: "cost-leverage",
+    maxPositionNotional: 100000,
+    maxGrossExposure: 100000,
+    maxDailyLoss: 100000,
+    maxDrawdown: 0.5,
+    maxLeverage: 0.99
+  });
+  const state = portfolio({
+    equity: 10000,
+    cash: 1000,
+    positions: [{symbol: "BTC", quantity: 90, markPrice: 100}],
+    grossExposure: 9000,
+    netExposure: 9000,
+    peakEquity: 10000
+  });
+  const verdict = evaluateRiskGate({
+    order: {symbol: "ETH", side: "BUY", quantity: 9, price: 100},
+    portfolio: state,
+    riskConfig: cfg.config,
+    approvedConfigHash: cfg.hash,
+    estimatedExecutionCost: 1
+  });
+  assert.equal(verdict.decision, "NO_TRADE");
+  assert.ok(verdict.reasons.includes("MAX_LEVERAGE"));
+  assert.ok(verdict.projectedLeverage > 0.99);
+});
+
+test("Risk Gate rejects invalid execution-cost estimates instead of ignoring them", () => {
+  const cfg = config();
+  const verdict = evaluateRiskGate({
+    order: {...PAPER_ORDER},
+    portfolio: portfolio(),
+    riskConfig: cfg.config,
+    approvedConfigHash: cfg.hash,
+    estimatedExecutionCost: -0.01
+  });
+  assert.equal(verdict.decision, "NO_TRADE");
+  assert.ok(verdict.reasons.includes("INVALID_EXECUTION_COST"));
+  assert.equal(verdict.artifact, undefined);
+});
+
 test("a NO_TRADE verdict issues no artifact and executes nothing", () => {
   const ex = createPaperExecution();
   const verdict = verdictFor({ symbol: "BTC", side: "BUY", quantity: 1, price: 100 }, { killSwitch: true });
