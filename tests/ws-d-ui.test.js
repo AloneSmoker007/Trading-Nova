@@ -85,7 +85,7 @@ test("interactive chart uses locked local Lightweight Charts and real OHLCV", ()
   assert.match(staticServer, /"\/vendor\/lightweight-charts\.js"/);
   assert.match(staticServer, /vendor\/lightweight-charts\.standalone\.production\.js/);
   assert.match(vendorScript, /node_modules/);
-  assert.match(vendorScript, /lightweight-charts\/dist\/lightweight-charts\.standalone\.production\.js/);
+  assert.match(vendorScript, /"lightweight-charts", "dist", "lightweight-charts\.standalone\.production\.js"/);
   assert.match(app, /LightweightCharts/);
   assert.match(app, /addCandlestickSeries/);
   assert.match(app, /addHistogramSeries/);
