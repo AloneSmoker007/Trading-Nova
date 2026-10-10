@@ -590,33 +590,114 @@
     });
   }
 
+  var strategyLabBusy = false;
+
   function renderStrategyLab() {
-    setBadge("lab-badge", "loading");
+    if (strategyLabBusy) return Promise.resolve();
     var symbol = readSymbol();
     if (!symbol) return Promise.resolve();
 
-    return api("/api/strategy/lab?symbol=" + encodeURIComponent(symbol) + "&interval=1h&limit=100").then(function (result) {
-      var tbody = $("lab-body");
-      var dl = $("backtest-values");
+    var splitInput = $("walk-forward-input");
+    var rawSplit = splitInput ? splitInput.value.trim() : "";
+    var walkForward = null;
+    if (rawSplit !== "") {
+      if (!/^\\d{1,3}$/.test(rawSplit) || !Number.isSafeInteger(Number(rawSplit))
+          || Number(rawSplit) < 35 || Number(rawSplit) > 165) {
+        setBadge("lab-badge", "error", "INVALID SPLIT");
+        note("lab-note", "In-sample candle count must be a whole number from 35 to 165, or leave it blank for automatic ~70/30 splitting. Fewer available candles may require a smaller split.");
+        return Promise.resolve();
+      }
+      walkForward = Number(rawSplit);
+    }
+
+    var specs = [
+      {key: "sma-cross", label: "SMA Cross"},
+      {key: "momentum", label: "Momentum"},
+      {key: "famous-turtle", label: "Turtle Breakout"}
+    ];
+    var basePath = "/api/backtest?symbol=" + encodeURIComponent(symbol) + "&interval=1h&limit=200";
+    if (walkForward !== null) basePath += "&walkForward=" + encodeURIComponent(String(walkForward));
+
+    strategyLabBusy = true;
+    setBadge("lab-badge", "loading", "RUNNING IS / OOS");
+    setBusy("backtest-values", true);
+    var button = $("run-backtest-btn");
+    if (button) button.disabled = true;
+    note("lab-note", "Running each strategy against historical OHLCV. Out-of-sample results are a separate held-out historical window, not a forecast.");
+    var tbody = $("lab-body");
+    var dl = $("backtest-values");
+    clear(tbody);
+    clear(dl);
+
+    return Promise.all(specs.map(function (spec) {
+      return api(basePath + "&strategy=" + encodeURIComponent(spec.key))
+        .then(function (result) { return {spec: spec, result: result}; })
+        .catch(function () { return {spec: spec, result: null}; });
+    })).then(function (entries) {
       clear(tbody);
       clear(dl);
-      var body = result.body;
-      if (result.status === 200 && body && body.ok === true && Array.isArray(body.data?.strategies)) {
-        setBadge("lab-badge", "ok", "SIMULATED");
-        body.data.strategies.forEach(function (s) {
-          var tr = el("tr");
-          tr.appendChild(el("td", null, s.name));
-          tr.appendChild(el("td", null, fmtPct(s.returnPct)));
-          tr.appendChild(el("td", null, String(s.trades)));
-          tr.appendChild(el("td", null, "$" + fmtNum(s.finalEquity)));
-          tbody.appendChild(tr);
-          row(dl, s.name + " Return", fmtPct(s.returnPct));
-        });
-      } else {
+      var successful = [];
+      var failures = [];
+
+      entries.forEach(function (entry) {
+        var result = entry.result;
+        var body = result && result.body;
+        var data = body && body.data;
+        var valid = !!(result && result.status === 200 && body && body.ok === true
+          && data && data.inSample && data.outOfSample && data.evaluationSplit
+          && Number.isFinite(data.inSample.returnPct) && Number.isFinite(data.outOfSample.returnPct)
+          && Number.isFinite(data.inSample.equity) && Number.isFinite(data.outOfSample.equity));
+
+        var tr = el("tr");
+        tr.appendChild(el("td", null, entry.spec.label));
+        if (valid) {
+          successful.push(data);
+          tr.appendChild(el("td", null, fmtPct(data.inSample.returnPct * 100)));
+          tr.appendChild(el("td", null, String(data.inSample.trades)));
+          tr.appendChild(el("td", null, "$" + fmtNum(data.inSample.equity)));
+          tr.appendChild(el("td", null, fmtPct(data.outOfSample.returnPct * 100)));
+          tr.appendChild(el("td", null, String(data.outOfSample.trades)));
+          tr.appendChild(el("td", null, "$" + fmtNum(data.outOfSample.equity)));
+        } else {
+          var error = body && body.error;
+          failures.push(entry.spec.label + ": " + (error && error.code ? error.code : "backtest unavailable"));
+          tr.appendChild(el("td", null, "UNAVAILABLE"));
+          tr.appendChild(el("td", null, "—"));
+          tr.appendChild(el("td", null, "—"));
+          tr.appendChild(el("td", null, "—"));
+          tr.appendChild(el("td", null, "—"));
+          tr.appendChild(el("td", null, "—"));
+        }
+        tbody.appendChild(tr);
+      });
+
+      if (successful.length === 0) {
         setBadge("lab-badge", "unavailable", "UNAVAILABLE");
+        note("lab-note", "No strategy produced a valid in-sample and out-of-sample result. " + failures.join(" · "));
+        row(dl, "Status", "Historical backtest unavailable");
+        return;
       }
+
+      var sample = successful[0];
+      var split = sample.evaluationSplit;
+      setBadge("lab-badge", successful.length === specs.length ? "ok" : "stale",
+        successful.length === specs.length ? "IS / OOS VERIFIED" : "PARTIAL RESULTS");
+      row(dl, "Evaluation split", split.mode + " · " + split.inSampleCandles + " in-sample / " + split.outOfSampleCandles + " out-of-sample candles");
+      row(dl, "Starting equity", "$" + fmtNum(sample.startingCash) + " per sample (positions reset at the split)");
+      row(dl, "Execution assumptions", fmtNum(sample.parameters.feeRate * 100, 3) + "% fee per fill · " + fmtNum(sample.parameters.slippageBps, 0) + " bps slippage");
+      row(dl, "Market data", sample.stale ? "STALE historical cache" : "historical candle response received");
+      if (failures.length) row(dl, "Unavailable strategies", failures.join(" · "));
+      note("lab-note", "Historical simulation only. The out-of-sample window is held out from execution tuning but starts with separate cash and no carried position. It is not a prediction. " +
+        (sample.stale ? "The candle cache is stale; interpret this run cautiously. " : "") +
+        (failures.length ? "Some strategies were unavailable. " : "") +
+        "Real money OFF.");
     }).catch(function () {
       setBadge("lab-badge", "unavailable", "OFFLINE");
+      note("lab-note", "Unable to reach the backtest endpoint. No order was placed.");
+    }).finally(function () {
+      strategyLabBusy = false;
+      setBusy("backtest-values", false);
+      if (button) button.disabled = false;
     });
   }
 
