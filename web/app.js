@@ -9,12 +9,21 @@
 
   var SYMBOL_RE = /^[A-Za-z0-9]{2,24}$/;
   var AUTO_REFRESH_MS = 30000;
-  var SVG_NS = "http://www.w3.org/2000/svg";
 
   var pendingOrderFingerprint = null;
   var pendingOrderKey = null;
   var orderSubmissionInProgress = false;
   var orderOutcomeUncertain = false;
+
+  var chartInstance = null;
+  var candleSeries = null;
+  var volumeSeries = null;
+  var sma20Series = null;
+  var sma50Series = null;
+  var chartResizeObserver = null;
+  var chartResizeBound = false;
+  var chartViewportKey = null;
+  var chartNeedsFit = true;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -22,16 +31,6 @@
     var node = document.createElement(tag);
     if (className) node.className = className;
     if (text !== undefined && text !== null) node.textContent = String(text);
-    return node;
-  }
-
-  function svgEl(tag, attrs) {
-    var node = document.createElementNS(SVG_NS, tag);
-    if (attrs) {
-      Object.keys(attrs).forEach(function (k) {
-        node.setAttribute(k, attrs[k]);
-      });
-    }
     return node;
   }
 
@@ -226,7 +225,7 @@
         setBadge("chart-badge", d.state === "stale" ? "stale" : "ok", d.state === "stale" ? "STALE" : "LIVE");
         setBadge("indicators-badge", d.state === "stale" ? "stale" : "ok", d.state === "stale" ? "STALE" : "OK");
 
-        drawSvgChart(d.candles, ind);
+        drawInteractiveChart(d.candles, symbol, interval);
 
         row(dl, "Candles used", d.candleCount + " × " + d.interval);
         var trend = ind.trend || {};
@@ -248,151 +247,230 @@
         var f = failureState(result);
         setBadge("chart-badge", f.state);
         setBadge("indicators-badge", f.state);
+        clearInteractiveChart("Chart unavailable: " + f.message);
         note("indicators-note", f.message);
       }
     }).catch(function (err) {
       setBadge("chart-badge", "unavailable");
       setBadge("indicators-badge", "unavailable");
+      clearInteractiveChart("Chart unavailable: " + err.message);
       note("indicators-note", err.message);
     }).finally(function () {
       setBusy("indicators-values", false);
     });
   }
 
-  function drawSvgChart(candles, ind) {
-    var svg = $("chart-svg");
-    clear(svg);
+  function clearInteractiveChart(message) {
+    if (candleSeries) candleSeries.setData([]);
+    if (volumeSeries) volumeSeries.setData([]);
+    if (sma20Series) sma20Series.setData([]);
+    if (sma50Series) sma50Series.setData([]);
+    chartNeedsFit = true;
+    if (message) note("chart-note", message);
+  }
+
+  function applyChartVisibility() {
+    if (sma20Series) sma20Series.applyOptions({ visible: $("chart-sma20").checked });
+    if (sma50Series) sma50Series.applyOptions({ visible: $("chart-sma50").checked });
+    if (volumeSeries) volumeSeries.applyOptions({ visible: $("chart-volume").checked });
+  }
+
+  function resizeInteractiveChart(width, height) {
+    if (!chartInstance) return;
+    var w = Number.isFinite(width) && width > 0 ? Math.floor(width) : 0;
+    var h = Number.isFinite(height) && height > 0 ? Math.floor(height) : 0;
+    if (w >= 200 && h >= 220) chartInstance.applyOptions({ width: w, height: h });
+  }
+
+  function ensureInteractiveChart() {
+    if (chartInstance) return true;
+    var container = $("price-chart");
+    var lib = window.LightweightCharts;
+    if (!container || !lib || typeof lib.createChart !== "function") {
+      setBadge("chart-badge", "unavailable", "CHART OFFLINE");
+      note("chart-note", "Interactive chart library unavailable. Run npm install (or npm run charts:vendor) to restore the local chart asset.");
+      return false;
+    }
+
+    try {
+      chartInstance = lib.createChart(container, {
+        width: Math.max(200, Math.floor(container.clientWidth || 800)),
+        height: Math.max(220, Math.floor(container.clientHeight || 320)),
+        layout: {
+          background: { type: lib.ColorType.Solid, color: "#070b16" },
+          textColor: "#b8c2dc",
+          attributionLogo: true
+        },
+        grid: {
+          vertLines: { color: "#1c2438" },
+          horzLines: { color: "#1c2438" }
+        },
+        rightPriceScale: { borderColor: "#2a3550" },
+        timeScale: {
+          borderColor: "#2a3550",
+          timeVisible: true,
+          secondsVisible: false,
+          rightOffset: 5
+        },
+        crosshair: { mode: lib.CrosshairMode.Normal },
+        handleScroll: {
+          mouseWheel: true,
+          pressedMouseMove: true,
+          horzTouchDrag: true,
+          vertTouchDrag: false
+        },
+        handleScale: {
+          axisPressedMouseMove: true,
+          mouseWheel: true,
+          pinch: true
+        },
+        localization: { locale: "en-US" }
+      });
+
+      candleSeries = chartInstance.addCandlestickSeries({
+        upColor: "#34d399",
+        downColor: "#f87171",
+        borderUpColor: "#34d399",
+        borderDownColor: "#f87171",
+        wickUpColor: "#34d399",
+        wickDownColor: "#f87171",
+        lastValueVisible: true,
+        priceLineVisible: true
+      });
+      volumeSeries = chartInstance.addHistogramSeries({
+        priceScaleId: "",
+        priceFormat: { type: "volume" },
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      chartInstance.priceScale("").applyOptions({
+        scaleMargins: { top: 0.82, bottom: 0 }
+      });
+      sma20Series = chartInstance.addLineSeries({
+        color: "#7aa2f7",
+        lineWidth: 2,
+        title: "SMA 20",
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      sma50Series = chartInstance.addLineSeries({
+        color: "#fbbf24",
+        lineWidth: 2,
+        title: "SMA 50",
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      applyChartVisibility();
+
+      if (typeof window.ResizeObserver === "function") {
+        chartResizeObserver = new window.ResizeObserver(function (entries) {
+          if (!entries.length) return;
+          var rect = entries[0].contentRect;
+          resizeInteractiveChart(rect.width, rect.height);
+        });
+        chartResizeObserver.observe(container);
+      } else if (!chartResizeBound) {
+        window.addEventListener("resize", function () {
+          var rect = container.getBoundingClientRect();
+          resizeInteractiveChart(rect.width, rect.height);
+        });
+        chartResizeBound = true;
+      }
+      return true;
+    } catch (_err) {
+      chartInstance = null;
+      candleSeries = null;
+      volumeSeries = null;
+      sma20Series = null;
+      sma50Series = null;
+      setBadge("chart-badge", "unavailable", "CHART ERROR");
+      note("chart-note", "Could not initialize the interactive chart. The terminal remains paper-only; no substitute prices are drawn.");
+      return false;
+    }
+  }
+
+  function simpleMovingAverage(candles, period) {
+    var result = [];
+    var sum = 0;
+    candles.forEach(function (c, index) {
+      sum += c.close;
+      if (index >= period) sum -= candles[index - period].close;
+      if (index >= period - 1) result.push({ time: c.time, value: sum / period });
+    });
+    return result;
+  }
+
+  function drawInteractiveChart(candles, symbol, interval) {
+    if (!ensureInteractiveChart()) return;
 
     if (!Array.isArray(candles) || candles.length === 0) {
-      var empty = svgEl("text", { x: 400, y: 160, fill: "#b8c2dc", "font-size": "14", "text-anchor": "middle" });
-      empty.textContent = "No real candle data available";
-      svg.appendChild(empty);
+      clearInteractiveChart("No real candle data available. Chart withheld instead of generating placeholder prices.");
+      setBadge("chart-badge", "unavailable", "NO CANDLES");
       return;
     }
 
-    // Render only the newest 120 real candles for legibility. No synthetic fallback.
-    var actual = candles.slice(-120);
+    var actual = candles.map(function (c) {
+      return {
+        time: c && c.time,
+        open: c && c.open,
+        high: c && c.high,
+        low: c && c.low,
+        close: c && c.close,
+        volume: c && c.volume
+      };
+    });
     var invalid = actual.some(function (c) {
-      return !c || !Number.isFinite(c.time) ||
+      return !c || !Number.isSafeInteger(c.time) || c.time <= 0 ||
         ![c.open, c.high, c.low, c.close, c.volume].every(Number.isFinite) ||
         c.open <= 0 || c.close <= 0 || c.volume < 0 ||
         c.high < c.low || c.open < c.low || c.open > c.high ||
         c.close < c.low || c.close > c.high;
     });
     if (invalid) {
-      var bad = svgEl("text", { x: 400, y: 160, fill: "#fca5a5", "font-size": "14", "text-anchor": "middle" });
-      bad.textContent = "Invalid OHLC payload — chart withheld";
-      svg.appendChild(bad);
+      clearInteractiveChart("Invalid OHLCV payload — chart withheld.");
+      setBadge("chart-badge", "error", "INVALID DATA");
       return;
     }
 
-    var w = 800;
-    var h = 320;
-    var left = 66;
-    var right = 14;
-    var top = 34;
-    var bottom = 24;
-    var volumeHeight = 44;
-    var plotBottom = h - bottom - volumeHeight;
-    var plotHeight = plotBottom - top;
-
-    var minP = Math.min.apply(null, actual.map(function (c) { return c.low; }));
-    var maxP = Math.max.apply(null, actual.map(function (c) { return c.high; }));
-    if (maxP === minP) {
-      var epsilon = Math.max(Math.abs(maxP) * 0.001, 0.00000001);
-      minP -= epsilon;
-      maxP += epsilon;
-    }
-    var padding = (maxP - minP) * 0.05;
-    minP -= padding;
-    maxP += padding;
-
-    var scaleY = function (price) {
-      return plotBottom - ((price - minP) / (maxP - minP)) * plotHeight;
-    };
-
-    for (var grid = 0; grid <= 4; grid++) {
-      var gy = top + (plotHeight * grid / 4);
-      svg.appendChild(svgEl("line", {
-        x1: left, y1: gy, x2: w - right, y2: gy,
-        stroke: "#1c2438", "stroke-width": 1
-      }));
-      var priceLabel = svgEl("text", {
-        x: left - 8, y: gy + 4, fill: "#b8c2dc",
-        "font-size": "10", "text-anchor": "end"
-      });
-      var gridPrice = maxP - ((maxP - minP) * grid / 4);
-      priceLabel.textContent = fmtNum(gridPrice, gridPrice < 1 ? 6 : 2);
-      svg.appendChild(priceLabel);
+    actual.sort(function (a, b) { return a.time - b.time; });
+    for (var i = 1; i < actual.length; i++) {
+      if (actual[i].time <= actual[i - 1].time) {
+        clearInteractiveChart("Duplicate or out-of-order candle times — chart withheld.");
+        setBadge("chart-badge", "error", "INVALID TIME");
+        return;
+      }
     }
 
-    if (ind && ind.trend) {
-      var summary = svgEl("text", {
-        x: left, y: 17, fill: "#7aa2f7",
-        "font-size": "12", "font-weight": "bold"
-      });
-      summary.textContent = "SMA20 " + fmtNum(ind.trend.sma20) +
-        "  ·  SMA50 " + fmtNum(ind.trend.sma50) +
-        "  ·  VWAP " + fmtNum(ind.trend.vwap);
-      svg.appendChild(summary);
+    candleSeries.setData(actual.map(function (c) {
+      return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
+    }));
+    volumeSeries.setData(actual.map(function (c) {
+      return {
+        time: c.time,
+        value: c.volume,
+        color: c.close >= c.open ? "rgba(52,211,153,0.42)" : "rgba(248,113,113,0.42)"
+      };
+    }));
+    sma20Series.setData(simpleMovingAverage(actual, 20));
+    sma50Series.setData(simpleMovingAverage(actual, 50));
+    applyChartVisibility();
+
+    var key = String(symbol) + "|" + String(interval);
+    if (chartNeedsFit || chartViewportKey !== key) {
+      chartInstance.timeScale().fitContent();
+      chartViewportKey = key;
+      chartNeedsFit = false;
     }
-
-    var stepX = (w - left - right) / actual.length;
-    var bodyWidth = Math.max(1, Math.min(9, stepX * 0.68));
-    var maxVolume = Math.max.apply(null, actual.map(function (c) { return c.volume; }));
-    maxVolume = maxVolume > 0 ? maxVolume : 1;
-    var volumeTop = plotBottom + 5;
-    var volumeBottom = h - bottom;
-    var volumePlotHeight = volumeBottom - volumeTop - 2;
-
-    actual.forEach(function (c, i) {
-      var x = left + (i * stepX) + (stepX / 2);
-      var color = c.close >= c.open ? "#34d399" : "#f87171";
-      var wick = svgEl("line", {
-        x1: x, y1: scaleY(c.high), x2: x, y2: scaleY(c.low),
-        stroke: color, "stroke-width": 1.2
-      });
-      var bodyTop = Math.min(scaleY(c.open), scaleY(c.close));
-      var bodyHeight = Math.max(1, Math.abs(scaleY(c.open) - scaleY(c.close)));
-      var body = svgEl("rect", {
-        x: x - (bodyWidth / 2), y: bodyTop, width: bodyWidth,
-        height: bodyHeight, fill: color
-      });
-
-      // Native SVG title gives mouse users exact real OHLCV values without HTML sinks.
-      var title = svgEl("title");
-      title.textContent = new Date(c.time * 1000).toISOString() +
-        " | O " + c.open + " H " + c.high +
-        " L " + c.low + " C " + c.close + " V " + c.volume;
-      body.appendChild(title);
-      svg.appendChild(wick);
-      svg.appendChild(body);
-
-      var volumeBarHeight = (c.volume / maxVolume) * volumePlotHeight;
-      svg.appendChild(svgEl("rect", {
-        x: x - (bodyWidth / 2),
-        y: volumeBottom - volumeBarHeight,
-        width: bodyWidth,
-        height: Math.max(c.volume > 0 ? 1 : 0, volumeBarHeight),
-        fill: color,
-        opacity: 0.55
-      }));
-    });
-
-    // Label actual candle timestamps, not generated placeholder positions.
-    [0, Math.floor((actual.length - 1) / 2), actual.length - 1].forEach(function (index, labelIndex, all) {
-      if (labelIndex > 0 && index === all[labelIndex - 1]) return;
-      var candle = actual[index];
-      var x = left + (index * stepX) + (stepX / 2);
-      var label = svgEl("text", {
-        x: x, y: h - 5, fill: "#b8c2dc",
-        "font-size": "10",
-        "text-anchor": labelIndex === 0 ? "start" : (labelIndex === all.length - 1 ? "end" : "middle")
-      });
-      label.textContent = fmtTime(candle.time * 1000);
-      svg.appendChild(label);
-    });
+    note("chart-note", actual.length + " real " + interval + " candles · scroll/zoom/crosshair enabled · overlays are derived only from displayed candles.");
   }
+
+  function fitInteractiveChart() {
+    if (chartInstance) {
+      chartInstance.timeScale().fitContent();
+      chartNeedsFit = false;
+    }
+  }
+
   function renderAiCouncil() {
     setBadge("ai-badge", "loading");
     var symbol = readSymbol();
@@ -914,6 +992,11 @@
       this.dataset.edited = "true";
     });
     $("order-form").addEventListener("submit", submitPaperOrder);
+    $("chart-sma20").addEventListener("change", applyChartVisibility);
+    $("chart-sma50").addEventListener("change", applyChartVisibility);
+    $("chart-volume").addEventListener("change", applyChartVisibility);
+    $("chart-fit-button").addEventListener("click", fitInteractiveChart);
+
     $("journal-form").addEventListener("submit", submitJournalEntry);
     $("tutor-form").addEventListener("submit", submitTutorMessage);
     configureLogout();

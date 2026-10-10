@@ -60,23 +60,43 @@ test("web/index.html is the honest, accessible dashboard shell", () => {
   assert.ok(!/\son[a-z]+\s*=/.test(html), "no inline event handlers");
 });
 
-test("candlestick chart renders only real API OHLC data", () => {
+test("interactive chart uses locked local Lightweight Charts and real OHLCV", () => {
   const api = read("server/api.js");
   const app = read("web/app.js");
+  const html = read("web/index.html");
+  const staticServer = read("server/static.js");
+  const vendorScript = read("scripts/copy-chart-asset.js");
+  const pkg = JSON.parse(read("package.json"));
+  const lock = JSON.parse(read("package-lock.json"));
+
+  assert.equal(pkg.dependencies["lightweight-charts"], "4.2.3");
+  assert.equal(lock.packages["node_modules/lightweight-charts"].version, "4.2.3");
+  assert.equal(lock.packages["node_modules/fancy-canvas"].version, "2.1.0");
   assert.match(api, /candles:\s*candles\.map/);
   assert.match(api, /time:\s*Math\.floor\(c\.openTime\s*\/\s*1000\)/);
-  assert.match(app, /drawSvgChart\(d\.candles,\s*ind\)/);
-  const start = app.indexOf("function drawSvgChart(");
-  const end = app.indexOf("function renderAiCouncil()", start);
-  assert.ok(start >= 0 && end > start, "chart renderer is present");
-  const chart = app.slice(start, end);
-  for (const field of ["c.open", "c.high", "c.low", "c.close", "c.volume", "c.time"]) {
-    assert.ok(chart.includes(field), `chart uses real candle field ${field}`);
-  }
-  assert.doesNotMatch(chart, /Math\.sin|Math\.cos|basePrice|variation/,
-    "chart must not manufacture fallback candle prices");
-  assert.match(chart, /Invalid OHLC payload/);
+  assert.match(html, /src="\/vendor\/lightweight-charts\.js" defer/);
+  assert.ok(html.indexOf("/vendor/lightweight-charts.js") < html.indexOf("/app.js"),
+    "locally served chart library loads before the application");
+  assert.match(html, /id="price-chart"/);
+  assert.match(html, /chart-sma20/);
+  assert.match(html, /chart-sma50/);
+  assert.match(html, /chart-volume/);
+  assert.match(html, /https:\/\/www\.tradingview\.com\//);
+  assert.match(staticServer, /"\/vendor\/lightweight-charts\.js"/);
+  assert.match(staticServer, /vendor\/lightweight-charts\.standalone\.production\.js/);
+  assert.match(vendorScript, /node_modules/);
+  assert.match(vendorScript, /"lightweight-charts", "dist", "lightweight-charts\.standalone\.production\.js"/);
+  assert.match(app, /LightweightCharts/);
+  assert.match(app, /addCandlestickSeries/);
+  assert.match(app, /addHistogramSeries/);
+  assert.match(app, /addLineSeries/);
+  assert.match(app, /simpleMovingAverage/);
+  assert.match(app, /\.timeScale\(\)\.fitContent\(\)/);
+  assert.match(app, /Invalid OHLCV payload/);
+  assert.doesNotMatch(html + app, /https:\/\/unpkg\.com|https:\/\/cdn\.jsdelivr\.net/,
+    "the browser must not load chart scripts from a CDN");
 });
+
 
 test("paper order ticket only targets the gated paper endpoint", () => {
   const html = read("web/index.html");
