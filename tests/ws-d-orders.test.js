@@ -377,6 +377,36 @@ test("oversized request bodies are rejected without parsing or execution", async
   });
 });
 
+test("CoinGecko fallback mark cannot authorize an executable paper order", async () => {
+  const fetchImpl = async (url) => {
+    const urlStr = String(url);
+    if (urlStr.includes("api.binance.com")) {
+      return jsonResponse(503, {msg: "Binance temporarily unavailable"});
+    }
+    if (urlStr.includes("api.coingecko.com")) {
+      return jsonResponse(200, [{
+        id: "bitcoin",
+        symbol: "btc",
+        name: "Bitcoin",
+        current_price: 42000.5,
+        market_cap: 800000000000,
+        total_volume: 12345678,
+        price_change_percentage_24h: 2.5,
+        last_updated: new Date().toISOString()
+      }]);
+    }
+    return jsonResponse(404, {});
+  };
+
+  await withServer(async ({srv}) => {
+    const res = await post(srv.base, validOrder("fallback-mark-only"));
+    assert.equal(res.status, 503);
+    assert.equal(res.body.error.code, "execution-quote-unavailable");
+    const orders = await fetch(srv.base + "/api/orders").then((r) => r.json());
+    assert.equal(orders.data.total, 0, "a mark-only fallback must never persist a fill");
+  }, {fetchImpl});
+});
+
 test("paper fills cross the ask, apply slippage and fees, and mark at the reference last", async () => {
   await withServer(async ({srv}) => {
     const res = await post(srv.base, {...validOrder("client-underprice"), price: 1});

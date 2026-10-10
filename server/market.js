@@ -131,21 +131,21 @@ export function createMarketService({
           primarySuccessAt = now();
           return primary;
         }
-        // Secondary fallback to CoinGecko price if primary Binance fails
+        // CoinGecko provides a reference mark, not an executable bid/ask quote.
+        // Preserve its source timestamp and never synthesize tradable prices.
         const coinId = SYMBOL_TO_COINGECKO_ID[sym];
         if (coinId) {
           const fallback = await provider.getCoinPrice(coinId);
           if (fallback.ok && fallback.data) {
-            fallbackSuccessAt = now();
+            fallbackSuccessAt = fallback.data.updatedAt;
             return {
               ok: true,
               data: {
                 symbol: sym,
                 last: fallback.data.price,
-                bid: fallback.data.price * 0.9995,
-                ask: fallback.data.price * 1.0005,
                 volume24h: fallback.data.volume24h,
                 changePct24h: fallback.data.change24hPct,
+                sourceUpdatedAt: fallback.data.updatedAt,
                 source: "coingecko-fallback"
               }
             };
@@ -153,7 +153,28 @@ export function createMarketService({
         }
         return primary;
       });
-      return result;
+
+      // Cache freshness measures fetch recency, but fallback marks also need
+      // their own source timestamp. An old/missing timestamp is never promoted
+      // to a fresh mark just because CoinGecko answered the request now.
+      if (result.data?.source !== "coingecko-fallback") return result;
+      const sourceUpdatedAt = result.data.sourceUpdatedAt;
+      if (!Number.isFinite(sourceUpdatedAt) || sourceUpdatedAt <= 0) {
+        return {state: "unavailable", reason: "fallback-source-timestamp-missing"};
+      }
+      const rawAgeMs = now() - sourceUpdatedAt;
+      if (rawAgeMs < -60_000) {
+        return {state: "unavailable", reason: "fallback-source-clock-skew"};
+      }
+      const sourceAgeMs = Math.max(0, rawAgeMs);
+      if (sourceAgeMs > staleWindowMs) {
+        return {state: "unavailable", reason: "fallback-source-stale"};
+      }
+      if (result.state !== "ok" || sourceAgeMs > ttlMs) {
+        return {...result, state: "stale", stale: true, ageMs: sourceAgeMs,
+          reason: result.reason || "fallback-source-stale"};
+      }
+      return {...result, stale: false, ageMs: sourceAgeMs};
     },
 
     getCandles(symbol, {interval, limit} = {}) {
