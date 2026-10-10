@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark">
   <title>Trading Nova — Professional Paper Trading Terminal</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/lightweight-charts.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -79,9 +80,16 @@
           <span class="badge" id="chart-badge" data-state="loading">LOADING…</span>
         </div>
         <div class="chart-container" id="chart-container">
-          <svg id="chart-svg" viewBox="0 0 800 320" preserveAspectRatio="none" aria-label="Candlestick chart from actual OHLC market data"></svg>
+          <div id="price-chart" role="img" aria-label="Interactive candlestick chart with crosshair, zoom and real market data"></div>
         </div>
-        <p class="panel-note" id="chart-note">Candles and volume are drawn directly from real OHLCV data; no synthetic price series.</p>
+        <div class="chart-toolbar" aria-label="Chart display controls">
+          <label class="chart-toggle" for="chart-sma20"><input id="chart-sma20" type="checkbox" checked> SMA 20</label>
+          <label class="chart-toggle" for="chart-sma50"><input id="chart-sma50" type="checkbox" checked> SMA 50</label>
+          <label class="chart-toggle" for="chart-volume"><input id="chart-volume" type="checkbox" checked> Volume</label>
+          <button type="button" id="chart-fit-button" class="chart-fit-button">Fit view</button>
+        </div>
+        <p class="panel-note" id="chart-note">Interactive candles from real OHLCV data, with volume and SMA overlays. No synthetic price data.</p>
+        <p class="chart-attribution">Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView</a> · Lightweight Charts 4.2.3 (Apache-2.0)</p>
       </section>
 
       <!-- Paper Order Ticket -->

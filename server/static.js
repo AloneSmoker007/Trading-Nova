@@ -15,6 +15,7 @@ const STATIC_FILES = Object.freeze({
   "/index.html": {file: "index.html", type: "text/html; charset=utf-8"},
   "/app.js": {file: "app.js", type: "text/javascript; charset=utf-8"},
   "/style.css": {file: "style.css", type: "text/css; charset=utf-8"},
+  "/vendor/lightweight-charts.js": {file: "vendor/lightweight-charts.standalone.production.js", type: "text/javascript; charset=utf-8"},
   "/ui/dashboard.html": {file: "index.html", type: "text/html; charset=utf-8"}
 });
 

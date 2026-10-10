@@ -35,6 +35,23 @@ test("GET /api/health returns ok with honest, secret-free payload", async () => 
   }
 });
 
+test("locally installed chart asset is served from the strict static whitelist", async () => {
+  const srv = await startTestServer({stateFile: "/nonexistent/paper-state.json"});
+  try {
+    const res = await fetch(srv.base + "/vendor/lightweight-charts.js");
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") || "", /javascript/);
+    const body = await res.text();
+    assert.ok(body.length >= 100000, "the pinned production chart bundle is present, not a stub");
+    assert.match(body, /LightweightCharts|createChart/);
+
+    const traversal = await fetch(srv.base + "/vendor/../server/app.js");
+    assert.equal(traversal.status, 404, "vendor serving does not weaken the static whitelist");
+  } finally {
+    await srv.close();
+  }
+});
+
 test("malformed and unknown symbols return 400 without crashing the server", async () => {
   const srv = await startTestServer({stateFile: "/nonexistent/paper-state.json"});
   const bad = [

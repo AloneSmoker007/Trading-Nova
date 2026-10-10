@@ -18,9 +18,12 @@
     "market:soak": "node scripts/market-soak.js",
     "observability:smoke": "node scripts/observability-smoke.js",
     "recovery:drill": "node scripts/backup-restore-drill.js",
-    "stress:test": "node scripts/stress-test.js"
+    "stress:test": "node scripts/stress-test.js",
+    "postinstall": "node scripts/copy-chart-asset.js",
+    "charts:vendor": "node scripts/copy-chart-asset.js"
   },
   "dependencies": {
+    "lightweight-charts": "4.2.3",
     "pg": "^8.16.3"
   },
   "devDependencies": {

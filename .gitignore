@@ -6,3 +6,6 @@ coverage/
 dist/
 *.log
 .DS_Store
+
+# Locally served asset generated from the exact, locked npm package.
+web/vendor/lightweight-charts.standalone.production.js
