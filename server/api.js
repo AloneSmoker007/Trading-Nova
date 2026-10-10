@@ -242,20 +242,45 @@ export function createApi({
     const strat = parseStrategy(query.get("strategy"));
     if (!strat.ok) return fail(400, "error", strat.code, strat.message);
 
+    // walkForward is the number of candles reserved for the in-sample run.
+    // Omitted means an automatic ~70/30 split, bounded to leave at least
+    // 35 candles in each sample. Explicit values are validated before I/O.
+    const rawWalkForward = query.get("walkForward");
+    let requestedWalkForward = null;
+    if (rawWalkForward !== null && rawWalkForward !== "") {
+      if (!/^\d{1,7}$/.test(rawWalkForward)) {
+        return fail(400, "error", "invalid-walk-forward", "walkForward must be an integer candle split");
+      }
+      requestedWalkForward = Number(rawWalkForward);
+      if (!Number.isSafeInteger(requestedWalkForward)
+          || requestedWalkForward < 35
+          || requestedWalkForward > limit.limit - 35) {
+        return fail(400, "error", "invalid-walk-forward", "walkForward must leave at least 35 candles in each sample");
+      }
+    }
+
     const res = await market.getCandles(sym.symbol, {interval: interval.interval, limit: limit.limit});
     if (res.state === "unavailable") {
       return fail(503, "unavailable", "candles-unavailable", "candle history unavailable", res.reason);
     }
     const candles = res.data;
-    if (candles.length < 35) {
-      return fail(503, "unavailable", "insufficient-data", "not enough candles to backtest", `candleCount=${candles.length}`);
+    if (candles.length < 70) {
+      return fail(503, "unavailable", "insufficient-data", "at least 70 candles are required for in-sample and out-of-sample evaluation", `candleCount=${candles.length}`);
     }
+    const walkForward = requestedWalkForward === null
+      ? Math.min(Math.max(Math.floor(candles.length * 0.7), 35), candles.length - 35)
+      : requestedWalkForward;
+    if (walkForward < 35 || walkForward > candles.length - 35) {
+      return fail(400, "error", "invalid-walk-forward", "walkForward must leave at least 35 available candles in each sample", `walkForward=${walkForward} candleCount=${candles.length}`);
+    }
+
     const strategy = createStrategy(strat.strategy);
     const startingCash = 10000;
     let result;
     try {
-      // Real engine: src/backtest/engine-v2.js (fees + slippage included, no look-ahead).
-      result = runBacktestV2({candles, strategy, startingCash, feeRate: 0.001, slippageBps: 5});
+      // Candle-close signals fill at the next candle open; OOS metrics are
+      // returned separately from the in-sample window.
+      result = runBacktestV2({candles, strategy, startingCash, feeRate: 0.001, slippageBps: 5, walkForward});
     } catch {
       return fail(500, "error", "backtest-failed", "backtest could not be computed");
     }
@@ -268,11 +293,16 @@ export function createApi({
       ageMs: res.ageMs,
       strategy: {name: strat.strategy, description: STRATEGY_DESCRIPTIONS[strat.strategy] || ""},
       parameters: result.parameters,
+      evaluationSplit: {
+        mode: requestedWalkForward === null ? "automatic" : "explicit",
+        inSampleCandles: walkForward,
+        outOfSampleCandles: candles.length - walkForward
+      },
       startingCash,
       inSample: result.inSample,
       outOfSample: result.outOfSample,
       reproducible: result.reproducible,
-      note: "Backtest over real historical candles (paper/shadow only). Past performance ≠ future results. Real money OFF."
+      note: "Backtest uses a deterministic in-sample/out-of-sample split over historical candles. Candle-close signals fill at the next candle open. Paper/shadow only; past performance is not a prediction of future results. Real money OFF."
     });
   }
 
