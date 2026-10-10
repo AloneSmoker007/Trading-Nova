@@ -21,7 +21,8 @@ test("paper execution cost defaults are deterministic and configurable", () => {
     NOVA_PAPER_FEE_RATE: "0.0015",
     NOVA_PAPER_SLIPPAGE_BPS: "8"
   }), {feeRate: 0.0015, slippageBps: 8});
-  assert.throws(() => paperExecutionCostConfigFromEnv({NOVA_PAPER_FEE_RATE: "NaN"}), /fee rate/);
+  assert.throws(() => paperExecutionCostConfigFromEnv({NOVA_PAPER_FEE_RATE: "NaN"}), /NOVA_PAPER_FEE_RATE/);
+  assert.throws(() => paperExecutionCostConfigFromEnv({NOVA_PAPER_FEE_RATE: ""}), /non-empty number/);
   assert.throws(() => paperExecutionCostConfigFromEnv({NOVA_PAPER_SLIPPAGE_BPS: "1.5"}), /slippage/);
 });
 
