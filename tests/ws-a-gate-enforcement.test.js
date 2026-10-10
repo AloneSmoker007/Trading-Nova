@@ -186,3 +186,79 @@ test("cloning a genuine gate artifact does not preserve execution authority", ()
   // The original, issued artifact remains valid.
   assert.equal(ex.submit({...PAPER_ORDER}, {gateArtifact:verdict.artifact}).status,"FILLED");
 });
+
+
+test("Risk Gate blocks projected daily loss after execution costs", () => {
+  const cfg = createRiskConfig({
+    version: "wsa-projected-cost-loss",
+    maxPositionNotional: 10000,
+    maxGrossExposure: 20000,
+    maxDailyLoss: 500,
+    maxDrawdown: 0.5,
+    maxLeverage: 10
+  });
+  const projected = portfolio({
+    equity: 9499,
+    cash: 9499,
+    grossExposure: 0,
+    netExposure: 0,
+    dailyPnl: -501,
+    drawdown: 0.0501,
+    peakEquity: 10000,
+    positions: []
+  });
+  const verdict = evaluateRiskGate({
+    order: PAPER_ORDER,
+    portfolio: portfolio(),
+    projectedPortfolio: projected,
+    riskConfig: cfg.config,
+    approvedConfigHash: cfg.hash
+  });
+  assert.equal(verdict.decision, "NO_TRADE");
+  assert.ok(verdict.reasons.includes("MAX_DAILY_LOSS"));
+  assert.equal(verdict.projectedEquity, 9499);
+  assert.equal(verdict.projectedDailyPnl, -501);
+});
+
+test("Risk Gate blocks projected drawdown caused by execution costs", () => {
+  const cfg = createRiskConfig({
+    version: "wsa-projected-cost-drawdown",
+    maxPositionNotional: 10000,
+    maxGrossExposure: 20000,
+    maxDailyLoss: 5000,
+    maxDrawdown: 0.1,
+    maxLeverage: 10
+  });
+  const projected = portfolio({
+    equity: 8999,
+    cash: 8999,
+    grossExposure: 0,
+    netExposure: 0,
+    dailyPnl: -100,
+    drawdown: 0.1001,
+    peakEquity: 10000,
+    positions: []
+  });
+  const verdict = evaluateRiskGate({
+    order: PAPER_ORDER,
+    portfolio: portfolio(),
+    projectedPortfolio: projected,
+    riskConfig: cfg.config,
+    approvedConfigHash: cfg.hash
+  });
+  assert.equal(verdict.decision, "NO_TRADE");
+  assert.ok(verdict.reasons.includes("MAX_DRAWDOWN"));
+  assert.equal(verdict.projectedDrawdown, 0.1001);
+});
+
+test("Risk Gate fails closed for invalid projected portfolio state", () => {
+  const cfg = config();
+  const verdict = evaluateRiskGate({
+    order: PAPER_ORDER,
+    portfolio: portfolio(),
+    projectedPortfolio: portfolio({equity: Number.NaN}),
+    riskConfig: cfg.config,
+    approvedConfigHash: cfg.hash
+  });
+  assert.deepEqual(verdict, {decision: "NO_TRADE", reasons: ["INVALID_PROJECTED_PORTFOLIO"]});
+});
