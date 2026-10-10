@@ -117,6 +117,23 @@ test("Strategy Lab uses the real backtest API and shows held-out results", () =>
   assert.doesNotMatch(app, /api\("\/api\/strategy\/lab/);
 });
 
+test("AI Council visibly discloses proxy inputs and disconnected research feeds", () => {
+  const html = read("web/index.html");
+  const app = read("web/app.js");
+  const css = read("web/style.css");
+  assert.match(html, /id="ai-coverage-note"/);
+  assert.match(html, /Company fundamentals, public news and social-sentiment feeds are not connected/i);
+  assert.match(app, /r\.displayName \|\| r\.role/);
+  assert.match(app, /r\.displayStatus/);
+  assert.match(app, /r\.basis/);
+  assert.match(app, /dataCoverage\?\.note/);
+  assert.match(css, /\.ai-role-basis/);
+  assert.match(css, /\.ai-proxy-disclosure/);
+  assert.match(app, /Liquidity proxy/);
+  assert.match(app, /24h momentum proxy/);
+  assert.match(app, /Volatility-regime proxy/);
+});
+
 test("paper order ticket only targets the gated paper endpoint", () => {
   const html = read("web/index.html");
   const app = read("web/app.js");
