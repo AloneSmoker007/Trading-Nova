@@ -34,10 +34,10 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
     techReason = `RSI(14)=${rsi ? rsi.toFixed(1) : "N/A"}, Trend=${ind.trend?.trendDirection || "neutral"}, SMA20/50 ${sma20 && sma50 && sma20 > sma50 ? "bullish cross" : "bearish/neutral"}`;
   }
 
-  // 2. Fundamental Brain
+  // 2. Liquidity proxy (quote volume is not company fundamentals)
   const quoteVolume = ticker?.quoteVolume24h ?? 0;
   let fundScore = 50;
-  let fundReason = "Standard market liquidity baseline";
+  let fundReason = "24h quote volume unavailable; liquidity cannot be assessed from this field."
   if (quoteVolume > 10000000) {
     fundScore = 75;
     fundReason = `High 24h liquidity volume ($${(quoteVolume / 1e6).toFixed(1)}M quote volume)`;
@@ -49,10 +49,10 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
     fundReason = `Low liquidity volume ($${quoteVolume.toFixed(0)})`;
   }
 
-  // 3. News Brain (Public market momentum proxy)
+  // 3. 24h price-momentum proxy (not a public-news feed)
   const change24h = ticker?.changePct24h ?? 0;
   let newsScore = 50;
-  let newsReason = "Balanced news and public market momentum";
+  let newsReason = "Neutral 24h price momentum; no article-level news input is connected."
   if (change24h > 5) {
     newsScore = 75;
     newsReason = `Strong positive 24h price momentum (+${change24h.toFixed(2)}%)`;
@@ -65,7 +65,7 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
   }
   newsScore = Math.max(10, Math.min(95, Math.round(newsScore)));
 
-  // 4. Sentiment Brain
+  // 4. Volatility-regime proxy (not social/news sentiment)
   let sentScore = 50;
   let sentReason = "Volatility regime normal";
   if (ind?.volatility) {
@@ -118,10 +118,10 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
 
   // 7. Research Brain (Evidence quality and freshness)
   let resScore = 80;
-  let resReason = "Fresh candle history and ticker feed available";
+  let resReason = "Historical candle data available; this role does not independently verify source freshness or external research.";
   if (!candles || candles.length < 20) {
     resScore = 35;
-    resReason = "Insufficient historical candles for point-in-time evidence";
+    resReason = "Insufficient historical candles for indicator context; no external research feed is evaluated.";
   }
 
   const evidence = {
@@ -150,30 +150,33 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
       reason: techReason
     },
     {
-      role: "Fundamental",
+      role: "Liquidity proxy",
+      legacyRole: "Fundamental",
       displayName: "Liquidity proxy",
       displayStatus: quoteVolume > 10000000 ? "HIGH VOLUME" : quoteVolume > 1000000 ? "MODERATE VOLUME" : quoteVolume > 0 ? "LOW VOLUME" : "VOLUME UNKNOWN",
       basis: "24-hour quote volume only. No company financial statements or fundamental-data feed is connected.",
       score: fundScore,
-      status: fundScore >= 60 ? "STRONG" : fundScore <= 40 ? "WEAK" : "NEUTRAL",
+      status: quoteVolume > 10000000 ? "HIGH_VOLUME" : quoteVolume > 1000000 ? "MODERATE_VOLUME" : quoteVolume > 0 ? "LOW_VOLUME" : "VOLUME_UNKNOWN",
       reason: fundReason
     },
     {
-      role: "News",
+      role: "24h momentum proxy",
+      legacyRole: "News",
       displayName: "24h momentum proxy",
       displayStatus: change24h > 5 ? "POSITIVE MOMENTUM" : change24h < -5 ? "NEGATIVE MOMENTUM" : change24h > 1 ? "MILD POSITIVE CHANGE" : change24h < -1 ? "MILD NEGATIVE CHANGE" : "FLAT CHANGE",
       basis: "24-hour price change only. No public-news feed or article-level event evidence is connected.",
       score: newsScore,
-      status: newsScore >= 60 ? "POSITIVE" : newsScore <= 40 ? "NEGATIVE" : "NEUTRAL",
+      status: change24h > 5 ? "POSITIVE_MOMENTUM" : change24h < -5 ? "NEGATIVE_MOMENTUM" : change24h > 1 ? "MILD_POSITIVE_CHANGE" : change24h < -1 ? "MILD_NEGATIVE_CHANGE" : "FLAT_CHANGE",
       reason: newsReason
     },
     {
-      role: "Sentiment",
+      role: "Volatility-regime proxy",
+      legacyRole: "Sentiment",
       displayName: "Volatility-regime proxy",
       displayStatus: ind?.volatility?.regime === "high" ? "HIGH VOLATILITY" : ind?.volatility?.regime === "low" ? "LOW VOLATILITY" : ind?.volatility?.regime === "normal" ? "NORMAL VOLATILITY" : "VOLATILITY UNKNOWN",
       basis: "Candle-volatility regime only. No social, survey, or news-sentiment feed is connected.",
       score: sentScore,
-      status: sentScore >= 60 ? "STABLE" : sentScore <= 40 ? "FEAR" : "NEUTRAL",
+      status: ind?.volatility?.regime === "high" ? "HIGH_VOLATILITY" : ind?.volatility?.regime === "low" ? "LOW_VOLATILITY" : ind?.volatility?.regime === "normal" ? "NORMAL_VOLATILITY" : "VOLATILITY_UNKNOWN",
       reason: sentReason
     },
     {
@@ -195,12 +198,13 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
       reason: riskReason
     },
     {
-      role: "Research",
+      role: "Data sufficiency",
+      legacyRole: "Research",
       displayName: "Data sufficiency",
       displayStatus: candles && candles.length >= 20 ? "CANDLES AVAILABLE" : "INSUFFICIENT DATA",
       basis: "Historical candle-count sufficiency only, not independent news or external-research validation.",
       score: resScore,
-      status: resScore >= 60 ? "VALIDATED" : "INSUFFICIENT_DATA",
+      status: candles && candles.length >= 20 ? "CANDLES_AVAILABLE" : "INSUFFICIENT_DATA",
       reason: resReason
     }
   ];
