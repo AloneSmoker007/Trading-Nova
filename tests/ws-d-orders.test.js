@@ -51,11 +51,7 @@ async function withServer(fn, options = {}) {
   try {
     await fn({srv, dir, stateFile, executionStateFile});
   } finally {
-    // Stop accepting requests first, then close every remaining connection.
-    // This order also avoids the server.close()/keep-alive race on Node 20.
-    const closing = srv.close();
-    srv.server.closeAllConnections?.();
-    await closing;
+    await srv.close();
     rmSync(dir, {recursive: true, force: true});
   }
 }
