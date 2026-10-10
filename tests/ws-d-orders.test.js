@@ -65,21 +65,6 @@ async function post(base, body, raw = false) {
   return {status: response.status, body: await response.json()};
 }
 
-async function postWithTimeout(base, body, timeoutMs = 10000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(base + "/api/paper/orders", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-    return {status: response.status, body: await response.json()};
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 
 test("valid paper order requires ALLOW and persists a reconciled fill", async () => {
@@ -271,7 +256,7 @@ test("order history supports bounded pages with stable totals and rejects invali
 
 test("unhealthy configured database fails closed instead of using local persistence", async () => {
   await withServer(async ({srv, executionStateFile}) => {
-    const result = await postWithTimeout(srv.base, validOrder("database-down-key"));
+    const result = await post(srv.base, validOrder("database-down-key"));
     assert.equal(result.status, 500);
     assert.equal(result.body.error.code, "paper-order-state-unavailable");
     assert.equal(existsSync(executionStateFile), false);
