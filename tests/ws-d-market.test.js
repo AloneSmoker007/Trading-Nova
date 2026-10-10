@@ -143,15 +143,69 @@ test("/api/backtest runs the real engine and stays paper-only honest", async () 
     const d = res.body.data;
     assert.equal(d.strategy.name, "sma-cross");
     assert.equal(d.startingCash, 10000);
-    assert.ok(Number.isFinite(d.inSample.equity), "final equity finite");
-    assert.ok(Number.isFinite(d.inSample.returnPct), "return finite");
-    assert.ok(Number.isInteger(d.inSample.trades), "trade count integer");
+    assert.ok(Number.isFinite(d.inSample.equity), "final in-sample equity finite");
+    assert.ok(Number.isFinite(d.inSample.returnPct), "in-sample return finite");
+    assert.ok(Number.isInteger(d.inSample.trades), "in-sample trade count integer");
     assert.equal(d.parameters.feeRate, 0.001);
     assert.equal(d.parameters.slippageBps, 5);
+    assert.equal(d.parameters.walkForward, 140);
+    assert.equal(d.evaluationSplit.mode, "automatic");
+    assert.equal(d.evaluationSplit.inSampleCandles, 140);
+    assert.equal(d.evaluationSplit.outOfSampleCandles, 60);
+    assert.equal(d.inSample.equityCurve.length, 140);
+    assert.ok(d.outOfSample, "out-of-sample metrics are included by default");
+    assert.equal(d.outOfSample.equityCurve.length, 60);
+    assert.ok(Number.isFinite(d.outOfSample.equity), "final out-of-sample equity finite");
     assert.equal(d.reproducible, true);
     assert.match(d.note, /[Pp]aper/);
     assert.match(d.note, /not a prediction|Past performance/);
     assert.deepEqual(findSecretViolations(res.body, res.text), []);
+  } finally {
+    await srv.close();
+  }
+});
+
+test("backtest accepts a valid explicit walk-forward split", async () => {
+  const srv = await startTestServer({fetchImpl: upstream(), stateFile: "/nonexistent/paper-state.json"});
+  try {
+    const res = await getJson(srv.base, "/api/backtest?symbol=BTCUSDT&interval=1h&limit=200&walkForward=150");
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.data.parameters.walkForward, 150);
+    assert.deepEqual(res.body.data.evaluationSplit, {
+      mode: "explicit",
+      inSampleCandles: 150,
+      outOfSampleCandles: 50
+    });
+    assert.equal(res.body.data.inSample.equityCurve.length, 150);
+    assert.equal(res.body.data.outOfSample.equityCurve.length, 50);
+  } finally {
+    await srv.close();
+  }
+});
+
+test("backtest rejects malformed and impossible walk-forward splits", async () => {
+  const srv = await startTestServer({fetchImpl: upstream(), stateFile: "/nonexistent/paper-state.json"});
+  try {
+    for (const value of ["abc", "1.5", "34", "166"]) {
+      const res = await getJson(srv.base, `/api/backtest?symbol=BTCUSDT&limit=200&walkForward=${value}`);
+      assert.equal(res.status, 400, `walkForward=${value}`);
+      assert.equal(res.body.error.code, "invalid-walk-forward");
+    }
+  } finally {
+    await srv.close();
+  }
+});
+
+test("backtest refuses an undersized candle history for two honest samples", async () => {
+  const srv = await startTestServer({
+    fetchImpl: upstream({klines: klineRows(60)}),
+    stateFile: "/nonexistent/paper-state.json"
+  });
+  try {
+    const res = await getJson(srv.base, "/api/backtest?symbol=BTCUSDT&limit=200");
+    assert.equal(res.status, 503);
+    assert.equal(res.body.error.code, "insufficient-data");
   } finally {
     await srv.close();
   }
