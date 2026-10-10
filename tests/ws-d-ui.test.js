@@ -113,7 +113,7 @@ test("Strategy Lab uses the real backtest API and shows held-out results", () =>
   assert.match(app, /data\.outOfSample\.returnPct \* 100/);
   assert.match(app, /Promise\.all\(specs\.map/);
   assert.match(app, /separate cash and no carried position/);
-  assert.match(app, /Held out historical window/i);
+  assert.match(app, /held out from execution tuning/i);
   assert.doesNotMatch(app, /api\("\/api\/strategy\/lab/);
 });
 
