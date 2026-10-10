@@ -51,10 +51,11 @@ async function withServer(fn, options = {}) {
   try {
     await fn({srv, dir, stateFile, executionStateFile});
   } finally {
-    // Ensure a failed/timed-out request cannot strand an open keep-alive socket
-    // and hold the Node test process after the assertion has finished.
+    // Stop accepting requests first, then close every remaining connection.
+    // This order also avoids the server.close()/keep-alive race on Node 20.
+    const closing = srv.close();
     srv.server.closeAllConnections?.();
-    await srv.close();
+    await closing;
     rmSync(dir, {recursive: true, force: true});
   }
 }
