@@ -60,6 +60,24 @@ test("web/index.html is the honest, accessible dashboard shell", () => {
   assert.ok(!/\son[a-z]+\s*=/.test(html), "no inline event handlers");
 });
 
+test("candlestick chart renders only real API OHLC data", () => {
+  const api = read("server/api.js");
+  const app = read("web/app.js");
+  assert.match(api, /candles:\s*candles\.map/);
+  assert.match(api, /time:\s*Math\.floor\(c\.openTime\s*\/\s*1000\)/);
+  assert.match(app, /drawSvgChart\(d\.candles,\s*ind\)/);
+  const start = app.indexOf("function drawSvgChart(");
+  const end = app.indexOf("function renderAiCouncil()", start);
+  assert.ok(start >= 0 && end > start, "chart renderer is present");
+  const chart = app.slice(start, end);
+  for (const field of ["c.open", "c.high", "c.low", "c.close", "c.volume", "c.time"]) {
+    assert.ok(chart.includes(field), `chart uses real candle field ${field}`);
+  }
+  assert.doesNotMatch(chart, /Math\.sin|Math\.cos|basePrice|variation/,
+    "chart must not manufacture fallback candle prices");
+  assert.match(chart, /Invalid OHLC payload/);
+});
+
 test("paper order ticket only targets the gated paper endpoint", () => {
   const html = read("web/index.html");
   const app = read("web/app.js");

@@ -226,7 +226,7 @@
         setBadge("chart-badge", d.state === "stale" ? "stale" : "ok", d.state === "stale" ? "STALE" : "LIVE");
         setBadge("indicators-badge", d.state === "stale" ? "stale" : "ok", d.state === "stale" ? "STALE" : "OK");
 
-        drawSvgChart(ind);
+        drawSvgChart(d.candles, ind);
 
         row(dl, "Candles used", d.candleCount + " × " + d.interval);
         var trend = ind.trend || {};
@@ -259,55 +259,140 @@
     });
   }
 
-  function drawSvgChart(ind) {
+  function drawSvgChart(candles, ind) {
     var svg = $("chart-svg");
     clear(svg);
-    if (!ind || !ind.trend) return;
 
-    var w = 800, h = 320;
-    var padding = 20;
-
-    for (var y = 40; y < h - padding; y += 50) {
-      svg.appendChild(svgEl("line", { x1: padding, y1: y, x2: w - padding, y2: y, stroke: "#1c2438", "stroke-width": 1 }));
+    if (!Array.isArray(candles) || candles.length === 0) {
+      var empty = svgEl("text", { x: 400, y: 160, fill: "#b8c2dc", "font-size": "14", "text-anchor": "middle" });
+      empty.textContent = "No real candle data available";
+      svg.appendChild(empty);
+      return;
     }
 
-    var sma20Val = ind.trend.sma20;
-    var sma50Val = ind.trend.sma50;
-    var vwapVal = ind.trend.vwap;
-
-    var textNode = svgEl("text", { x: 30, y: 30, fill: "#7aa2f7", "font-size": "14", "font-weight": "bold" });
-    textNode.textContent = "SMA(20): " + fmtNum(sma20Val) + " | SMA(50): " + fmtNum(sma50Val) + " | VWAP: " + fmtNum(vwapVal);
-    svg.appendChild(textNode);
-
-    var pts = [];
-    var basePrice = sma20Val || 50000;
-    var count = 30;
-    var stepX = (w - padding * 2) / count;
-
-    for (var i = 0; i < count; i++) {
-      var x = padding + i * stepX;
-      var variation = Math.sin(i * 0.4) * (basePrice * 0.02) + (i * (basePrice * 0.001));
-      var closeP = basePrice + variation;
-      var openP = closeP - Math.cos(i * 0.5) * (basePrice * 0.01);
-      var highP = Math.max(openP, closeP) + Math.abs(variation) * 0.2;
-      var lowP = Math.min(openP, closeP) - Math.abs(variation) * 0.2;
-
-      var minP = basePrice * 0.95;
-      var maxP = basePrice * 1.05;
-      var scaleY = function (p) { return h - padding - 40 - ((p - minP) / (maxP - minP)) * (h - padding * 2 - 60); };
-
-      var candleColor = closeP >= openP ? "#34d399" : "#f87171";
-      svg.appendChild(svgEl("line", { x1: x + 6, y1: scaleY(highP), x2: x + 6, y2: scaleY(lowP), stroke: candleColor, "stroke-width": 1.5 }));
-      svg.appendChild(svgEl("rect", { x: x + 2, y: Math.min(scaleY(openP), scaleY(closeP)), width: 8, height: Math.max(2, Math.abs(scaleY(openP) - scaleY(closeP))), fill: candleColor }));
-
-      pts.push((x + 6) + "," + scaleY((closeP + openP) / 2));
+    // Render only the newest 120 real candles for legibility. No synthetic fallback.
+    var actual = candles.slice(-120);
+    var invalid = actual.some(function (c) {
+      return !c || !Number.isFinite(c.time) ||
+        ![c.open, c.high, c.low, c.close, c.volume].every(Number.isFinite) ||
+        c.open <= 0 || c.close <= 0 || c.volume < 0 ||
+        c.high < c.low || c.open < c.low || c.open > c.high ||
+        c.close < c.low || c.close > c.high;
+    });
+    if (invalid) {
+      var bad = svgEl("text", { x: 400, y: 160, fill: "#fca5a5", "font-size": "14", "text-anchor": "middle" });
+      bad.textContent = "Invalid OHLC payload — chart withheld";
+      svg.appendChild(bad);
+      return;
     }
 
-    if (pts.length > 1) {
-      svg.appendChild(svgEl("polyline", { points: pts.join(" "), fill: "none", stroke: "#7aa2f7", "stroke-width": 2, "stroke-dasharray": "4 2" }));
+    var w = 800;
+    var h = 320;
+    var left = 66;
+    var right = 14;
+    var top = 34;
+    var bottom = 24;
+    var volumeHeight = 44;
+    var plotBottom = h - bottom - volumeHeight;
+    var plotHeight = plotBottom - top;
+
+    var minP = Math.min.apply(null, actual.map(function (c) { return c.low; }));
+    var maxP = Math.max.apply(null, actual.map(function (c) { return c.high; }));
+    if (maxP === minP) {
+      var epsilon = Math.max(Math.abs(maxP) * 0.001, 0.00000001);
+      minP -= epsilon;
+      maxP += epsilon;
     }
+    var padding = (maxP - minP) * 0.05;
+    minP -= padding;
+    maxP += padding;
+
+    var scaleY = function (price) {
+      return plotBottom - ((price - minP) / (maxP - minP)) * plotHeight;
+    };
+
+    for (var grid = 0; grid <= 4; grid++) {
+      var gy = top + (plotHeight * grid / 4);
+      svg.appendChild(svgEl("line", {
+        x1: left, y1: gy, x2: w - right, y2: gy,
+        stroke: "#1c2438", "stroke-width": 1
+      }));
+      var priceLabel = svgEl("text", {
+        x: left - 8, y: gy + 4, fill: "#b8c2dc",
+        "font-size": "10", "text-anchor": "end"
+      });
+      var gridPrice = maxP - ((maxP - minP) * grid / 4);
+      priceLabel.textContent = fmtNum(gridPrice, gridPrice < 1 ? 6 : 2);
+      svg.appendChild(priceLabel);
+    }
+
+    if (ind && ind.trend) {
+      var summary = svgEl("text", {
+        x: left, y: 17, fill: "#7aa2f7",
+        "font-size": "12", "font-weight": "bold"
+      });
+      summary.textContent = "SMA20 " + fmtNum(ind.trend.sma20) +
+        "  ·  SMA50 " + fmtNum(ind.trend.sma50) +
+        "  ·  VWAP " + fmtNum(ind.trend.vwap);
+      svg.appendChild(summary);
+    }
+
+    var stepX = (w - left - right) / actual.length;
+    var bodyWidth = Math.max(1, Math.min(9, stepX * 0.68));
+    var maxVolume = Math.max.apply(null, actual.map(function (c) { return c.volume; }));
+    maxVolume = maxVolume > 0 ? maxVolume : 1;
+    var volumeTop = plotBottom + 5;
+    var volumeBottom = h - bottom;
+    var volumePlotHeight = volumeBottom - volumeTop - 2;
+
+    actual.forEach(function (c, i) {
+      var x = left + (i * stepX) + (stepX / 2);
+      var color = c.close >= c.open ? "#34d399" : "#f87171";
+      var wick = svgEl("line", {
+        x1: x, y1: scaleY(c.high), x2: x, y2: scaleY(c.low),
+        stroke: color, "stroke-width": 1.2
+      });
+      var bodyTop = Math.min(scaleY(c.open), scaleY(c.close));
+      var bodyHeight = Math.max(1, Math.abs(scaleY(c.open) - scaleY(c.close)));
+      var body = svgEl("rect", {
+        x: x - (bodyWidth / 2), y: bodyTop, width: bodyWidth,
+        height: bodyHeight, fill: color
+      });
+
+      // Native SVG title gives mouse users exact real OHLCV values without HTML sinks.
+      var title = svgEl("title");
+      title.textContent = new Date(c.time * 1000).toISOString() +
+        " | O " + c.open + " H " + c.high +
+        " L " + c.low + " C " + c.close + " V " + c.volume;
+      body.appendChild(title);
+      svg.appendChild(wick);
+      svg.appendChild(body);
+
+      var volumeBarHeight = (c.volume / maxVolume) * volumePlotHeight;
+      svg.appendChild(svgEl("rect", {
+        x: x - (bodyWidth / 2),
+        y: volumeBottom - volumeBarHeight,
+        width: bodyWidth,
+        height: Math.max(c.volume > 0 ? 1 : 0, volumeBarHeight),
+        fill: color,
+        opacity: 0.55
+      }));
+    });
+
+    // Label actual candle timestamps, not generated placeholder positions.
+    [0, Math.floor((actual.length - 1) / 2), actual.length - 1].forEach(function (index, labelIndex, all) {
+      if (labelIndex > 0 && index === all[labelIndex - 1]) return;
+      var candle = actual[index];
+      var x = left + (index * stepX) + (stepX / 2);
+      var label = svgEl("text", {
+        x: x, y: h - 5, fill: "#b8c2dc",
+        "font-size": "10",
+        "text-anchor": labelIndex === 0 ? "start" : (labelIndex === all.length - 1 ? "end" : "middle")
+      });
+      label.textContent = fmtTime(candle.time * 1000);
+      svg.appendChild(label);
+    });
   }
-
   function renderAiCouncil() {
     setBadge("ai-badge", "loading");
     var symbol = readSymbol();
