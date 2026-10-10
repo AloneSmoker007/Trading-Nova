@@ -22,13 +22,19 @@ export function validatePaperExecutionCostConfig({
 }
 
 export function paperExecutionCostConfigFromEnv(env = process.env) {
-  const feeRate = env.NOVA_PAPER_FEE_RATE === undefined
-    ? DEFAULT_PAPER_FEE_RATE
-    : Number(env.NOVA_PAPER_FEE_RATE);
-  const slippageBps = env.NOVA_PAPER_SLIPPAGE_BPS === undefined
-    ? DEFAULT_PAPER_SLIPPAGE_BPS
-    : Number(env.NOVA_PAPER_SLIPPAGE_BPS);
-  return validatePaperExecutionCostConfig({feeRate, slippageBps});
+  const readNumber = (key, fallback) => {
+    if (env[key] === undefined) return fallback;
+    if (typeof env[key] !== "string" || env[key].trim() === "") {
+      throw new TypeError(key + " must be a non-empty number");
+    }
+    const parsed = Number(env[key]);
+    if (!Number.isFinite(parsed)) throw new TypeError(key + " must be a finite number");
+    return parsed;
+  };
+  return validatePaperExecutionCostConfig({
+    feeRate: readNumber("NOVA_PAPER_FEE_RATE", DEFAULT_PAPER_FEE_RATE),
+    slippageBps: readNumber("NOVA_PAPER_SLIPPAGE_BPS", DEFAULT_PAPER_SLIPPAGE_BPS)
+  });
 }
 
 /**
