@@ -84,6 +84,7 @@ test("unsupported paper order types and unused triggers fail closed without crea
   // A fake durable store keeps this validation regression deterministic and
   // records every mutation; rejected orders must return before any store write.
   const writes = [];
+  let marketCalls = 0;
   const store = {
     health: async () => true,
     list: async () => [],
@@ -92,7 +93,10 @@ test("unsupported paper order types and unused triggers fail closed without crea
     transactIdempotent: async (...args) => { writes.push(["transactIdempotent", ...args]); }
   };
   const service = createPaperOrderService({
-    market: {getTicker: async () => ({state: "ok", ageMs: 0, data: {last: 42000.5}})},
+    market: {getTicker: async () => {
+      marketCalls++;
+      return {state: "ok", ageMs: 0, data: {last: 42000.5}};
+    }},
     stateFile: "unused-paper-state.json",
     executionStateFile: "unused-paper-orders.json",
     store
@@ -109,6 +113,7 @@ test("unsupported paper order types and unused triggers fail closed without crea
     assert.equal(result.body.error.code, "unsupported-order-trigger");
   }
   assert.deepEqual(writes, [], "rejected orders must never write a fill or portfolio");
+  assert.equal(marketCalls, 0, "unsupported orders must be rejected before market-data I/O");
 });
 
 test("Risk Gate NO_TRADE returns reasons and does not create a fill", async () => {
