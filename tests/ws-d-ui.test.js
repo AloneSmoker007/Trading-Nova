@@ -98,6 +98,25 @@ test("interactive chart uses locked local Lightweight Charts and real OHLCV", ()
 });
 
 
+test("Strategy Lab uses the real backtest API and shows held-out results", () => {
+  const html = read("web/index.html");
+  const app = read("web/app.js");
+  assert.match(html, /id="walk-forward-input"/);
+  assert.match(html, /id="run-backtest-btn"/);
+  assert.match(html, /held-out out-of-sample test/i);
+  assert.match(html, /IS Final Equity/);
+  assert.match(html, /OOS Final Equity/);
+  assert.match(app, /\/api\/backtest\?symbol=/);
+  assert.match(app, /walkForward/);
+  assert.match(app, /evaluationSplit/);
+  assert.match(app, /data\.inSample\.returnPct \* 100/);
+  assert.match(app, /data\.outOfSample\.returnPct \* 100/);
+  assert.match(app, /Promise\.all\(specs\.map/);
+  assert.match(app, /separate cash and no carried position/);
+  assert.match(app, /Held out historical window/i);
+  assert.doesNotMatch(app, /api\("\/api\/strategy\/lab/);
+});
+
 test("paper order ticket only targets the gated paper endpoint", () => {
   const html = read("web/index.html");
   const app = read("web/app.js");
