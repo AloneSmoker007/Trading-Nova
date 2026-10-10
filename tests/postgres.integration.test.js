@@ -133,7 +133,7 @@ auditRun("PostgreSQL real integration: audit hash chain verifies and detects tam
 auditRun("PostgreSQL real integration: paper orders survive restart and replay idempotently", async()=>{
   const stateFile=join(tmpdir(),`trading-nova-neon-state-${randomUUID()}.json`);
   const executionStateFile=join(tmpdir(),`trading-nova-neon-orders-${randomUUID()}.json`);
-  const market={getTicker:async()=>({state:"ok",ageMs:0,data:{last:42000.5}})};
+  const market={getTicker:async()=>({state:"ok",ageMs:0,data:{last:42000.5,bid:42000,ask:42001}})};
   const order={symbol:"BTCUSDT",side:"BUY",quantity:0.01,price:42000.5,idempotencyKey:`neon-${randomUUID()}`};
   const firstStore=await createPostgresStore({
     connectionString:process.env.POSTGRES_URL,
