@@ -114,7 +114,12 @@ test("paper order ticket only targets the gated paper endpoint", () => {
   assert.match(app, /if \(orderSubmissionInProgress\) return/);
   assert.match(app, /!orderSubmissionInProgress && orderPrice\.dataset\.edited/);
   assert.match(app, /control\.disabled = true/);
-  assert.match(app, /control\.disabled = false/);
+  assert.match(html, /value="LIMIT" disabled/);
+  assert.match(html, /value="STOP_LOSS" disabled/);
+  assert.match(html, /value="TAKE_PROFIT" disabled/);
+  assert.match(html, /id="order-stop-price"[^>]*disabled/);
+  assert.match(app, /var disabledControls = Array\.prototype\.map\.call/);
+  assert.match(app, /entry\.control\.disabled = entry\.wasDisabled/);
   assert.match(app, /orderOutcomeUncertain && fingerprint !== pendingOrderFingerprint/);
   assert.match(app, /Order outcome is unconfirmed/);
   assert.match(app, /unchanged retry in this tab reuses the same idempotency key/);
