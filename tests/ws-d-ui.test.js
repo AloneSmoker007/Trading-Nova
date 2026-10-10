@@ -129,9 +129,10 @@ test("AI Council visibly discloses proxy inputs and disconnected research feeds"
   assert.match(app, /dataCoverage\?\.note/);
   assert.match(css, /\.ai-role-basis/);
   assert.match(css, /\.ai-proxy-disclosure/);
-  assert.match(app, /Liquidity proxy/);
-  assert.match(app, /24h momentum proxy/);
-  assert.match(app, /Volatility-regime proxy/);
+  // Labels and source descriptions come from the server response and are
+  // covered by the API integration test; this UI test verifies safe rendering.
+  assert.match(app, /r\.displayName \|\| r\.role/);
+  assert.match(app, /r\.basis/);
 });
 
 test("paper order ticket only targets the gated paper endpoint", () => {
