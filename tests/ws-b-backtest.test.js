@@ -99,8 +99,58 @@ test("WS-B M4: legacy OOS results without a curve use OOS-only evidence", () => 
   assert.deepEqual(validateBacktest({inSample: {trades: 100, returnPct: 0}, outOfSample: {trades: 2, returnPct: 0}}).reasons, ["INSUFFICIENT_TRADES"]);
 });
 
+
+test("WS-B: candle-close signals fill only at the following candle open", () => {
+  const candles = [
+    {open: 100, close: 110},
+    {open: 200, close: 220},
+    {open: 300, close: 310}
+  ];
+  const result = runBacktestV2({
+    candles,
+    startingCash: 1000,
+    strategy: (candle) => candle.close === 110 ? {side: "BUY", quantity: 1} : null
+  });
+
+  assert.equal(result.inSample.trades, 1);
+  // The fill is 200 at bar two's open (not 110 at the signal bar's close).
+  assert.equal(result.inSample.equityCurve[0], 1000);
+  assert.equal(result.inSample.equityCurve[1], 1020);
+  assert.equal(result.inSample.equity, 1110);
+});
+
+test("WS-B: signal on the final candle is not fabricated into a fill", () => {
+  const result = runBacktestV2({
+    candles: [{open: 100, close: 101}],
+    startingCash: 1000,
+    strategy: () => ({side: "BUY", quantity: 1})
+  });
+  assert.equal(result.inSample.trades, 0);
+  assert.equal(result.inSample.equity, 1000);
+});
+
+test("WS-B: slippage is applied to the next candle open, not signal close", () => {
+  const result = runBacktestV2({
+    candles: [{open: 100, close: 110}, {open: 200, close: 220}],
+    startingCash: 1000,
+    feeRate: 0,
+    slippageBps: 100,
+    strategy: (candle) => candle.close === 110 ? {side: "BUY", quantity: 1} : null
+  });
+  // Next-open 200 plus 1% slippage = 202; equity at close = 1000 - 202 + 220.
+  assert.equal(result.inSample.trades, 1);
+  assert.equal(result.inSample.equity, 1018);
+});
+
+test("WS-B: backtest rejects close-only candles rather than silently faking a fill price", () => {
+  assert.throws(() => runBacktestV2({
+    candles: [{close: 100}],
+    strategy: () => ({side: "BUY", quantity: 1})
+  }), /open and close prices/);
+});
+
 test("WS-B: runBacktestV2 exposes a finite OOS equity curve for drawdown measurement", () => {
-  const candles = Array.from({length: 20}, (_, i) => ({close: 100 + i}));
+  const candles = Array.from({length: 20}, (_, i) => ({open: 99 + i, close: 100 + i}));
   const r = runBacktestV2({candles, strategy: () => ({side: "BUY", quantity: 0.01}), walkForward: 10, feeRate: 0.001, slippageBps: 5});
   assert.equal(r.outOfSample.equityCurve.length, 10);
   assert.ok(r.outOfSample.equityCurve.every(Number.isFinite));
