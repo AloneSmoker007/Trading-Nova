@@ -95,25 +95,27 @@ test("valid paper order requires ALLOW and persists a reconciled fill", async ()
 });
 
 test("unsupported non-market paper order types fail closed without creating fills", async () => {
-  await withServer(async ({srv, executionStateFile}) => {
-    for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
+  // Each case gets a fresh server so order-rate-limit state cannot mask the
+  // validation result this regression is supposed to verify.
+  for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
+    await withServer(async ({srv, executionStateFile}) => {
       const result = await postWithTimeout(srv.base, {...validOrder("unsupported-" + type), type});
       assert.equal(result.status, 400, type);
       assert.equal(result.body.error.code, "unsupported-order-type", type);
-    }
-    assert.equal(existsSync(executionStateFile), false, "rejected order types must never persist an execution record");
-  });
+      assert.equal(existsSync(executionStateFile), false, "rejected orders must never persist an execution record");
+    });
+  }
 });
 
 test("market paper orders reject unused stop/take-profit trigger fields", async () => {
-  await withServer(async ({srv, executionStateFile}) => {
-    for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
+  for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
+    await withServer(async ({srv, executionStateFile}) => {
       const result = await postWithTimeout(srv.base, {...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
       assert.equal(result.status, 400);
       assert.equal(result.body.error.code, "unsupported-order-trigger");
-    }
-    assert.equal(existsSync(executionStateFile), false, "unused trigger fields must never persist an execution record");
-  });
+      assert.equal(existsSync(executionStateFile), false, "unused trigger fields must never persist an execution record");
+    });
+  }
 });
 
 test("Risk Gate NO_TRADE returns reasons and does not create a fill", async () => {
