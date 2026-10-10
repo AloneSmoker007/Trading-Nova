@@ -248,7 +248,7 @@ export function createApi({
     const rawWalkForward = query.get("walkForward");
     let requestedWalkForward = null;
     if (rawWalkForward !== null && rawWalkForward !== "") {
-      if (!/^\\d{1,7}$/.test(rawWalkForward)) {
+      if (!/^\d{1,7}$/.test(rawWalkForward)) {
         return fail(400, "error", "invalid-walk-forward", "walkForward must be an integer candle split");
       }
       requestedWalkForward = Number(rawWalkForward);
