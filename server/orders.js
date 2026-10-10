@@ -358,13 +358,25 @@ export function createPaperOrderService({
           }
         };
       }
+      // Project the immediate equity cost at the same reference mark used by
+      // the portfolio. BUYs lose executionPrice-referencePrice; SELLs lose
+      // referencePrice-executionPrice; both pay the fee. Favorable mark-price
+      // differences are not credited as risk budget.
+      const estimatedExecutionCost = execution
+        ? Math.max(0, (
+          gatedOrder.side === "BUY"
+            ? execution.executionPrice - execution.referencePrice
+            : execution.referencePrice - execution.executionPrice
+        ) * gatedOrder.quantity + execution.fee)
+        : 0;
       const verdict = evaluateRiskGate({
         order: gatedOrder,
         portfolio: marketState.portfolio,
         riskConfig: RISK_CONFIG,
         dataFresh: marketState.fresh,
         killSwitch: base.limits?.ok === false,
-        approvedConfigHash: RISK_CONFIG_HASH
+        approvedConfigHash: RISK_CONFIG_HASH,
+        estimatedExecutionCost
       });
       if (verdict.decision !== "ALLOW") {
         return {
