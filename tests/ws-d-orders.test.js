@@ -51,6 +51,9 @@ async function withServer(fn, options = {}) {
   try {
     await fn({srv, dir, stateFile, executionStateFile});
   } finally {
+    // Ensure a failed/timed-out request cannot strand an open keep-alive socket
+    // and hold the Node test process after the assertion has finished.
+    srv.server.closeAllConnections?.();
     await srv.close();
     rmSync(dir, {recursive: true, force: true});
   }
@@ -63,6 +66,22 @@ async function post(base, body, raw = false) {
     body: raw ? body : JSON.stringify(body)
   });
   return {status: response.status, body: await response.json()};
+}
+
+async function postWithTimeout(base, body, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(base + "/api/paper/orders", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    return {status: response.status, body: await response.json()};
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 
@@ -84,7 +103,7 @@ test("unsupported non-market paper order types fail closed without creating fill
   // validation result this regression is supposed to verify.
   for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
     await withServer(async ({srv, executionStateFile}) => {
-      const result = await post(srv.base, {...validOrder("unsupported-" + type), type});
+      const result = await postWithTimeout(srv.base, {...validOrder("unsupported-" + type), type});
       assert.equal(result.status, 400, type);
       assert.equal(result.body.error.code, "unsupported-order-type", type);
       assert.equal(existsSync(executionStateFile), false, "rejected orders must never persist an execution record");
@@ -95,7 +114,7 @@ test("unsupported non-market paper order types fail closed without creating fill
 test("market paper orders reject unused stop/take-profit trigger fields", async () => {
   for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
     await withServer(async ({srv, executionStateFile}) => {
-      const result = await post(srv.base, {...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
+      const result = await postWithTimeout(srv.base, {...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
       assert.equal(result.status, 400);
       assert.equal(result.body.error.code, "unsupported-order-trigger");
       assert.equal(existsSync(executionStateFile), false, "unused trigger fields must never persist an execution record");
@@ -248,7 +267,7 @@ test("order history supports bounded pages with stable totals and rejects invali
 
 test("unhealthy configured database fails closed instead of using local persistence", async () => {
   await withServer(async ({srv, executionStateFile}) => {
-    const result = await post(srv.base, validOrder("database-down-key"));
+    const result = await postWithTimeout(srv.base, validOrder("database-down-key"));
     assert.equal(result.status, 500);
     assert.equal(result.body.error.code, "paper-order-state-unavailable");
     assert.equal(existsSync(executionStateFile), false);
