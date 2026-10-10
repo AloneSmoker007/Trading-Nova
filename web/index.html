@@ -247,21 +247,32 @@
           <span class="badge" id="lab-badge" data-state="loading">LOADING…</span>
         </div>
         <dl class="values" id="backtest-values" aria-live="polite" aria-busy="true"></dl>
+        <div class="lab-controls">
+          <div class="field">
+            <label for="walk-forward-input">In-sample candle count (optional)</label>
+            <input id="walk-forward-input" type="number" min="35" max="165" step="1" inputmode="numeric" placeholder="Automatic ~70/30" aria-describedby="walk-forward-help">
+            <p class="muted" id="walk-forward-help">Blank uses an automatic ~70/30 split. Both windows need at least 35 available candles.</p>
+          </div>
+          <button id="run-backtest-btn" type="button">Run walk-forward backtest</button>
+        </div>
         <div class="table-wrap">
           <table id="lab-table">
-            <caption>Multi-Strategy Comparison (Historical Candles)</caption>
+            <caption>In-sample calibration vs held-out out-of-sample test · historical candles only</caption>
             <thead>
               <tr>
                 <th scope="col">Strategy</th>
-                <th scope="col">Return %</th>
-                <th scope="col">Trades</th>
-                <th scope="col">Final Cash</th>
+                <th scope="col">IS Return %</th>
+                <th scope="col">IS Trades</th>
+                <th scope="col">IS Final Equity</th>
+                <th scope="col">OOS Return %</th>
+                <th scope="col">OOS Trades</th>
+                <th scope="col">OOS Final Equity</th>
               </tr>
             </thead>
             <tbody id="lab-body"></tbody>
           </table>
         </div>
-        <p class="panel-note" id="lab-note">Simulated with realistic fees (0.1%) & slippage (5 bps). Historical simulation only.</p>
+        <p class="panel-note" id="lab-note" role="status" aria-live="polite">Blank split runs a historical ~70/30 evaluation; held-out results are not a prediction. Real money OFF.</p>
       </section>
 
       <!-- Personal AI Trading Tutor -->
