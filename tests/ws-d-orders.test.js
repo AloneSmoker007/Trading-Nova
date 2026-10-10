@@ -96,28 +96,34 @@ test("valid paper order requires ALLOW and persists a reconciled fill", async ()
 });
 
 test("unsupported paper order types and unused triggers fail closed without creating fills", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trading-nova-order-rejection-"));
-  const executionStateFile = join(dir, "paper-orders.json");
+  // A fake durable store keeps this validation regression deterministic and
+  // records every mutation; rejected orders must return before any store write.
+  const writes = [];
+  const store = {
+    health: async () => true,
+    list: async () => [],
+    get: async () => null,
+    put: async (...args) => { writes.push(["put", ...args]); },
+    transactIdempotent: async (...args) => { writes.push(["transactIdempotent", ...args]); }
+  };
   const service = createPaperOrderService({
     market: {getTicker: async () => ({state: "ok", ageMs: 0, data: {last: 42000.5}})},
-    stateFile: join(dir, "paper-state.json"),
-    executionStateFile
+    stateFile: "unused-paper-state.json",
+    executionStateFile: "unused-paper-orders.json",
+    store
   });
-  try {
-    for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
-      const result = await service.submit({...validOrder("unsupported-" + type), type});
-      assert.equal(result.status, 400, type);
-      assert.equal(result.body.error.code, "unsupported-order-type", type);
-    }
-    for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
-      const result = await service.submit({...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
-      assert.equal(result.status, 400);
-      assert.equal(result.body.error.code, "unsupported-order-trigger");
-    }
-    assert.equal(existsSync(executionStateFile), false, "rejected orders must never persist an execution record");
-  } finally {
-    rmSync(dir, {recursive: true, force: true});
+
+  for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
+    const result = await service.submit({...validOrder("unsupported-" + type), type});
+    assert.equal(result.status, 400, type);
+    assert.equal(result.body.error.code, "unsupported-order-type", type);
   }
+  for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
+    const result = await service.submit({...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error.code, "unsupported-order-trigger");
+  }
+  assert.deepEqual(writes, [], "rejected orders must never write a fill or portfolio");
 });
 
 test("Risk Gate NO_TRADE returns reasons and does not create a fill", async () => {
