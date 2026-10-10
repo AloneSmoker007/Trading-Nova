@@ -73,7 +73,7 @@ export class PersistentPaperEngine {
         quotePrice: execution?.quotePrice ?? null,
         spreadBps: execution?.spreadBps ?? null,
         spreadCost: execution?.spreadCost ?? null,
-        slippageBps: execution?.slippageBps ?? DEFAULT_PAPER_SLIPPAGE_BPS,
+        slippageBps: execution?.slippageBps ?? null,
         slippageCost: execution?.slippageCost ?? null,
         status: "RECONCILED",
         timestamp: Date.now(),
