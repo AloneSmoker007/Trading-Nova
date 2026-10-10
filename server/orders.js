@@ -58,11 +58,13 @@ function parseOrderRequest(body) {
   if (!["MARKET", "LIMIT", "STOP_LOSS", "TAKE_PROFIT"].includes(type)) {
     return {error: {code: "invalid-type", message: "type must be MARKET, LIMIT, STOP_LOSS, or TAKE_PROFIT"}};
   }
-  if (body.stopPrice !== undefined && (!Number.isFinite(body.stopPrice) || body.stopPrice <= 0)) {
-    return {error: {code: "invalid-stop-price", message: "stopPrice must be a positive number"}};
+  // Fail closed until the paper engine implements pending orders and trigger semantics.
+  // Never silently execute a requested limit/stop/take-profit order as a market fill.
+  if (type !== "MARKET") {
+    return {error: {code: "unsupported-order-type", message: "Only MARKET paper orders are currently supported. LIMIT, STOP_LOSS, and TAKE_PROFIT are blocked until their execution lifecycle is implemented."}};
   }
-  if (body.takeProfitPrice !== undefined && (!Number.isFinite(body.takeProfitPrice) || body.takeProfitPrice <= 0)) {
-    return {error: {code: "invalid-take-profit-price", message: "takeProfitPrice must be a positive number"}};
+  if (body.stopPrice !== undefined || body.takeProfitPrice !== undefined) {
+    return {error: {code: "unsupported-order-trigger", message: "Stop-loss and take-profit trigger prices are not supported by the current paper execution engine."}};
   }
   return {order: {
     symbol: symbol.symbol,
@@ -70,8 +72,6 @@ function parseOrderRequest(body) {
     type,
     quantity: body.quantity,
     price: body.price,
-    ...(body.stopPrice ? {stopPrice: body.stopPrice} : {}),
-    ...(body.takeProfitPrice ? {takeProfitPrice: body.takeProfitPrice} : {}),
     idempotencyKey: body.idempotencyKey.trim(),
     reduceOnly: body.reduceOnly === true
   }};
