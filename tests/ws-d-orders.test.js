@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createPaperExecution} from "../src/execution/paper.js";
 import {appendJournalEntry} from "../src/journal/journal.js";
-import {applyFill} from "../server/orders.js";
+import {applyFill, createPaperOrderService} from "../server/orders.js";
 import {buildPortfolioState} from "../src/risk/portfolio.js";
 import {DurableStore} from "../src/persistence/store.js";
 import {fakeFetch, jsonResponse, startTestServer, ticker24hPayload} from "./ws-d-helpers.js";
@@ -100,19 +100,28 @@ test("valid paper order requires ALLOW and persists a reconciled fill", async ()
 });
 
 test("unsupported paper order types and unused triggers fail closed without creating fills", async () => {
-  await withServer(async ({srv, executionStateFile}) => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-order-rejection-"));
+  const executionStateFile = join(dir, "paper-orders.json");
+  const service = createPaperOrderService({
+    market: {getTicker: async () => ({state: "ok", ageMs: 0, data: {last: 42000.5}})},
+    stateFile: join(dir, "paper-state.json"),
+    executionStateFile
+  });
+  try {
     for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
-      const result = await postWithTimeout(srv.base, {...validOrder("unsupported-" + type), type});
+      const result = await service.submit({...validOrder("unsupported-" + type), type});
       assert.equal(result.status, 400, type);
       assert.equal(result.body.error.code, "unsupported-order-type", type);
     }
     for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
-      const result = await postWithTimeout(srv.base, {...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
+      const result = await service.submit({...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
       assert.equal(result.status, 400);
       assert.equal(result.body.error.code, "unsupported-order-trigger");
     }
     assert.equal(existsSync(executionStateFile), false, "rejected orders must never persist an execution record");
-  });
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
 });
 
 test("Risk Gate NO_TRADE returns reasons and does not create a fill", async () => {
