@@ -499,12 +499,20 @@
 
         (c.roles || []).forEach(function (r) {
           var item = el("div", "ai-role-item");
-          item.appendChild(el("span", "ai-role-name", r.role));
-          item.appendChild(el("span", "ai-role-score", r.score + "/100"));
-          item.appendChild(el("span", "ai-role-reason", r.reason));
+          var heading = el("div", "ai-role-heading");
+          heading.appendChild(el("span", "ai-role-name", r.displayName || r.role));
+          if (r.displayStatus) heading.appendChild(el("span", "ai-role-status", r.displayStatus));
+          heading.appendChild(el("span", "ai-role-score", r.score + "/100"));
+          item.appendChild(heading);
+          item.appendChild(el("p", "ai-role-reason", r.reason));
+          if (r.basis) item.appendChild(el("p", "ai-role-basis", "Basis: " + r.basis));
           rolesContainer.appendChild(item);
         });
 
+        var coverageNote = $("ai-coverage-note");
+        if (coverageNote) coverageNote.textContent = typeof c.dataCoverage?.note === "string"
+          ? c.dataCoverage.note
+          : "Company fundamentals, public news and social-sentiment feeds are not connected. Proxy inputs are not substitutes for those sources.";
         $("ai-explanation").textContent = c.explanation;
       } else {
         setBadge("ai-badge", "unavailable", "UNAVAILABLE");
