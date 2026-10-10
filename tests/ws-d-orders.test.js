@@ -478,6 +478,22 @@ test("paper order fails closed when the mark is fresh but its executable quote i
   assert.ok(!mutations.some(m => m.kind === "transact"), "a missing executable quote must not enter the fill transaction");
 });
 
+test("Risk Gate rejects a market order whose configured execution costs exceed daily loss", async () => {
+  await withServer(async ({srv}) => {
+    // The executable notional remains below the $5,000 position cap, and cash
+    // can cover the fill, but maximum allowed simulated costs create a >$500
+    // immediate marked loss. The order must be rejected before any fill persists.
+    const res = await post(srv.base, {...validOrder("cost-aware-daily-loss"), quantity: 0.1});
+    assert.equal(res.status, 400);
+    assert.equal(res.body.verdict.decision, "NO_TRADE");
+    assert.ok(res.body.verdict.reasons.includes("MAX_DAILY_LOSS"));
+    const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
+    assert.deepEqual(portfolio.data.portfolio.positions, []);
+    const orders = await fetch(srv.base + "/api/orders").then((r) => r.json());
+    assert.equal(orders.data.total, 0);
+  }, {paperFeeRate: 0.05, paperSlippageBps: 1000});
+});
+
 test("configured paper fee and slippage settings change the simulated fill", async () => {
   await withServer(async ({srv}) => {
     const res = await post(srv.base, {...validOrder("configured-costs"), price: 1});
