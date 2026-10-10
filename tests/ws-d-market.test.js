@@ -225,6 +225,55 @@ test("sma-cross sizes fractional BTC instead of flooring to zero", () => {
   assert.ok(signal.quantity * 50000 <= 10000 * 0.95 + 1e-9);
 });
 
+test("momentum strategy sizes fractional crypto instead of flooring BTC to zero", () => {
+  const strategy = createStrategy("momentum");
+  let signal = null;
+  for (let i = 0; i < 14; i++) {
+    signal = strategy({close: 40000}, {cash: 10000, position: 0}) || signal;
+  }
+  signal = strategy({close: 42000}, {cash: 10000, position: 0}) || signal;
+  assert.ok(signal);
+  assert.equal(signal.side, "BUY");
+  assert.ok(signal.quantity > 0);
+  assert.ok(signal.quantity < 1, "BTC sizing should allow fractional units");
+  assert.ok(signal.quantity * 42000 <= 10000 * 0.95 + 1e-9);
+});
+
+test("Turtle breakout uses the prior 20 highs and supports fractional BTC size", () => {
+  const strategy = createStrategy("famous-turtle");
+  let signal = null;
+  for (let i = 0; i < 20; i++) {
+    signal = strategy({open: 42000, high: 42500, low: 41500, close: 42000}, {
+      cash: 10000, position: 0
+    }) || signal;
+  }
+  // The current candle's high breaks the previous channel while its close
+  // stays below that prior high: high/low data, not close-only proxies, matters.
+  signal = strategy({open: 42000, high: 43000, low: 41900, close: 42000}, {
+    cash: 10000, position: 0
+  }) || signal;
+  assert.ok(signal);
+  assert.equal(signal.side, "BUY");
+  assert.ok(signal.quantity > 0);
+  assert.ok(signal.quantity < 1);
+  assert.ok(signal.quantity * 42000 <= 10000 * 0.95 + 1e-9);
+});
+
+test("Turtle exit triggers on a prior 10-candle low break, not a close-only proxy", () => {
+  const strategy = createStrategy("famous-turtle");
+  let signal = null;
+  for (let i = 0; i < 20; i++) {
+    signal = strategy({open: 42000, high: 42500, low: 41500, close: 42000}, {
+      cash: 100, position: 0.25
+    }) || signal;
+  }
+  // The intrabar low crosses the exit channel but the close remains above it.
+  signal = strategy({open: 42000, high: 42100, low: 41400, close: 41600}, {
+    cash: 100, position: 0.25
+  }) || signal;
+  assert.deepEqual(signal, {side: "SELL", quantity: 0.25});
+});
+
 test("backtest refuses unknown strategy and unavailable data honestly", async () => {
   const srv = await startTestServer({fetchImpl: upstream({fail: true}), stateFile: "/nonexistent/paper-state.json"});
   try {

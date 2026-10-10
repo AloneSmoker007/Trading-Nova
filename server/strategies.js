@@ -47,9 +47,11 @@ function makeMomentum(period = 14) {
     if (closes.length < period + 1) return null;
     const prev = closes[closes.length - 1 - period];
     const changePct = ((candle.close - prev) / prev) * 100;
-    if (changePct > 3 && position === 0 && cash > 0) {
-      const quantity = Math.floor((cash * 0.95) / candle.close);
-      return quantity > 0 ? {side: "BUY", quantity} : null;
+    if (changePct > 3 && position === 0 && Number.isFinite(cash) && cash > 0) {
+      // Crypto pairs are fractional-unit markets; flooring BTC/ETH quantities
+      // to whole units silently disables these strategies for small accounts.
+      const quantity = (cash * 0.95) / candle.close;
+      return Number.isFinite(quantity) && quantity > 0 ? {side: "BUY", quantity} : null;
     }
     if (changePct < -2 && position > 0) {
       return {side: "SELL", quantity: position};
@@ -59,19 +61,31 @@ function makeMomentum(period = 14) {
 }
 
 function makeFamousTurtle(period = 20) {
-  const closes = [];
+  const highs = [];
+  const lows = [];
   return function turtleStrat(candle, {cash, position} = {}) {
-    if (!candle || !Number.isFinite(candle.close)) return null;
-    closes.push(candle.close);
-    if (closes.length < period + 1) return null;
-    const window = closes.slice(closes.length - 1 - period, closes.length - 1);
-    const high20 = Math.max(...window);
-    const low10 = Math.min(...window.slice(period - 10));
-    if (candle.close > high20 && position === 0 && cash > 0) {
-      const quantity = Math.floor((cash * 0.95) / candle.close);
-      return quantity > 0 ? {side: "BUY", quantity} : null;
+    if (!candle || !Number.isFinite(candle.close) || candle.close <= 0
+        || !Number.isFinite(candle.high) || candle.high <= 0
+        || !Number.isFinite(candle.low) || candle.low <= 0
+        || candle.low > candle.high) return null;
+    highs.push(candle.high);
+    lows.push(candle.low);
+    if (highs.length < period + 1) return null;
+
+    // Use only completed prior candles for Donchian boundaries. Current
+    // candle high/low can trigger a breakout/exit, but never enters its own
+    // reference window. The engine executes resulting signals next candle-open.
+    const previousHighs = highs.slice(highs.length - 1 - period, highs.length - 1);
+    const previousLows = lows.slice(lows.length - 1 - 10, lows.length - 1);
+    const breakoutHigh = Math.max(...previousHighs);
+    const exitLow = Math.min(...previousLows);
+
+    if (candle.high > breakoutHigh && position === 0 && Number.isFinite(cash) && cash > 0) {
+      // Preserve fractional sizing for crypto pairs such as BTCUSDT.
+      const quantity = (cash * 0.95) / candle.close;
+      return Number.isFinite(quantity) && quantity > 0 ? {side: "BUY", quantity} : null;
     }
-    if (candle.close < low10 && position > 0) {
+    if (candle.low < exitLow && Number.isFinite(position) && position > 0) {
       return {side: "SELL", quantity: position};
     }
     return null;
@@ -96,5 +110,5 @@ export function createStrategy(name) {
 export const STRATEGY_DESCRIPTIONS = Object.freeze({
   "sma-cross": "SMA(10/30) cross: fully invested on golden cross, flat on death cross (95% of cash per entry).",
   "momentum": "14-candle rate-of-change momentum strategy: buy on >3% surge, exit on <-2% drop.",
-  "famous-turtle": "Famous Turtle Trader 20-candle Donchian breakout methodology (documented public strategy)."
+  "famous-turtle": "20-candle Donchian-style breakout: enter above the prior 20-candle high, exit below the prior 10-candle low; fills occur next candle-open."
 });
