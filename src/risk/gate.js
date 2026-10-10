@@ -118,10 +118,29 @@ function effectiveDrawdown(portfolio, equity) {
   const reported = Number.isFinite(portfolio?.drawdown) ? portfolio.drawdown : 0;
   const peak = portfolio?.peakEquity;
   if (Number.isFinite(peak) && peak > 0) return Math.max(reported, Math.max(0, (peak - equity) / peak));
+
+  // Older snapshots may not carry peakEquity. Infer a compatible high-water
+  // mark from their reported drawdown so an estimated execution cost cannot
+  // disappear from the projected drawdown just because the peak is absent.
+  const currentEquity = portfolio?.equity;
+  if (Number.isFinite(currentEquity) && currentEquity > 0 && reported >= 0 && reported < 1) {
+    const inferredPeak = currentEquity / (1 - reported);
+    if (Number.isFinite(inferredPeak) && inferredPeak > 0) {
+      return Math.max(reported, Math.max(0, (inferredPeak - equity) / inferredPeak));
+    }
+  }
   return reported;
 }
 
-export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, killSwitch=false, approvedConfigHash}) {
+export function evaluateRiskGate({
+  order,
+  portfolio,
+  riskConfig,
+  dataFresh = true,
+  killSwitch = false,
+  approvedConfigHash,
+  estimatedExecutionCost = 0
+}) {
   const reasons=[];
   try { validatePortfolioState(portfolio); } catch { return {decision:"NO_TRADE",reasons:["INVALID_PORTFOLIO_STATE"]}; }
 
@@ -141,6 +160,10 @@ export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, 
   else if (!riskConfig || hashRiskConfig(riskConfig) !== approvedConfigHash) reasons.push("RISK_CONFIG_HASH_MISMATCH");
   if (!dataFresh) reasons.push("STALE_CRITICAL_DATA");
 
+  const validEstimatedExecutionCost = Number.isFinite(estimatedExecutionCost) && estimatedExecutionCost >= 0;
+  if (!validEstimatedExecutionCost) reasons.push("INVALID_EXECUTION_COST");
+  const costForProjection = validEstimatedExecutionCost ? estimatedExecutionCost : 0;
+
   const notional = validOrder ? order.quantity * order.price : 0;
   const orderSide = validOrder ? normalizeSide(order.side) : "BUY";
   const positionQuantity = validOrder ? currentPositionQuantity(portfolio, order.symbol, order) : 0;
@@ -158,14 +181,21 @@ export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, 
   // Resulting per-symbol EXPOSURE (open position + new order), not just the
   // single order's notional: splitting an order into N pieces cannot bypass it.
   const projectedSymbolExposure = validOrder && !validReduction ? symbolGross + notional : symbolGross;
-  const equity=portfolio?.equity||0;
-  const projectedLeverage=equity>0 ? projectedGross/equity : Infinity;
+  const equity = portfolio?.equity || 0;
+  // Costs are a conservative estimate of immediate paper-equity loss versus
+  // the reference mark. Apply them before checking loss, drawdown and leverage
+  // limits; an order must not cross a hard stop merely because fees/slippage
+  // were omitted from the pre-trade projection.
+  const projectedEquity = equity - costForProjection;
+  const projectedDailyPnl = (portfolio?.dailyPnl || 0) - costForProjection;
+  const projectedLeverage = projectedEquity > 0 ? projectedGross / projectedEquity : Infinity;
   const drawdown = effectiveDrawdown(portfolio, equity);
+  const projectedDrawdown = effectiveDrawdown(portfolio, projectedEquity);
 
   if (riskConfig && !validReduction && (notional > riskConfig.maxPositionNotional || projectedSymbolExposure > riskConfig.maxPositionNotional)) reasons.push("MAX_POSITION");
   if (riskConfig && !validReduction && projectedGross > riskConfig.maxGrossExposure) reasons.push("MAX_GROSS_EXPOSURE");
-  if (riskConfig && !validReduction && (portfolio?.dailyPnl||0) <= -Math.abs(riskConfig.maxDailyLoss)) reasons.push("MAX_DAILY_LOSS");
-  if (riskConfig && !validReduction && drawdown >= riskConfig.maxDrawdown) reasons.push("MAX_DRAWDOWN");
+  if (riskConfig && !validReduction && projectedDailyPnl <= -Math.abs(riskConfig.maxDailyLoss)) reasons.push("MAX_DAILY_LOSS");
+  if (riskConfig && !validReduction && projectedDrawdown >= riskConfig.maxDrawdown) reasons.push("MAX_DRAWDOWN");
   if (riskConfig && !validReduction && projectedLeverage > riskConfig.maxLeverage) reasons.push("MAX_LEVERAGE");
   if (riskConfig && !validReduction && Number.isFinite(riskConfig.maxConcentrationNotional)
     && (notional > riskConfig.maxConcentrationNotional || projectedSymbolExposure > riskConfig.maxConcentrationNotional)) reasons.push("MAX_CONCENTRATION");
