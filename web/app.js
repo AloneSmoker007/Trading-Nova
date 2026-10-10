@@ -601,14 +601,16 @@
     var rawSplit = splitInput ? splitInput.value.trim() : "";
     var walkForward = null;
     if (rawSplit !== "") {
-      if (!/^\\d{1,3}$/.test(rawSplit) || !Number.isSafeInteger(Number(rawSplit))
+      if (!/^[0-9]{1,3}$/.test(rawSplit) || !Number.isSafeInteger(Number(rawSplit))
           || Number(rawSplit) < 35 || Number(rawSplit) > 165) {
+        if (splitInput) splitInput.setAttribute("aria-invalid", "true");
         setBadge("lab-badge", "error", "INVALID SPLIT");
         note("lab-note", "In-sample candle count must be a whole number from 35 to 165, or leave it blank for automatic ~70/30 splitting. Fewer available candles may require a smaller split.");
         return Promise.resolve();
       }
       walkForward = Number(rawSplit);
     }
+    if (splitInput) splitInput.removeAttribute("aria-invalid");
 
     var specs = [
       {key: "sma-cross", label: "SMA Cross"},
@@ -1088,6 +1090,7 @@
     $("chart-sma50").addEventListener("change", applyChartVisibility);
     $("chart-volume").addEventListener("change", applyChartVisibility);
     $("chart-fit-button").addEventListener("click", fitInteractiveChart);
+    $("run-backtest-btn").addEventListener("click", renderStrategyLab);
 
     $("journal-form").addEventListener("submit", submitJournalEntry);
     $("tutor-form").addEventListener("submit", submitTutorMessage);
