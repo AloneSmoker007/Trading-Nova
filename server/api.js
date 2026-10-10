@@ -136,6 +136,16 @@ export function createApi({
       stale: res.stale,
       ageMs: res.ageMs,
       candleCount: candles.length,
+      // Keep chart data truthful: this is the same normalized OHLCV feed used by indicators.
+      // Lightweight Charts expects Unix timestamps in seconds.
+      candles: candles.map((c) => ({
+        time: Math.floor(c.openTime / 1000),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume
+      })),
       indicators: computeIndicators(candles),
       note: "Indicator values are computed from real candles via src/indicators. null = not computable from this window (warm-up / insufficient data), never a guess."
     });
