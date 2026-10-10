@@ -121,9 +121,17 @@ function effectiveDrawdown(portfolio, equity) {
   return reported;
 }
 
-export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, killSwitch=false, approvedConfigHash}) {
+export function evaluateRiskGate({order, portfolio, projectedPortfolio, riskConfig, dataFresh=true, killSwitch=false, approvedConfigHash}) {
   const reasons=[];
   try { validatePortfolioState(portfolio); } catch { return {decision:"NO_TRADE",reasons:["INVALID_PORTFOLIO_STATE"]}; }
+  if (projectedPortfolio !== undefined && projectedPortfolio !== null) {
+    try { validatePortfolioState(projectedPortfolio); }
+    catch { return {decision:"NO_TRADE",reasons:["INVALID_PROJECTED_PORTFOLIO"]}; }
+  }
+  // The original portfolio remains the pre-trade state for exposure checks.
+  // The optional projected portfolio includes expected fill price and fees, so
+  // drawdown, daily-loss and leverage checks also include execution costs.
+  const riskPortfolio = projectedPortfolio ?? portfolio;
 
   const validOrder = !!order
     && Number.isFinite(order.quantity)
@@ -158,13 +166,13 @@ export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, 
   // Resulting per-symbol EXPOSURE (open position + new order), not just the
   // single order's notional: splitting an order into N pieces cannot bypass it.
   const projectedSymbolExposure = validOrder && !validReduction ? symbolGross + notional : symbolGross;
-  const equity=portfolio?.equity||0;
-  const projectedLeverage=equity>0 ? projectedGross/equity : Infinity;
-  const drawdown = effectiveDrawdown(portfolio, equity);
+  const equity = riskPortfolio?.equity || 0;
+  const projectedLeverage = equity > 0 ? projectedGross / equity : Infinity;
+  const drawdown = effectiveDrawdown(riskPortfolio, equity);
 
   if (riskConfig && !validReduction && (notional > riskConfig.maxPositionNotional || projectedSymbolExposure > riskConfig.maxPositionNotional)) reasons.push("MAX_POSITION");
   if (riskConfig && !validReduction && projectedGross > riskConfig.maxGrossExposure) reasons.push("MAX_GROSS_EXPOSURE");
-  if (riskConfig && !validReduction && (portfolio?.dailyPnl||0) <= -Math.abs(riskConfig.maxDailyLoss)) reasons.push("MAX_DAILY_LOSS");
+  if (riskConfig && !validReduction && (riskPortfolio?.dailyPnl || 0) <= -Math.abs(riskConfig.maxDailyLoss)) reasons.push("MAX_DAILY_LOSS");
   if (riskConfig && !validReduction && drawdown >= riskConfig.maxDrawdown) reasons.push("MAX_DRAWDOWN");
   if (riskConfig && !validReduction && projectedLeverage > riskConfig.maxLeverage) reasons.push("MAX_LEVERAGE");
   if (riskConfig && !validReduction && Number.isFinite(riskConfig.maxConcentrationNotional)
@@ -181,6 +189,9 @@ export function evaluateRiskGate({order, portfolio, riskConfig, dataFresh=true, 
     projectedGrossExposure:projectedGross,
     projectedSymbolExposure,
     projectedLeverage,
+    projectedEquity: equity,
+    projectedDailyPnl: riskPortfolio?.dailyPnl ?? null,
+    projectedDrawdown: drawdown,
     drawdown,
     reduceOnly,
     positionQuantity,
