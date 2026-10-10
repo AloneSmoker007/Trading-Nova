@@ -2,7 +2,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNovaServer } from "../server/app.js";
@@ -179,15 +179,19 @@ test("POST /api/journal/entry appends a new entry with sha256 hash chain verific
   }
 });
 
-test("POST /api/paper/orders accepts LIMIT order type under Risk Gate", async () => {
+test("POST /api/paper/orders rejects LIMIT until pending-order lifecycle is implemented", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "nova-test-"));
   const stateFile = join(tmp, "paper-state.json");
   const executionStateFile = join(tmp, "paper-orders.json");
+  let server;
 
   try {
-    const server = createNovaServer({ fetchImpl: mockFetch, stateFile, executionStateFile });
-    const port = 7825;
-    await new Promise((res) => server.listen(port, "127.0.0.1", res));
+    server = createNovaServer({ fetchImpl: mockFetch, stateFile, executionStateFile });
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const {port} = server.address();
 
     const res = await fetch(`http://127.0.0.1:${port}/api/paper/orders`, {
       method: "POST",
@@ -201,17 +205,21 @@ test("POST /api/paper/orders accepts LIMIT order type under Risk Gate", async ()
         idempotencyKey: "test-limit-order-1"
       })
     });
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 400);
     const body = await res.json();
-    assert.equal(body.ok, true);
-    assert.equal(body.data.fill.status, "RECONCILED");
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, "unsupported-order-type");
 
     const ordersRes = await fetch(`http://127.0.0.1:${port}/api/orders`);
     const ordersBody = await ordersRes.json();
-    assert.equal(ordersBody.data.total, 1);
-
-    server.close();
+    assert.equal(ordersBody.data.total, 0);
+    assert.equal(existsSync(executionStateFile), false, "rejected LIMIT orders must not persist a fill");
   } finally {
+    if (server?.listening) {
+      const closing = new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      server.closeAllConnections?.();
+      await closing;
+    }
     rmSync(tmp, { recursive: true, force: true });
   }
 });

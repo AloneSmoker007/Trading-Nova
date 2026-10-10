@@ -98,7 +98,7 @@
           <h2 id="order-title">Paper Order Ticket</h2>
           <span class="badge" id="order-badge" data-state="idle">PAPER / SHADOW ONLY</span>
         </div>
-        <p class="panel-note order-intro">Gated by deterministic Risk Gate. Rejects on stale data, loss limits, or exposure caps.</p>
+        <p class="panel-note order-intro">Gated by the deterministic Risk Gate. Only Market paper orders are enabled; Limit, Stop Loss and Take Profit remain blocked until pending/trigger lifecycle support is implemented.</p>
         <form id="order-form" class="order-form" aria-busy="false">
           <div class="order-form-grid">
             <div class="field">
@@ -115,10 +115,10 @@
             <div class="field">
               <label for="order-type">Order Type</label>
               <select id="order-type" name="type">
-                <option value="MARKET" selected>Market</option>
-                <option value="LIMIT">Limit</option>
-                <option value="STOP_LOSS">Stop Loss</option>
-                <option value="TAKE_PROFIT">Take Profit</option>
+                <option value="MARKET" selected>Market (supported)</option>
+                <option value="LIMIT" disabled>Limit (not supported yet)</option>
+                <option value="STOP_LOSS" disabled>Stop Loss (not supported yet)</option>
+                <option value="TAKE_PROFIT" disabled>Take Profit (not supported yet)</option>
               </select>
             </div>
             <div class="field">
@@ -130,8 +130,8 @@
               <input id="order-price" name="price" type="number" min="0.0000000001" step="any" placeholder="Refresh market data" required>
             </div>
             <div class="field">
-              <label for="order-stop-price">Stop Price (Optional)</label>
-              <input id="order-stop-price" name="stopPrice" type="number" min="0.0000000001" step="any" placeholder="Optional stop price">
+              <label for="order-stop-price">Stop Price (unavailable until stop orders are implemented)</label>
+              <input id="order-stop-price" name="stopPrice" type="number" min="0.0000000001" step="any" placeholder="Market orders only" disabled>
             </div>
           </div>
           <div class="order-options">

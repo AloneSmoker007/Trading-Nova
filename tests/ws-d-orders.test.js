@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createPaperExecution} from "../src/execution/paper.js";
 import {appendJournalEntry} from "../src/journal/journal.js";
-import {applyFill} from "../server/orders.js";
+import {applyFill, createPaperOrderService} from "../server/orders.js";
 import {buildPortfolioState} from "../src/risk/portfolio.js";
 import {DurableStore} from "../src/persistence/store.js";
 import {fakeFetch, jsonResponse, startTestServer, ticker24hPayload} from "./ws-d-helpers.js";
@@ -65,6 +65,8 @@ async function post(base, body, raw = false) {
   return {status: response.status, body: await response.json()};
 }
 
+
+
 test("valid paper order requires ALLOW and persists a reconciled fill", async () => {
   await withServer(async ({srv}) => {
     const res = await post(srv.base, validOrder());
@@ -76,6 +78,42 @@ test("valid paper order requires ALLOW and persists a reconciled fill", async ()
     assert.equal(res.body.data.reconciliation.state, "reconciled");
     assert.match(res.body.data.note, /No real-money order was placed/);
   });
+});
+
+test("unsupported paper order types and unused triggers fail closed without creating fills", async () => {
+  // A fake durable store keeps this validation regression deterministic and
+  // records every mutation; rejected orders must return before any store write.
+  const writes = [];
+  let marketCalls = 0;
+  const store = {
+    health: async () => true,
+    list: async () => [],
+    get: async () => null,
+    put: async (...args) => { writes.push(["put", ...args]); },
+    transactIdempotent: async (...args) => { writes.push(["transactIdempotent", ...args]); }
+  };
+  const service = createPaperOrderService({
+    market: {getTicker: async () => {
+      marketCalls++;
+      return {state: "ok", ageMs: 0, data: {last: 42000.5}};
+    }},
+    stateFile: "unused-paper-state.json",
+    executionStateFile: "unused-paper-orders.json",
+    store
+  });
+
+  for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
+    const result = await service.submit({...validOrder("unsupported-" + type), type});
+    assert.equal(result.status, 400, type);
+    assert.equal(result.body.error.code, "unsupported-order-type", type);
+  }
+  for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
+    const result = await service.submit({...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error.code, "unsupported-order-trigger");
+  }
+  assert.deepEqual(writes, [], "rejected orders must never write a fill or portfolio");
+  assert.equal(marketCalls, 0, "unsupported orders must be rejected before market-data I/O");
 });
 
 test("Risk Gate NO_TRADE returns reasons and does not create a fill", async () => {
