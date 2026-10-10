@@ -136,9 +136,9 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
 
   const councilResult = runResearchCouncil({ evidence });
 
-  // Preserve stable role keys for API consumers, but expose honest display
-  // labels and explicit input provenance. The UI must not present volume as
-  // fundamental analysis, price momentum as news, or volatility as sentiment.
+  // Use truthful primary role names and keep former names in legacyRole as
+  // a migration bridge for older clients. Inputs remain explicit: quote volume
+  // is not fundamentals, price momentum is not news, and volatility is not sentiment.
   const rolesDetail = [
     {
       role: "Technical",
