@@ -73,7 +73,7 @@ test("candlestick chart renders only real API OHLC data", () => {
   for (const field of ["c.open", "c.high", "c.low", "c.close", "c.volume", "c.time"]) {
     assert.ok(chart.includes(field), `chart uses real candle field ${field}`);
   }
-  assert.doesNotMatch(chart, /Math\\.sin|Math\\.cos|basePrice|variation/,
+  assert.doesNotMatch(chart, /Math\.sin|Math\.cos|basePrice|variation/,
     "chart must not manufacture fallback candle prices");
   assert.match(chart, /Invalid OHLC payload/);
 });
