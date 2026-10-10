@@ -95,6 +95,15 @@ test("/api/indicators/:symbol computes real indicators over real candles", async
     const d = res.body.data;
     assert.equal(d.candleCount, 200);
     assert.equal(d.interval, "1h");
+    assert.equal(d.candles.length, 200, "chart receives the actual OHLCV feed");
+    assert.deepEqual(d.candles[0], {
+      time: 1700000000,
+      open: 100,
+      high: 101.76,
+      low: 99,
+      close: 100.76,
+      volume: 10.5
+    }, "chart OHLCV values are mapped from the normalized upstream candle");
     const ind = d.indicators;
     // Synthetic sine series => these must be computable, finite engine outputs.
     assert.ok(Number.isFinite(ind.trend.sma20), "sma20 finite");
