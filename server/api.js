@@ -19,6 +19,7 @@ import {computeIndicators} from "./indicators.js";
 import {loadPaperState, appendJournalToFile, MAX_JOURNAL_ENTRIES} from "./state.js";
 import {appendJournalEntry, verifyJournal} from "../src/journal/journal.js";
 import {createPaperOrderService} from "./orders.js";
+import {DEFAULT_PAPER_FEE_RATE, DEFAULT_PAPER_SLIPPAGE_BPS} from "../src/execution/costs.js";
 import {createStrategy, STRATEGY_DESCRIPTIONS} from "./strategies.js";
 import {computeAiCouncil} from "./ai.js";
 import {parseSymbol, parseInterval, parseLimit, parseStrategy} from "./validate.js";
@@ -56,10 +57,16 @@ export function createApi({
   store,
   now = () => Date.now(),
   tradingMode = "paper",
-  startedAt = Date.now()
+  startedAt = Date.now(),
+  paperFeeRate = DEFAULT_PAPER_FEE_RATE,
+  paperSlippageBps = DEFAULT_PAPER_SLIPPAGE_BPS
 }) {
   const paperNote = "Paper/shadow only. Real money OFF. This API is read-only for GET endpoints.";
-  const paperOrderService = createPaperOrderService({market, stateFile, executionStateFile, store, now, tradingMode});
+  const paperOrderService = createPaperOrderService({
+    market, stateFile, executionStateFile, store, now, tradingMode,
+    feeRate: paperFeeRate,
+    slippageBps: paperSlippageBps
+  });
 
   async function health() {
     const t = now();

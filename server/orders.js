@@ -4,6 +4,7 @@ import {mkdir, readFile, rename, unlink, writeFile} from "node:fs/promises";
 import {dirname} from "node:path";
 import {randomUUID} from "node:crypto";
 import {PersistentPaperEngine} from "../src/execution/paper-persistent.js";
+import {DEFAULT_PAPER_FEE_RATE, DEFAULT_PAPER_SLIPPAGE_BPS, estimateMarketExecution, validatePaperExecutionCostConfig} from "../src/execution/costs.js";
 import {DurableStore} from "../src/persistence/store.js";
 import {buildPortfolioState, validatePortfolioState} from "../src/risk/portfolio.js";
 import {createRiskConfig, evaluateRiskGate, hashOrderPayload, normalizeSide} from "../src/risk/gate.js";
@@ -25,6 +26,10 @@ const ALLOWED_FIELDS = new Set(["symbol", "side", "quantity", "price", "idempote
 const fail = (status, code, message, reason) => ({
   status,
   body: {ok: false, state: "error", error: {code, message, ...(reason ? {reason} : {})}}
+});
+const unavailable = (code, message) => ({
+  status: 503,
+  body: {ok: false, state: "unavailable", error: {code, message}}
 });
 
 function parseOrderRequest(body) {
@@ -78,12 +83,24 @@ function parseOrderRequest(body) {
 }
 
 export function applyFill(portfolio, fill) {
+  if (!fill || !["BUY", "SELL"].includes(fill.side) || !Number.isFinite(fill.quantity) || fill.quantity <= 0
+      || !Number.isFinite(fill.price) || fill.price <= 0) {
+    throw new TypeError("invalid fill");
+  }
+  const fee = fill.fee === undefined ? 0 : fill.fee;
+  if (!Number.isFinite(fee) || fee < 0) throw new TypeError("fill fee must be finite and non-negative");
+  const markPrice = fill.markPrice === undefined ? fill.price : fill.markPrice;
+  if (!Number.isFinite(markPrice) || markPrice <= 0) throw new TypeError("fill markPrice must be positive and finite");
+
   const positions = new Map((portfolio.positions || []).map((position) => [position.symbol, {...position}]));
-  const previous = positions.get(fill.symbol) || {symbol: fill.symbol, quantity: 0, markPrice: fill.price};
+  const previous = positions.get(fill.symbol) || {symbol: fill.symbol, quantity: 0, markPrice};
   const quantity = previous.quantity + (fill.side === "BUY" ? fill.quantity : -fill.quantity);
-  const cash = portfolio.cash + (fill.side === "BUY" ? -1 : 1) * fill.quantity * fill.price;
+  // The portfolio is marked at the reference market price, while cash settles
+  // at the executable fill price and immediately pays the simulated fee.
+  const cash = portfolio.cash + (fill.side === "BUY" ? -1 : 1) * fill.quantity * fill.price - fee;
+  if (!Number.isFinite(cash) || cash < 0) throw new RangeError("fill would make portfolio cash negative");
   if (quantitiesMatch(quantity, 0)) positions.delete(fill.symbol);
-  else positions.set(fill.symbol, {...previous, quantity, markPrice: fill.price});
+  else positions.set(fill.symbol, {...previous, quantity, markPrice});
 
   const startingEquity = portfolio.equity - portfolio.dailyPnl;
   return buildPortfolioState({
@@ -101,11 +118,14 @@ export function createPaperOrderService({
   store: configuredStore,
   now = () => Date.now(),
   tradingMode = "paper",
-  maxMarketAgeMs = 10000
+  maxMarketAgeMs = 10000,
+  feeRate = DEFAULT_PAPER_FEE_RATE,
+  slippageBps = DEFAULT_PAPER_SLIPPAGE_BPS
 }) {
+  const executionCostConfig = validatePaperExecutionCostConfig({feeRate, slippageBps});
   const store = configuredStore ?? new DurableStore();
   const databaseBacked = configuredStore !== undefined;
-  const engine = new PersistentPaperEngine(store);
+  const engine = new PersistentPaperEngine(store, {feeRate: executionCostConfig.feeRate});
   let initialization;
   let storeError = null;
   let queue = Promise.resolve();
@@ -207,19 +227,25 @@ export function createPaperOrderService({
   async function freshPortfolio(portfolio, newSymbol) {
     const symbols = [...new Set([newSymbol, ...(portfolio.positions || []).map((p) => p.symbol)])];
     const marks = new Map();
+    const quotes = new Map();
     for (const symbol of symbols) {
       try {
         const result = await market.getTicker(symbol);
-        const price = result?.data?.last;
+        const data = result?.data;
+        const price = data?.last;
         if (result?.state === "ok" && Number.isFinite(result.ageMs)
             && result.ageMs <= maxMarketAgeMs && Number.isFinite(price) && price > 0) {
           marks.set(symbol, price);
+          if (Number.isFinite(data.bid) && data.bid > 0
+              && Number.isFinite(data.ask) && data.ask > 0 && data.bid <= data.ask) {
+            quotes.set(symbol, {bid: data.bid, ask: data.ask});
+          }
         }
       } catch {
         // Missing or failed critical data keeps the gate closed.
       }
     }
-    if (marks.size !== symbols.length) return {fresh: false, portfolio, marks};
+    if (marks.size !== symbols.length) return {fresh: false, portfolio, marks, quotes};
     try {
       const startingEquity = portfolio.equity - portfolio.dailyPnl;
       const marked = buildPortfolioState({
@@ -228,9 +254,9 @@ export function createPaperOrderService({
         startingEquity,
         peakEquity: portfolio.peakEquity ?? portfolio.equity
       });
-      return {fresh: true, portfolio: marked, marks};
+      return {fresh: true, portfolio: marked, marks, quotes};
     } catch {
-      return {fresh: false, portfolio, marks};
+      return {fresh: false, portfolio, marks, quotes};
     }
   }
 
@@ -291,12 +317,33 @@ export function createPaperOrderService({
           return fail(500, "paper-order-state-unavailable", "paper order state is unavailable");
         }
       }
-      const executionPrice = marketState.fresh ? marketState.marks.get(order.symbol) : null;
+      let execution = null;
+      if (marketState.fresh) {
+        const quote = marketState.quotes.get(order.symbol);
+        if (!quote) {
+          return unavailable("execution-quote-unavailable", "a fresh, valid bid/ask quote is required for paper market execution");
+        }
+        try {
+          execution = estimateMarketExecution({
+            side: order.side,
+            quantity: order.quantity,
+            last: marketState.marks.get(order.symbol),
+            bid: quote.bid,
+            ask: quote.ask,
+            feeRate: executionCostConfig.feeRate,
+            slippageBps: executionCostConfig.slippageBps
+          });
+        } catch {
+          return unavailable("execution-quote-unavailable", "the paper market execution quote or cost configuration is invalid");
+        }
+      }
+      const executionPrice = execution?.executionPrice ?? null;
       const gatedOrder = Number.isFinite(executionPrice) && executionPrice > 0
         ? {...order, price: executionPrice}
         : order;
+      const estimatedFee = execution?.fee ?? 0;
       if (gatedOrder.side === "BUY" && marketState.fresh
-          && gatedOrder.quantity * gatedOrder.price > portfolio.cash) {
+          && gatedOrder.quantity * gatedOrder.price + estimatedFee > portfolio.cash) {
         return {
           status: 400,
           body: {
@@ -339,6 +386,8 @@ export function createPaperOrderService({
           {...gatedOrder, id: order.idempotencyKey},
           {
             markPrice: gatedOrder.price,
+            referencePrice: execution?.referencePrice ?? gatedOrder.price,
+            execution,
             gateArtifact: verdict.artifact,
             onFill: async (tx, committedFill) => {
               await tx.put("paper-portfolio", "current", applyFill(portfolio, committedFill));
@@ -393,7 +442,18 @@ function orderSuccess(order, fill, verdict, replayed) {
           projectedSymbolExposure: verdict.projectedSymbolExposure ?? null
         },
         reconciliation: {state: fill.status === "RECONCILED" ? "reconciled" : "unknown"},
-        note: "Paper only. No real-money order was placed."
+        executionCosts: {
+          referencePrice: fill.referencePrice ?? fill.markPrice ?? fill.price,
+          quoteBid: fill.quoteBid ?? null,
+          quoteAsk: fill.quoteAsk ?? null,
+          spreadBps: fill.spreadBps ?? null,
+          spreadCost: fill.spreadCost ?? null,
+          slippageBps: fill.slippageBps ?? null,
+          slippageCost: fill.slippageCost ?? null,
+          feeRate: fill.feeRate ?? null,
+          fee: fill.fee ?? 0
+        },
+        note: "Paper only. Fill uses a fresh bid/ask quote, configured slippage and simulated fees. No real-money order was placed."
       }
     }
   };

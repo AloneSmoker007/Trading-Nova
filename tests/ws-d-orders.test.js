@@ -171,6 +171,10 @@ test("duplicate idempotency key replays the same fill and rejects changed intent
     assert.equal(replay.status, 200);
     assert.equal(replay.body.data.state, "replayed");
     assert.equal(replay.body.data.fill.orderId, first.body.data.fill.orderId);
+    assert.equal(replay.body.data.fill.fee, first.body.data.fill.fee);
+    assert.equal(replay.body.data.fill.price, first.body.data.fill.price);
+    assert.equal(replay.body.data.fill.quoteBid, first.body.data.fill.quoteBid);
+    assert.equal(replay.body.data.fill.quoteAsk, first.body.data.fill.quoteAsk);
 
     const priceChange = await post(srv.base, {...order, price: order.price + 1});
     assert.equal(priceChange.status, 200);
@@ -373,17 +377,119 @@ test("oversized request bodies are rejected without parsing or execution", async
   });
 });
 
-test("paper fills at the live market last, not a client-chosen underpriced notional", async () => {
+test("paper fills cross the ask, apply slippage and fees, and mark at the reference last", async () => {
   await withServer(async ({srv}) => {
     const res = await post(srv.base, {...validOrder("client-underprice"), price: 1});
     assert.equal(res.status, 200);
-    assert.equal(res.body.data.fill.price, 42000.5);
-    assert.equal(res.body.data.order.price, 42000.5);
-    assert.equal(res.body.data.verdict.orderNotional, 0.01 * 42000.5);
+    const data = res.body.data;
+    const expectedPrice = 42001 * (1 + 5 / 10000);
+    const expectedFee = 0.01 * expectedPrice * 0.001;
+    assert.ok(Math.abs(data.fill.price - expectedPrice) < 1e-8);
+    assert.ok(Math.abs(data.order.price - expectedPrice) < 1e-8);
+    assert.equal(data.fill.markPrice, 42000.5);
+    assert.equal(data.fill.referencePrice, 42000.5);
+    assert.ok(Math.abs(data.verdict.orderNotional - 0.01 * expectedPrice) < 1e-8);
+    assert.ok(Math.abs(data.fill.fee - expectedFee) < 1e-9);
+    assert.equal(data.fill.feeRate, 0.001);
+    assert.equal(data.fill.quoteBid, 42000);
+    assert.equal(data.fill.quoteAsk, 42001);
+    assert.equal(data.fill.slippageBps, 5);
+    assert.ok(data.fill.spreadBps > 0);
+    assert.ok(data.executionCosts.fee > 0);
+    assert.ok(Math.abs(data.executionCosts.referencePrice - 42000.5) < 1e-8);
     const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
     assert.equal(portfolio.data.portfolio.positions[0].quantity, 0.01);
-    assert.ok(portfolio.data.portfolio.cash < 10000);
+    assert.equal(portfolio.data.portfolio.positions[0].markPrice, 42000.5);
+    assert.ok(Math.abs(portfolio.data.portfolio.cash - (10000 - expectedPrice * 0.01 - expectedFee)) < 1e-8);
+    assert.ok(portfolio.data.portfolio.equity < 10000, "spread, slippage and fees must reduce marked equity");
   });
+});
+
+test("paper round trip charges both sides and retains spread/slippage costs in cash", async () => {
+  await withServer(async ({srv}) => {
+    const buy = await post(srv.base, {...validOrder("cost-roundtrip-buy"), price: 1});
+    assert.equal(buy.status, 200);
+    const sell = await post(srv.base, {
+      ...validOrder("cost-roundtrip-sell"),
+      side: "SELL",
+      quantity: 0.01,
+      price: 999999
+    });
+    assert.equal(sell.status, 200);
+    assert.ok(buy.body.data.fill.price > buy.body.data.fill.referencePrice);
+    assert.ok(sell.body.data.fill.price < sell.body.data.fill.referencePrice);
+    assert.ok(buy.body.data.fill.fee > 0);
+    assert.ok(sell.body.data.fill.fee > 0);
+
+    const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
+    assert.deepEqual(portfolio.data.portfolio.positions, []);
+    assert.ok(portfolio.data.portfolio.cash < 10000, "round trip must reflect spread, slippage and both fees");
+    const expectedBuy = 42001 * (1 + 5 / 10000);
+    const expectedSell = 42000 * (1 - 5 / 10000);
+    const totalFees = 0.01 * expectedBuy * 0.001 + 0.01 * expectedSell * 0.001;
+    const expectedCash = 10000 - 0.01 * expectedBuy + 0.01 * expectedSell - totalFees;
+    assert.ok(Math.abs(portfolio.data.portfolio.cash - expectedCash) < 1e-7);
+  });
+});
+
+test("paper buy is refused when fees make an otherwise affordable fill exceed cash", async () => {
+  await withServer(async ({srv}) => {
+    const executionPrice = 42001 * (1 + 5 / 10000);
+    const quantity = 10000 / (executionPrice * 1.0005);
+    const grossNotional = quantity * executionPrice;
+    const estimatedFee = grossNotional * 0.001;
+    assert.ok(grossNotional < 10000);
+    assert.ok(grossNotional + estimatedFee > 10000);
+
+    const res = await post(srv.base, {...validOrder("fee-aware-cash"), quantity});
+    assert.equal(res.status, 400);
+    assert.equal(res.body.verdict.decision, "NO_TRADE");
+    assert.ok(res.body.verdict.reasons.includes("INSUFFICIENT_CASH"));
+    const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
+    assert.deepEqual(portfolio.data.portfolio.positions, []);
+  });
+});
+
+test("paper order fails closed when the mark is fresh but its executable quote is missing", async () => {
+  const mutations = [];
+  const store = {
+    health: async () => true,
+    list: async () => [],
+    get: async () => null,
+    put: async (namespace, key, value) => { mutations.push({kind: "put", namespace, key, value}); },
+    transactIdempotent: async (key, operation) => {
+      mutations.push({kind: "transact", key});
+      return operation({get: async () => null, put: async (namespace, itemKey, value) => {
+        mutations.push({kind: "tx.put", namespace, key: itemKey, value});
+      }});
+    }
+  };
+  const service = createPaperOrderService({
+    market: {getTicker: async () => ({state: "ok", ageMs: 0, data: {last: 42000.5}})},
+    stateFile: "unused-state.json",
+    executionStateFile: "unused-orders.json",
+    store
+  });
+  const result = await service.submit(validOrder("missing-book-quote"));
+  assert.equal(result.status, 503);
+  assert.equal(result.body.state, "unavailable");
+  assert.equal(result.body.error.code, "execution-quote-unavailable");
+  assert.ok(!mutations.some(m => m.namespace === "paper-fills"), "a missing executable quote must never persist a fill");
+  assert.ok(!mutations.some(m => m.kind === "transact"), "a missing executable quote must not enter the fill transaction");
+});
+
+test("configured paper fee and slippage settings change the simulated fill", async () => {
+  await withServer(async ({srv}) => {
+    const res = await post(srv.base, {...validOrder("configured-costs"), price: 1});
+    assert.equal(res.status, 200);
+    const fill = res.body.data.fill;
+    const expectedPrice = 42001 * (1 + 10 / 10000);
+    const expectedFee = 0.01 * expectedPrice * 0.002;
+    assert.ok(Math.abs(fill.price - expectedPrice) < 1e-8);
+    assert.ok(Math.abs(fill.fee - expectedFee) < 1e-9);
+    assert.equal(fill.feeRate, 0.002);
+    assert.equal(fill.slippageBps, 10);
+  }, {paperFeeRate: 0.002, paperSlippageBps: 10});
 });
 
 test("a buy that would spend more cash than the account has is refused", async () => {

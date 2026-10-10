@@ -51,6 +51,14 @@
     return Number.isFinite(v) ? fmtNum(v, digits) + "%" : "—";
   }
 
+  function fillCostSummary(fill) {
+    var costs = [];
+    if (Number.isFinite(fill && fill.fee)) costs.push("Fee $" + fmtNum(fill.fee, 4));
+    if (Number.isFinite(fill && fill.spreadBps)) costs.push("Spread " + fmtNum(fill.spreadBps, 2) + " bps");
+    if (Number.isFinite(fill && fill.slippageBps)) costs.push("Slippage " + fmtNum(fill.slippageBps, 0) + " bps");
+    return costs.length ? costs.join(" · ") : "Cost details unavailable";
+  }
+
   function fmtTime(ts) {
     return Number.isFinite(ts) ? new Date(ts).toLocaleTimeString() : "—";
   }
@@ -570,6 +578,7 @@
           tr.appendChild(el("td", null, f.side));
           tr.appendChild(el("td", null, fmtNum(f.quantity, 6)));
           tr.appendChild(el("td", null, "$" + fmtNum(f.price)));
+          tr.appendChild(el("td", null, fillCostSummary(f)));
           tr.appendChild(el("td", null, f.status || "RECONCILED"));
           tbody.appendChild(tr);
         });
@@ -819,7 +828,7 @@
         var replayed = data.state === "replayed" || (data.verdict && data.verdict.replayed);
         setBadge("order-badge", "ok", replayed ? "REPLAYED FILL" : "GATE ALLOW");
         note("order-note", (replayed ? "Previously confirmed fill" : "Paper fill") + ": " +
-          [fill.symbol, fill.side, fmtNum(fill.quantity, 6) + " @ $" + fmtNum(fill.price), fill.status]
+          [fill.symbol, fill.side, fmtNum(fill.quantity, 6) + " @ $" + fmtNum(fill.price), fill.status, fillCostSummary(fill)]
             .filter(Boolean).join(" · ") + ". Real money OFF.");
         pendingOrderFingerprint = null;
         pendingOrderKey = null;

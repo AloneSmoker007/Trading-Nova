@@ -98,7 +98,7 @@
           <h2 id="order-title">Paper Order Ticket</h2>
           <span class="badge" id="order-badge" data-state="idle">PAPER / SHADOW ONLY</span>
         </div>
-        <p class="panel-note order-intro">Gated by the deterministic Risk Gate. Only Market paper orders are enabled; Limit, Stop Loss and Take Profit remain blocked until pending/trigger lifecycle support is implemented.</p>
+        <p class="panel-note order-intro">Gated by the deterministic Risk Gate. Only Market paper orders are enabled; Limit, Stop Loss and Take Profit remain blocked until pending/trigger lifecycle support is implemented. Paper fills cross the live bid/ask and include configured slippage and fees; each fill reports its cost breakdown.</p>
         <form id="order-form" class="order-form" aria-busy="false">
           <div class="order-form-grid">
             <div class="field">
@@ -220,6 +220,7 @@
                 <th scope="col">Side</th>
                 <th scope="col">Qty</th>
                 <th scope="col">Price</th>
+                <th scope="col">Costs</th>
                 <th scope="col">Status</th>
               </tr>
             </thead>
