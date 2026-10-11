@@ -502,7 +502,7 @@
           var heading = el("div", "ai-role-heading");
           heading.appendChild(el("span", "ai-role-name", r.displayName || r.role));
           if (r.displayStatus) heading.appendChild(el("span", "ai-role-status", r.displayStatus));
-          heading.appendChild(el("span", "ai-role-score", r.score + "/100"));
+          heading.appendChild(el("span", "ai-role-score", Number.isFinite(r.score) ? r.score + "/100" : "N/A"));
           item.appendChild(heading);
           item.appendChild(el("p", "ai-role-reason", r.reason));
           if (r.basis) item.appendChild(el("p", "ai-role-basis", "Basis: " + r.basis));
