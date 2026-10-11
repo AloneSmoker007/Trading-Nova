@@ -35,35 +35,41 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
   }
 
   // 2. Liquidity proxy (quote volume is not company fundamentals)
-  const quoteVolume = ticker?.quoteVolume24h ?? 0;
+  const quoteVolume = ticker?.quoteVolume24h;
+  const hasQuoteVolume = typeof quoteVolume === "number" && Number.isFinite(quoteVolume) && quoteVolume >= 0;
   let fundScore = 50;
-  let fundReason = "24h quote volume unavailable; liquidity cannot be assessed from this field."
-  if (quoteVolume > 10000000) {
-    fundScore = 75;
-    fundReason = `High 24h liquidity volume ($${(quoteVolume / 1e6).toFixed(1)}M quote volume)`;
-  } else if (quoteVolume > 1000000) {
-    fundScore = 60;
-    fundReason = `Moderate 24h liquidity volume ($${(quoteVolume / 1e6).toFixed(2)}M quote volume)`;
-  } else if (quoteVolume > 0) {
-    fundScore = 40;
-    fundReason = `Low liquidity volume ($${quoteVolume.toFixed(0)})`;
+  let fundReason = "24h quote volume unavailable or invalid; liquidity cannot be assessed from this field.";
+  if (hasQuoteVolume) {
+    if (quoteVolume > 10000000) {
+      fundScore = 75;
+      fundReason = `High 24h liquidity volume (${(quoteVolume / 1e6).toFixed(1)}M quote volume)`;
+    } else if (quoteVolume > 1000000) {
+      fundScore = 60;
+      fundReason = `Moderate 24h liquidity volume (${(quoteVolume / 1e6).toFixed(2)}M quote volume)`;
+    } else {
+      fundScore = 40;
+      fundReason = `Low liquidity volume (${quoteVolume.toFixed(0)})`;
+    }
   }
 
   // 3. 24h price-momentum proxy (not a public-news feed)
-  const change24h = ticker?.changePct24h ?? 0;
+  const change24h = ticker?.changePct24h;
+  const hasChange24h = typeof change24h === "number" && Number.isFinite(change24h);
   let newsScore = 50;
-  let newsReason = "Neutral 24h price momentum; no article-level news input is connected."
-  if (change24h > 5) {
-    newsScore = 75;
-    newsReason = `Strong positive 24h price momentum (+${change24h.toFixed(2)}%)`;
-  } else if (change24h < -5) {
-    newsScore = 30;
-    newsReason = `Negative 24h price momentum (${change24h.toFixed(2)}%)`;
-  } else {
-    newsScore = 50 + change24h * 2;
-    newsReason = `24h change ${change24h >= 0 ? "+" : ""}${change24h.toFixed(2)}%`;
+  let newsReason = "24h price-change data unavailable or invalid; momentum cannot be assessed.";
+  if (hasChange24h) {
+    if (change24h > 5) {
+      newsScore = 75;
+      newsReason = `Strong positive 24h price momentum (+${change24h.toFixed(2)}%)`;
+    } else if (change24h < -5) {
+      newsScore = 30;
+      newsReason = `Negative 24h price momentum (${change24h.toFixed(2)}%)`;
+    } else {
+      newsScore = 50 + change24h * 2;
+      newsReason = `24h change ${change24h >= 0 ? "+" : ""}${change24h.toFixed(2)}%`;
+    }
+    newsScore = Math.max(10, Math.min(95, Math.round(newsScore)));
   }
-  newsScore = Math.max(10, Math.min(95, Math.round(newsScore)));
 
   // 4. Volatility-regime proxy (not social/news sentiment)
   let sentScore = 50;
@@ -126,8 +132,8 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
 
   const evidence = {
     technical: [{ score: techScore, kind: "data", reason: techReason }],
-    macro: [{ score: fundScore, kind: "data", reason: fundReason }],
-    news: [{ score: newsScore, kind: "interpretation", reason: newsReason }],
+    macro: [{ score: hasQuoteVolume ? fundScore : null, kind: "data", reason: fundReason }],
+    news: [{ score: hasChange24h ? newsScore : null, kind: "interpretation", reason: newsReason }],
     derivatives: [{ score: sentScore, kind: "interpretation", reason: sentReason }],
     microstructure: [{ score: stratScore, kind: "data", reason: stratReason }],
     risk: [{ score: riskScore, kind: "data", reason: riskReason }],
@@ -153,20 +159,20 @@ export function computeAiCouncil({ ticker, candles, portfolio, limits }) {
       role: "Liquidity proxy",
       legacyRole: "Fundamental",
       displayName: "Liquidity proxy",
-      displayStatus: quoteVolume > 10000000 ? "HIGH VOLUME" : quoteVolume > 1000000 ? "MODERATE VOLUME" : quoteVolume > 0 ? "LOW VOLUME" : "VOLUME UNKNOWN",
+      displayStatus: !hasQuoteVolume ? "VOLUME UNKNOWN" : quoteVolume > 10000000 ? "HIGH VOLUME" : quoteVolume > 1000000 ? "MODERATE VOLUME" : "LOW VOLUME",
       basis: "24-hour quote volume only. No company financial statements or fundamental-data feed is connected.",
-      score: fundScore,
-      status: quoteVolume > 10000000 ? "HIGH_VOLUME" : quoteVolume > 1000000 ? "MODERATE_VOLUME" : quoteVolume > 0 ? "LOW_VOLUME" : "VOLUME_UNKNOWN",
+      score: hasQuoteVolume ? fundScore : null,
+      status: !hasQuoteVolume ? "VOLUME_UNKNOWN" : quoteVolume > 10000000 ? "HIGH_VOLUME" : quoteVolume > 1000000 ? "MODERATE_VOLUME" : "LOW_VOLUME",
       reason: fundReason
     },
     {
       role: "24h momentum proxy",
       legacyRole: "News",
       displayName: "24h momentum proxy",
-      displayStatus: change24h > 5 ? "POSITIVE MOMENTUM" : change24h < -5 ? "NEGATIVE MOMENTUM" : change24h > 1 ? "MILD POSITIVE CHANGE" : change24h < -1 ? "MILD NEGATIVE CHANGE" : "FLAT CHANGE",
+      displayStatus: !hasChange24h ? "MOMENTUM UNKNOWN" : change24h > 5 ? "POSITIVE MOMENTUM" : change24h < -5 ? "NEGATIVE MOMENTUM" : change24h > 1 ? "MILD POSITIVE CHANGE" : change24h < -1 ? "MILD NEGATIVE CHANGE" : "FLAT CHANGE",
       basis: "24-hour price change only. No public-news feed or article-level event evidence is connected.",
-      score: newsScore,
-      status: change24h > 5 ? "POSITIVE_MOMENTUM" : change24h < -5 ? "NEGATIVE_MOMENTUM" : change24h > 1 ? "MILD_POSITIVE_CHANGE" : change24h < -1 ? "MILD_NEGATIVE_CHANGE" : "FLAT_CHANGE",
+      score: hasChange24h ? newsScore : null,
+      status: !hasChange24h ? "MOMENTUM_UNKNOWN" : change24h > 5 ? "POSITIVE_MOMENTUM" : change24h < -5 ? "NEGATIVE_MOMENTUM" : change24h > 1 ? "MILD_POSITIVE_CHANGE" : change24h < -1 ? "MILD_NEGATIVE_CHANGE" : "FLAT_CHANGE",
       reason: newsReason
     },
     {
