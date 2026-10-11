@@ -125,6 +125,7 @@ test("AI Council visibly discloses proxy inputs and disconnected research feeds"
   assert.match(html, /Company fundamentals, public news and social-sentiment feeds are not connected/i);
   assert.match(app, /r\.displayName \|\| r\.role/);
   assert.match(app, /r\.displayStatus/);
+  assert.match(app, /Number\.isFinite\(r\.score\) \? r\.score \+ "\/100" : "N\/A"/);
   assert.match(app, /r\.basis/);
   assert.match(app, /dataCoverage\?\.note/);
   assert.match(css, /\.ai-role-basis/);
