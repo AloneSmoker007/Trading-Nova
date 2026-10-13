@@ -21,7 +21,9 @@ let orderHistoryMode = "pages";
 function fillsForPage(offset, limit = 10) {
   const total = 25;
   const fills = [];
-  for (let rank = Math.min(total, offset + limit); rank > offset; rank -= 1) {
+  const pageEnd = Math.min(total, offset + limit);
+  for (let index = offset; index < pageEnd; index += 1) {
+    const rank = total - index;
     fills.push({
       id: "fixture-fill-" + rank,
       timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, rank)).toISOString(),
