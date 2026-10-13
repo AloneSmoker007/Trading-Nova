@@ -11,7 +11,10 @@ Set these in the hosting provider's **runtime environment settings**, not in sou
 - `NOVA_SESSION_SECRET`: at least 32 random bytes of secret material. Generate it with a trusted password manager or secret generator.
 - `POSTGRES_URL`: the Neon PostgreSQL connection string, stored as a secret.
 - `GEMINI_API_KEY`: the Gemini key stored as a secret in the hosting provider. A GitHub Actions repository secret is **not** automatically available to the deployed application.
-- `GEMINI_MODEL`: optional; set to a model available to the key/account.
+- `GEMINI_MODEL`: optional; set to a model available to the key/account (the example defaults to `gemini-2.5-flash`).
+- `GEMINI_WEB_RESEARCH`: optional; defaults to enabled. Set to `false` or `0` to disable Google Search grounding for tutor responses. The model may not return citations for every question, so answers without returned source links must not be represented as verified current research. Grounding requests are subject to the Google AI project’s applicable quota and billing rules.
+
+The browser chart also connects directly to Binance's public read-only kline WebSocket for display-only live candle updates. This connection needs outbound `wss://stream.binance.com:9443` from the user's browser. Stream data never submits orders or bypasses the server-side quote freshness checks/Risk Gate; when the stream is blocked or unavailable the UI shows a reconnect/fallback state and REST snapshots remain available.
 
 The server refuses production startup if the access password, session secret, or PostgreSQL URL is missing. In production it binds to `0.0.0.0` as required by common web hosts; local non-production use remains loopback-only.
 
