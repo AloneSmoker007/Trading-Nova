@@ -57,11 +57,13 @@ export class PersistentPaperEngine {
       assertGateArtifact(gateArtifact, gatedOrder);
       const fill = {
         orderId: order.orderId || order.idempotencyKey,
+        idempotencyKey: order.idempotencyKey,
         type: order.type || "MARKET",
         ...(order.limitPrice !== null && order.limitPrice !== undefined ? {limitPrice: order.limitPrice} : {}),
         ...(order.stopPrice !== null && order.stopPrice !== undefined ? {stopPrice: order.stopPrice} : {}),
         ...(order.takeProfitPrice !== null && order.takeProfitPrice !== undefined ? {takeProfitPrice: order.takeProfitPrice} : {}),
         orderIntentHash: order.orderIntentHash || null,
+        reduceOnly: order.reduceOnly === true,
         side,
         symbol,
         quantity: order.quantity,
