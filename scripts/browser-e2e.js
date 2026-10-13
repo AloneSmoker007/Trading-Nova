@@ -47,6 +47,18 @@ async function installApiFixtures(page) {
     const url = new URL(request.url());
     const pathname = url.pathname;
 
+    if (pathname === "/api/paper/orders" && request.method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true, state: "ok",
+          data: {state: "ok", orders: [], total: 0, pendingCount: 0, note: "Paper only; real money OFF."}
+        })
+      });
+      return;
+    }
+
     if (pathname === "/api/orders" && request.method() === "GET") {
       const offset = Number(url.searchParams.get("offset") || 0);
       const limit = Number(url.searchParams.get("limit") || 10);
@@ -216,7 +228,7 @@ async function main() {
       }
     });
 
-    await run("paper-order UI keeps unsupported types disabled and renders a Risk Gate NO TRADE", async () => {
+    await run("paper-order UI exposes lifecycle inputs and renders a Risk Gate NO TRADE", async () => {
       orderHistoryMode = "pages";
       requestBodies.length = 0;
       const page = await openDashboard(browser, baseUrl);
@@ -224,10 +236,21 @@ async function main() {
         for (const value of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
           assert.equal(
             await page.locator("#order-type option[value='" + value + "']").isDisabled(),
-            true,
-            value + " remains unavailable until its lifecycle is implemented"
+            false,
+            value + " should be available in the paper lifecycle"
           );
         }
+
+        await page.locator("#order-type").selectOption("STOP_LOSS");
+        assert.equal(await page.locator("#order-stop-price-field").isVisible(), true);
+        assert.equal(await page.locator("#order-price-field").isVisible(), false);
+        await page.locator("#order-stop-price").fill("41000");
+        await page.locator("#order-type").selectOption("TAKE_PROFIT");
+        assert.equal(await page.locator("#order-take-profit-price-field").isVisible(), true);
+        await page.locator("#order-take-profit-price").fill("43000");
+        await page.locator("#order-type").selectOption("MARKET");
+        assert.equal(await page.locator("#order-stop-price-field").isVisible(), false);
+        assert.equal(await page.locator("#order-take-profit-price-field").isVisible(), false);
 
         await page.locator("#order-quantity").fill("0.001");
         await page.locator("#order-price").fill("42000.5");

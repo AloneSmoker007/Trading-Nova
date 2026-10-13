@@ -667,6 +667,86 @@
     });
   }
 
+  function paperOrderTriggerLabel(order) {
+    if (order.type === "LIMIT") return "Limit $" + fmtNum(order.limitPrice ?? order.price);
+    if (order.type === "STOP_LOSS") return "Stop $" + fmtNum(order.stopPrice ?? order.price);
+    if (order.type === "TAKE_PROFIT") return "Target $" + fmtNum(order.takeProfitPrice ?? order.price);
+    return "Market";
+  }
+
+  function renderPaperOrders() {
+    setBadge("paper-orders-badge", "loading", "CHECKING");
+    return api("/api/paper/orders").then(function (result) {
+      var body = result.body;
+      if (result.status !== 200 || !body || body.ok !== true || !body.data
+          || !Array.isArray(body.data.orders)) {
+        var failure = failureState(result);
+        setBadge("paper-orders-badge", "unavailable", "UNAVAILABLE");
+        note("paper-orders-note", failure.message + ". Paper orders are not confirmed; real money OFF.");
+        return;
+      }
+
+      var data = body.data;
+      var orders = data.orders;
+      var pendingCount = Number.isSafeInteger(data.pendingCount) ? data.pendingCount : 0;
+      var tbody = $("paper-orders-body");
+      clear(tbody);
+      orders.forEach(function (order) {
+        var tr = el("tr");
+        tr.appendChild(el("td", null, fmtTime(order.createdAt || order.timestamp)));
+        tr.appendChild(el("td", null, order.symbol || "—"));
+        tr.appendChild(el("td", null, paperOrderTriggerLabel(order)));
+        tr.appendChild(el("td", null, order.side || "—"));
+        tr.appendChild(el("td", null, fmtNum(order.quantity, 6)));
+        tr.appendChild(el("td", null, order.status || "UNKNOWN"));
+        var action = el("td");
+        if (order.status === "PENDING" && typeof order.orderId === "string") {
+          var cancel = el("button", "cancel-paper-order", "Cancel");
+          cancel.type = "button";
+          cancel.setAttribute("aria-label", "Cancel pending " + order.type + " order for " + order.symbol);
+          cancel.addEventListener("click", function () {
+            cancel.disabled = true;
+            note("paper-orders-note", "Canceling pending paper order…");
+            api("/api/paper/orders/" + encodeURIComponent(order.orderId) + "/cancel", {method: "POST"})
+              .then(function (cancelResult) {
+                var cancelBody = cancelResult.body;
+                if (cancelResult.status === 200 && cancelBody && cancelBody.ok === true && cancelBody.data) {
+                  note("paper-orders-note", cancelBody.data.note || "Paper order cancellation confirmed.");
+                  renderPaperOrders();
+                  renderPortfolio();
+                  renderOrderHistory();
+                } else {
+                  var cancelFailure = failureState(cancelResult);
+                  note("paper-orders-note", cancelFailure.message + ". Refresh to confirm current order status.");
+                  renderPaperOrders();
+                }
+              })
+              .catch(function () {
+                note("paper-orders-note", "Cancellation result could not be confirmed. Refresh order status before retrying.");
+              })
+              .finally(function () { cancel.disabled = false; });
+          });
+          action.appendChild(cancel);
+        } else {
+          action.textContent = "—";
+        }
+        tr.appendChild(action);
+        tbody.appendChild(tr);
+      });
+
+      setBadge("paper-orders-badge", pendingCount ? "loading" : "ok",
+        pendingCount ? "PENDING (" + pendingCount + ")" : "NO PENDING");
+      if (!orders.length) {
+        note("paper-orders-note", "No paper orders recorded yet. Real money OFF.");
+      } else {
+        note("paper-orders-note", pendingCount + " pending. Quotes are checked every 5 seconds when fresh market data is available. Stop orders may gap through trigger; fills are re-checked by the Risk Gate. Real money OFF.");
+      }
+    }).catch(function () {
+      setBadge("paper-orders-badge", "unavailable", "OFFLINE");
+      note("paper-orders-note", "Paper order status unavailable. Do not assume a pending order was canceled or filled.");
+    });
+  }
+
   var strategyLabBusy = false;
 
   function renderStrategyLab() {
@@ -923,24 +1003,48 @@
     });
   }
 
+  function updateOrderTypeFields() {
+    var type = $("order-type").value;
+    var market = type === "MARKET";
+    var limit = type === "LIMIT";
+    var stop = type === "STOP_LOSS";
+    var takeProfit = type === "TAKE_PROFIT";
+    $("order-price-field").hidden = !(market || limit);
+    $("order-price").disabled = !(market || limit);
+    $("order-price").required = market || limit;
+    $("order-price-label").textContent = market ? "Market Reference Price" : "Limit Price";
+    $("order-price-help").textContent = market
+      ? "Market execution ignores this input for fill pricing; it uses the fresh bid/ask."
+      : "Buy limits never fill above this price; sell limits never fill below it.";
+    $("order-stop-price-field").hidden = !stop;
+    $("order-stop-price").disabled = !stop;
+    $("order-stop-price").required = stop;
+    $("order-take-profit-price-field").hidden = !takeProfit;
+    $("order-take-profit-price").disabled = !takeProfit;
+    $("order-take-profit-price").required = takeProfit;
+  }
+
   function submitPaperOrder(event) {
     event.preventDefault();
     if (orderSubmissionInProgress) return;
     var symbol = readSymbol();
     if (!symbol) return;
 
+    var type = $("order-type").value;
     var order = {
       symbol: symbol,
       side: $("order-side").value,
-      type: $("order-type").value,
+      type: type,
       quantity: Number($("order-quantity").value),
       price: Number($("order-price").value),
       reduceOnly: $("order-reduce-only").checked
     };
-
-    var stopPriceVal = Number($("order-stop-price").value);
-    if (Number.isFinite(stopPriceVal) && stopPriceVal > 0) {
-      order.stopPrice = stopPriceVal;
+    if (type === "STOP_LOSS") {
+      order.stopPrice = Number($("order-stop-price").value);
+      order.price = order.stopPrice;
+    } else if (type === "TAKE_PROFIT") {
+      order.takeProfitPrice = Number($("order-take-profit-price").value);
+      order.price = order.takeProfitPrice;
     }
 
     if (!Number.isFinite(order.quantity) || order.quantity <= 0 ||
@@ -984,8 +1088,31 @@
       var body = result.body;
       if (result.status >= 200 && result.status < 300 && body && body.ok === true && body.data) {
         var data = body.data;
-        var fill = data.fill || {};
         var replayed = data.state === "replayed" || (data.verdict && data.verdict.replayed);
+        if (data.order && !data.fill) {
+          var status = data.order.status || "UNKNOWN";
+          var reasons = data.verdict && Array.isArray(data.verdict.reasons) ? data.verdict.reasons.join(", ") : "";
+          if (status === "PENDING") {
+            setBadge("order-badge", "loading", "PENDING");
+            note("order-note", data.order.type + " paper order accepted and waiting for its trigger. It will be re-checked with fresh bid/ask and the Risk Gate. Real money OFF.");
+          } else if (status === "REJECTED") {
+            setBadge("order-badge", "no-trade", "NO TRADE");
+            note("order-note", "Triggered paper order was rejected by the Risk Gate. " + reasons + ". No fill was created; real money OFF.");
+          } else if (status === "CANCELED") {
+            setBadge("order-badge", "ok", "CANCELED");
+            note("order-note", "Paper order is canceled. No fill was created; real money OFF.");
+          } else {
+            setBadge("order-badge", "ok", status);
+            note("order-note", "Paper order status: " + status + ". Real money OFF.");
+          }
+          pendingOrderFingerprint = null;
+          pendingOrderKey = null;
+          orderOutcomeUncertain = false;
+          renderPaperOrders();
+          return;
+        }
+
+        var fill = data.fill || {};
         setBadge("order-badge", "ok", replayed ? "REPLAYED FILL" : "GATE ALLOW");
         note("order-note", (replayed ? "Previously confirmed fill" : "Paper fill") + ": " +
           [fill.symbol, fill.side, fmtNum(fill.quantity, 6) + " @ $" + fmtNum(fill.price), fill.status, fillCostSummary(fill)]
@@ -996,6 +1123,7 @@
         renderPortfolio();
         orderHistoryOffset = 0;
         renderOrderHistory();
+        renderPaperOrders();
         return;
       }
 
@@ -1121,6 +1249,7 @@
       renderAiCouncil(),
       renderPortfolio(),
       renderOrderHistory(),
+      renderPaperOrders(),
       renderStrategyLab(),
       renderJournal(),
       renderRiskStatus(),
@@ -1164,6 +1293,8 @@
       this.dataset.edited = "true";
     });
     $("order-form").addEventListener("submit", submitPaperOrder);
+    $("order-type").addEventListener("change", updateOrderTypeFields);
+    updateOrderTypeFields();
     $("orders-prev-button").addEventListener("click", function () {
       if (orderHistoryLoading || orderHistoryOffset <= 0) return;
       orderHistoryOffset = Math.max(0, orderHistoryOffset - orderHistoryPageSize);

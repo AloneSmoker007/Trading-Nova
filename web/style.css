@@ -68,6 +68,11 @@ main, .site-header, .paper-banner, .site-footer {
   gap: 8px;
 }
 .logout-button { padding: 6px 10px; font-size: 12px; }
+.field[hidden], .paper-orders-section[hidden] { display: none !important; }
+.paper-orders-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--panel-border); }
+.compact-head { margin: 0 0 8px; }
+.cancel-paper-order { white-space: nowrap; border-color: var(--warn-fg); color: var(--warn-fg); background: transparent; }
+.cancel-paper-order:disabled { opacity: 0.55; cursor: not-allowed; }
 .logout-button[hidden] { display: none !important; }
 h1 { margin: 0 0 2px; font-size: 28px; font-weight: 800; tracking: -0.02em; }
 h2 { margin: 0; font-size: 16px; font-weight: 700; }

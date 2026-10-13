@@ -197,7 +197,7 @@ test("POST /api/journal/entry appends a new entry with sha256 hash chain verific
   }
 });
 
-test("POST /api/paper/orders rejects LIMIT until pending-order lifecycle is implemented", async () => {
+test("POST /api/paper/orders accepts an untriggered LIMIT as durable PENDING", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "nova-test-"));
   const stateFile = join(tmp, "paper-state.json");
   const executionStateFile = join(tmp, "paper-orders.json");
@@ -211,7 +211,7 @@ test("POST /api/paper/orders rejects LIMIT until pending-order lifecycle is impl
     });
     const {port} = server.address();
 
-    const res = await fetch(`http://127.0.0.1:${port}/api/paper/orders`, {
+    const res = await fetch("http://127.0.0.1:" + port + "/api/paper/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -223,15 +223,21 @@ test("POST /api/paper/orders rejects LIMIT until pending-order lifecycle is impl
         idempotencyKey: "test-limit-order-1"
       })
     });
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.ok, false);
-    assert.equal(body.error.code, "unsupported-order-type");
+    assert.equal(body.ok, true);
+    assert.equal(body.data.order.status, "PENDING");
+    assert.equal(body.data.order.type, "LIMIT");
+    assert.equal(body.data.fill, null);
+    assert.match(body.data.note, /waiting for its trigger/i);
+    assert.equal(existsSync(executionStateFile), true, "the accepted pending order must survive restart");
 
-    const ordersRes = await fetch(`http://127.0.0.1:${port}/api/orders`);
-    const ordersBody = await ordersRes.json();
-    assert.equal(ordersBody.data.total, 0);
-    assert.equal(existsSync(executionStateFile), false, "rejected LIMIT orders must not persist a fill");
+    const openOrders = await fetch("http://127.0.0.1:" + port + "/api/paper/orders").then((response) => response.json());
+    assert.equal(openOrders.data.pendingCount, 1);
+    assert.equal(openOrders.data.orders[0].status, "PENDING");
+
+    const fills = await fetch("http://127.0.0.1:" + port + "/api/orders").then((response) => response.json());
+    assert.equal(fills.data.total, 0, "accepting a non-triggered limit must not create a fill");
   } finally {
     if (server?.listening) {
       const closing = new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

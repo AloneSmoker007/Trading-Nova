@@ -35,7 +35,8 @@ function matchApi(pathname){
   if(pathname==="/api/journal/entry")return{name:"addJournalEntry",params:{}};
   if(pathname==="/api/backtest")return{name:"backtest",params:{}};
   if(pathname==="/api/orders")return{name:"orders",params:{}};
-  if(pathname==="/api/paper/orders")return{name:"submitPaperOrder",params:{}};
+  if(pathname==="/api/paper/orders")return{name:"paperOrders",params:{}};
+  let mCancel=/^\/api\/paper\/orders\/([^/]+)\/cancel$/.exec(pathname);if(mCancel)return{name:"cancelPaperOrder",params:{orderId:decodeURIComponent(mCancel[1])}};
   if(pathname==="/api/risk/status")return{name:"riskStatus",params:{}};
   if(pathname==="/api/strategy/lab")return{name:"strategyLab",params:{}};
   return null;
@@ -58,7 +59,8 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
     if(pathname.startsWith("/api/")){
       const route=matchApi(pathname);
       if(!route){sendJson(res,404,{ok:false,state:"error",error:{code:"not-found",message:"unknown API route"}},{omitBody:method==="HEAD"});return;}
-      const allowed=(route.name==="submitPaperOrder"||route.name==="addJournalEntry"||route.name==="tutorChat")?["POST"]:["GET","HEAD"];
+      const allowed=route.name==="paperOrders"?["GET","HEAD","POST"]
+        :(["cancelPaperOrder","addJournalEntry","tutorChat"].includes(route.name)?["POST"]:["GET","HEAD"]);
       if(!allowed.includes(method)){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:allowed.join(", ")});return;}
       if(route.name==="tutorChat"){
         const clientKey=req.socket.remoteAddress||"unknown";const limiter=getBoundedTokenBucket(tutorLimiters,clientKey,{capacity:10,refillPerSecond:1/12,now});if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"AI Tutor requests are temporarily rate limited."}},{ "Retry-After":"12" });return;}
@@ -76,10 +78,14 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
         let context=null;const symbol=typeof input?.symbol==="string"?input.symbol.trim().toUpperCase():"";if(/^[A-Z0-9]{2,24}$/.test(symbol)){try{const quote=await market.getTicker(symbol);if(quote?.data){context={symbol,marketState:quote.state,stale:Boolean(quote.stale),ageMs:Number.isFinite(quote.ageMs)?quote.ageMs:null,ticker:{last:quote.data.last,bid:quote.data.bid,ask:quote.data.ask,changePct24h:quote.data.changePct24h,quoteVolume24h:quote.data.quoteVolume24h}};}}catch{context={symbol,marketState:"unavailable",stale:true};}}
         const out=await tutorChat({...input,message:validated.message,history:input.history??[]},context);sendJson(res,out.status,out.body);return;
       }
-      if(route.name==="submitPaperOrder"){
+      if(route.name==="paperOrders"&&method==="POST"){
         const clientKey=req.socket.remoteAddress||"unknown";const limiter=getBoundedTokenBucket(orderLimiters,clientKey,{capacity:PAPER_ORDER_RATE_CAPACITY,refillPerSecond:PAPER_ORDER_RATE_REFILL_PER_SECOND,now});if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"too many paper-order requests"}},{"Retry-After":"2"});return;}
         const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
         const out=await api.submitPaperOrder(request.body);sendJson(res,out.status,out.body);return;
+      }
+      if(route.name==="cancelPaperOrder"){
+        const clientKey=req.socket.remoteAddress||"unknown";const limiter=getBoundedTokenBucket(orderLimiters,clientKey,{capacity:PAPER_ORDER_RATE_CAPACITY,refillPerSecond:PAPER_ORDER_RATE_REFILL_PER_SECOND,now});if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"too many paper-order requests"}},{"Retry-After":"2"});return;}
+        const out=await api.cancelPaperOrder(route.params.orderId);sendJson(res,out.status,out.body);return;
       }
       if(route.name==="addJournalEntry"){
         const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
@@ -89,6 +95,9 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
     if(method!=="GET"&&method!=="HEAD"){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:"GET, HEAD"});return;}
     const file=await readStatic(webRoot,pathname);res.writeHead(file.status,{...SECURITY_HEADERS,"Content-Type":file.type,"Cache-Control":"no-cache","Content-Length":Buffer.byteLength(file.body)});res.end(method==="HEAD"?undefined:file.body);
   }catch(err){if(log)log("request-error",{message:err&&err.message?String(err.message):"unknown"});if(!res.headersSent)sendJson(res,500,{ok:false,state:"error",error:{code:"internal-error",message:"internal error"}});else res.end();}});
+  const orderProcessingTimer=setInterval(()=>{void api.processPaperOrders().catch(()=>{});},5000);
+  orderProcessingTimer.unref?.();
+  server.on("close",()=>clearInterval(orderProcessingTimer));
   server.on("clientError",(_err,socket)=>{if(socket.writable)socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");});return server;
 }
 export {SECURITY_HEADERS,REPO_ROOT,matchApi};
