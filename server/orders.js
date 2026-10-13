@@ -643,7 +643,7 @@ export function createPaperOrderService({
       });
       if (gateRejected(verdict)) return noTrade(verdict);
 
-      const orderRecord = baseOrderRecord(order, "SUBMITTING");
+      const orderRecord = baseOrderRecord({...order, price: gatedOrder.price}, "SUBMITTING");
       try {
         const fill = await engine.submit(
           {
