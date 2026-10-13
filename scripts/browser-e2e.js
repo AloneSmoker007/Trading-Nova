@@ -9,7 +9,7 @@ import {chromium} from "playwright";
 
 const tempDir = mkdtempSync(join(tmpdir(), "trading-nova-browser-e2e-"));
 const server = createNovaServer({
-  fetchImpl: async () => new Response("{}", {status: 503}),
+  fetchImpl: async () => ({ok: false, status: 503, json: async () => ({})}),
   stateFile: join(tempDir, "paper-state.json"),
   executionStateFile: join(tempDir, "paper-orders.json"),
   tradingMode: "paper"
@@ -165,14 +165,14 @@ async function main() {
         const next = page.getByRole("button", {name: "Next fill history page"});
         const rows = page.locator("#orders-history-body tr");
 
-        await status.getByText("Showing 1–10 of 25 fills").waitFor();
+        await page.getByText("Showing 1–10 of 25 fills", {exact: true}).waitFor();
         await rows.first().getByText("TEST25").waitFor();
         assert.equal(await previous.isDisabled(), true);
         assert.equal(await next.isDisabled(), false);
 
         await next.click();
         assert.equal(await next.isDisabled(), true, "Next is disabled during the in-flight request");
-        await status.getByText("Showing 11–20 of 25 fills").waitFor();
+        await page.getByText("Showing 11–20 of 25 fills", {exact: true}).waitFor();
         await rows.first().getByText("TEST15").waitFor();
         assert.equal(await previous.isDisabled(), false);
 
