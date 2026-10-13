@@ -2,7 +2,7 @@
 
 import {mkdir, readFile, rename, unlink, writeFile} from "node:fs/promises";
 import {dirname} from "node:path";
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {PersistentPaperEngine} from "../src/execution/paper-persistent.js";
 import {DEFAULT_PAPER_FEE_RATE, DEFAULT_PAPER_SLIPPAGE_BPS, estimateMarketExecution, validatePaperExecutionCostConfig} from "../src/execution/costs.js";
 import {DurableStore} from "../src/persistence/store.js";
@@ -63,23 +63,117 @@ function parseOrderRequest(body) {
   if (!["MARKET", "LIMIT", "STOP_LOSS", "TAKE_PROFIT"].includes(type)) {
     return {error: {code: "invalid-type", message: "type must be MARKET, LIMIT, STOP_LOSS, or TAKE_PROFIT"}};
   }
-  // Fail closed until the paper engine implements pending orders and trigger semantics.
-  // Never silently execute a requested limit/stop/take-profit order as a market fill.
-  if (type !== "MARKET") {
-    return {error: {code: "unsupported-order-type", message: "Only MARKET paper orders are currently supported. LIMIT, STOP_LOSS, and TAKE_PROFIT are blocked until their execution lifecycle is implemented."}};
+
+  if (type === "MARKET" && (body.stopPrice !== undefined || body.takeProfitPrice !== undefined)) {
+    return {error: {code: "unsupported-order-trigger", message: "Market orders cannot include stop or take-profit trigger prices."}};
   }
-  if (body.stopPrice !== undefined || body.takeProfitPrice !== undefined) {
-    return {error: {code: "unsupported-order-trigger", message: "Stop-loss and take-profit trigger prices are not supported by the current paper execution engine."}};
+  if (type === "LIMIT" && (body.stopPrice !== undefined || body.takeProfitPrice !== undefined)) {
+    return {error: {code: "invalid-order-trigger", message: "Limit orders use price as the limit; stop and take-profit triggers are not allowed."}};
   }
+  if (type === "STOP_LOSS" && body.takeProfitPrice !== undefined) {
+    return {error: {code: "invalid-order-trigger", message: "STOP_LOSS accepts only a stopPrice trigger."}};
+  }
+  if (type === "TAKE_PROFIT" && body.stopPrice !== undefined) {
+    return {error: {code: "invalid-order-trigger", message: "TAKE_PROFIT accepts only a takeProfitPrice trigger."}};
+  }
+  const stopPrice = type === "STOP_LOSS"
+    ? (body.stopPrice === undefined ? body.price : body.stopPrice)
+    : null;
+  const takeProfitPrice = type === "TAKE_PROFIT"
+    ? (body.takeProfitPrice === undefined ? body.price : body.takeProfitPrice)
+    : null;
+  if (stopPrice !== null && (!Number.isFinite(stopPrice) || stopPrice <= 0)) {
+    return {error: {code: "invalid-stop-price", message: "stopPrice must be a positive finite number"}};
+  }
+  if (takeProfitPrice !== null && (!Number.isFinite(takeProfitPrice) || takeProfitPrice <= 0)) {
+    return {error: {code: "invalid-take-profit-price", message: "takeProfitPrice must be a positive finite number"}};
+  }
+  const price = type === "STOP_LOSS" ? stopPrice
+    : type === "TAKE_PROFIT" ? takeProfitPrice
+      : body.price;
   return {order: {
     symbol: symbol.symbol,
     side,
     type,
     quantity: body.quantity,
-    price: body.price,
+    price,
+    limitPrice: type === "LIMIT" ? price : null,
+    stopPrice,
+    takeProfitPrice,
     idempotencyKey: body.idempotencyKey.trim(),
     reduceOnly: body.reduceOnly === true
   }};
+}
+
+function orderIntentHash(order) {
+  const intent = {
+    symbol: order.symbol,
+    side: order.side,
+    quantity: order.quantity,
+    type: order.type || "MARKET",
+    price: order.type === "MARKET" ? null : order.price,
+    reduceOnly: order.reduceOnly === true
+  };
+  return createHash("sha256").update(JSON.stringify(intent)).digest("hex");
+}
+
+function isOrderTriggered(order, quote) {
+  if (!quote || !Number.isFinite(quote.bid) || !Number.isFinite(quote.ask)) return false;
+  if (order.type === "LIMIT") {
+    return order.side === "BUY" ? quote.ask <= order.limitPrice : quote.bid >= order.limitPrice;
+  }
+  if (order.type === "STOP_LOSS") {
+    return order.side === "BUY" ? quote.ask >= order.stopPrice : quote.bid <= order.stopPrice;
+  }
+  if (order.type === "TAKE_PROFIT") {
+    return order.side === "BUY" ? quote.ask <= order.takeProfitPrice : quote.bid >= order.takeProfitPrice;
+  }
+  return false;
+}
+
+function estimateOrderExecution(order, quote, referencePrice, costs) {
+  const execution = estimateMarketExecution({
+    side: order.side,
+    quantity: order.quantity,
+    last: referencePrice,
+    bid: quote.bid,
+    ask: quote.ask,
+    feeRate: costs.feeRate,
+    slippageBps: costs.slippageBps
+  });
+  if (order.type !== "LIMIT") return execution;
+
+  // Limit orders may execute at a better price, never worse than their limit.
+  const executionPrice = order.side === "BUY"
+    ? Math.min(execution.executionPrice, order.limitPrice)
+    : Math.max(execution.executionPrice, order.limitPrice);
+  if (!Number.isFinite(executionPrice) || executionPrice <= 0) {
+    throw new RangeError("limit execution price is invalid");
+  }
+  const notional = order.quantity * executionPrice;
+  const fee = notional * costs.feeRate;
+  const slippageCost = Math.abs(executionPrice - execution.quotePrice) * order.quantity;
+  const slippageBps = Math.abs(executionPrice - execution.quotePrice) / execution.quotePrice * 10000;
+  if (![notional, fee, slippageCost, slippageBps].every(Number.isFinite)) {
+    throw new RangeError("limit execution costs are invalid");
+  }
+  return Object.freeze({...execution, executionPrice, notional, fee, slippageCost, slippageBps});
+}
+
+function noTrade(verdict, message = "order rejected by risk gate") {
+  return {
+    status: 400,
+    body: {
+      ok: false,
+      state: "error",
+      error: {
+        code: "risk-gate-rejected",
+        message,
+        reason: verdict.reasons.join(", ")
+      },
+      verdict: {decision: "NO_TRADE", reasons: verdict.reasons}
+    }
+  };
 }
 
 export function applyFill(portfolio, fill) {
