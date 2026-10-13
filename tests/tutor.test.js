@@ -339,6 +339,10 @@ test("tutor chat writes no execution state and cannot reach paper order submissi
     assert.equal(existsSync(executionStateFile),false,"tutor chat must not write execution state");
     assert.equal(record.length,1,"exactly one outbound call");
     assert.ok(record.every((call)=>call.url.startsWith("https://generativelanguage.googleapis.com/")),"tutor path must only call the LLM provider");
+    const providerRequest=JSON.parse(record[0].options.body);
+    const suppliedContext=providerRequest.contents.at(-1).parts[0].text;
+    assert.match(suppliedContext,/learningMemory/,"the tutor should receive journal context when its integrity verifies");
+    assert.match(suppliedContext,/verified-but-empty/,"an empty journal must be described as empty rather than inventing memories");
     const orders=await fetch(base+"/api/orders");
     assert.equal(orders.status,200);
     const ordersBody=await orders.json();
