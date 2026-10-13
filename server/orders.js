@@ -863,6 +863,36 @@ export function createPaperOrderService({
   return {submit, getPortfolio, getOrders, getPaperOrders, cancelOrder, processPendingOrders};
 }
 
+
+function pendingOrderSuccess(order, verdict, replayed) {
+  const rejected = order.status === "REJECTED";
+  const reasons = rejected
+    ? (order.rejectionReasons || [])
+    : (verdict.reasons || []);
+  const decision = rejected ? "NO_TRADE" : "ALLOW";
+  const state = order.status === "PENDING" ? "pending"
+    : rejected ? "rejected"
+      : replayed ? "replayed" : "terminal";
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      data: {
+        state,
+        order,
+        fill: null,
+        verdict: {decision, replayed: Boolean(replayed), reasons},
+        reconciliation: {state: String(order.status || "PENDING").toLowerCase()},
+        note: rejected
+          ? "Pending order triggered but the Risk Gate refused execution. No fill was created; real money OFF."
+          : order.status === "CANCELED"
+            ? "Paper order canceled. No fill was created; real money OFF."
+            : "Paper order accepted and waiting for its trigger. Execution will re-check fresh quotes and the Risk Gate; real money OFF."
+      }
+    }
+  };
+}
+
 function orderSuccess(order, fill, verdict, replayed) {
   return {
     status: 200,
