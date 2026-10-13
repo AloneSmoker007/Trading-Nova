@@ -847,8 +847,9 @@ export function createPaperOrderService({
       }
       const orderFills = (await stateValues("paper-fills"))
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      return {state: "ok", fills: orderFills.slice(offset, offset + limit), total: orderFills.length,
-        limit, offset, hasMore: offset + orderFills.length < orderFills.length};
+      const items = orderFills.slice(offset, offset + limit);
+      return {state: "ok", fills: items, total: orderFills.length,
+        limit, offset, hasMore: offset + items.length < orderFills.length};
     });
   }
 
