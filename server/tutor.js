@@ -38,7 +38,7 @@ export function createTradingTutor({fetchImpl=globalThis.fetch,env=process.env,n
     if (!parsed.ok) return {status:400,body:{ok:false,state:"error",error:{code:parsed.code,message:parsed.message}}};
     const apiKey=env.GEMINI_API_KEY;
     if (typeof apiKey!=="string" || !apiKey.trim()) return {status:503,body:{ok:false,state:"unavailable",error:{code:"tutor-not-configured",message:"AI Tutor abhi configure nahi hai. Server par GEMINI_API_KEY set karne ke baad dobara try karein."}}};
-    const model=env.GEMINI_MODEL || "gemini-2.5-flash";
+    const model=env.GEMINI_MODEL || "gemini-3.8-flash";
     if (!MODEL_RE.test(model)) return {status:503,body:{ok:false,state:"unavailable",error:{code:"tutor-not-configured",message:"AI Tutor configuration unavailable."}}};
     const webResearchEnabled = env.GEMINI_WEB_RESEARCH !== "false" && env.GEMINI_WEB_RESEARCH !== "0";
     const contextText=marketContext
