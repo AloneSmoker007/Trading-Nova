@@ -24,7 +24,7 @@ test("tutor fails honestly when Gemini is not configured", async () => {
 test("tutor calls Gemini server-side and returns educational answer without exposing key in URL", async () => {
   let request;
   const tutor=createTradingTutor({
-    env:{["GEMINI_"+"API_KEY"]:["test","secret","not","real"].join("-"),GEMINI_MODEL:"gemini-2.5-flash"},
+    env:{["GEMINI_"+"API_KEY"]:["test","secret","not","real"].join("-"),GEMINI_MODEL:"gemini-3.8-flash"},
     now:()=>123,
     fetchImpl:async(url,options)=>{
       request={url,options};
@@ -97,7 +97,7 @@ test("tutor maps provider errors to a generic unavailable response", async () =>
 const sentinel=["sentinel","tutor","credential","007"].join("-");
 
 function providerEnv(extra={}){
-  return {["GEMINI_"+"API_KEY"]:sentinel,GEMINI_MODEL:"gemini-2.5-flash",...extra};
+  return {["GEMINI_"+"API_KEY"]:sentinel,GEMINI_MODEL:"gemini-3.8-flash",...extra};
 }
 
 function recordingProvider(record,answer="Paper trading mein risk management sab se zaroori hai."){
@@ -106,6 +106,20 @@ function recordingProvider(record,answer="Paper trading mein risk management sab
     return {ok:true,status:200,json:async()=>({candidates:[{content:{parts:[{text:answer}]}}]})};
   };
 }
+
+test("tutor defaults to Gemini 3.8 Flash when no model override is configured", async()=>{
+  const requests=[];
+  const tutor=createTradingTutor({
+    env:{["GEMINI_"+"API_KEY"]:sentinel},
+    fetchImpl:recordingProvider(requests),
+    now:()=>789
+  });
+  const result=await tutor({message:"Market risk ko Roman Urdu mein samjhao"});
+  assert.equal(result.status,200);
+  assert.equal(requests.length,1);
+  assert.match(requests[0].url,/\/v1beta\/models\/gemini-3\.8-flash:generateContent$/);
+  assert.deepEqual(JSON.parse(requests[0].options.body).tools,[{google_search:{}}]);
+});
 
 function postChat(base,payload){
   return fetch(base+"/api/tutor/chat",{
