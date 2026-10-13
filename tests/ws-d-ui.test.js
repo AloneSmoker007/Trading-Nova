@@ -136,6 +136,26 @@ test("AI Council visibly discloses proxy inputs and disconnected research feeds"
   assert.match(app, /r\.basis/);
 });
 
+test("Order history exposes accessible bounded pagination controls", () => {
+  const html = read("web/index.html");
+  const app = read("web/app.js");
+  const css = read("web/style.css");
+
+  assert.match(html, /id="orders-prev-button"/);
+  assert.match(html, /id="orders-next-button"/);
+  assert.match(html, /id="orders-page-status" role="status" aria-live="polite"/);
+  assert.match(app, /var orderHistoryPageSize = 10/);
+  assert.match(app, /\/api\/orders\?limit=/);
+  assert.match(app, /orderHistoryOffset = Math\.max\(0, orderHistoryOffset - orderHistoryPageSize\)/);
+  assert.match(app, /orderHistoryOffset \+= orderHistoryPageSize/);
+  assert.match(app, /orderHistoryRequestId/);
+  assert.match(app, /fills\.forEach\(function \(f\)/);
+  assert.doesNotMatch(app, /fills\.slice\(0, 10\)/);
+  assert.ok(app.includes('"Showing "'), "page range is shown to the user");
+  assert.ok(app.includes('" of " + totalOrders + " fills"'), "page range includes total fill count");
+  assert.match(css, /\.orders-pagination/);
+});
+
 test("paper order ticket only targets the gated paper endpoint", () => {
   const html = read("web/index.html");
   const app = read("web/app.js");

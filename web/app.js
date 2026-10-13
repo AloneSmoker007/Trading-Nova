@@ -15,6 +15,13 @@
   var orderSubmissionInProgress = false;
   var orderOutcomeUncertain = false;
 
+  // Keep the visible history page bounded and independent from order submission.
+  var orderHistoryPageSize = 10;
+  var orderHistoryOffset = 0;
+  var orderHistoryHasMore = false;
+  var orderHistoryLoading = false;
+  var orderHistoryRequestId = 0;
+
   var chartInstance = null;
   var candleSeries = null;
   var volumeSeries = null;
@@ -569,17 +576,53 @@
     });
   }
 
+  function syncOrderHistoryControls() {
+    var previous = $("orders-prev-button");
+    var next = $("orders-next-button");
+    if (previous) previous.disabled = orderHistoryLoading || orderHistoryOffset <= 0;
+    if (next) next.disabled = orderHistoryLoading || !orderHistoryHasMore;
+  }
+
   function renderOrderHistory() {
-    setBadge("orders-badge", "loading");
-    return api("/api/orders").then(function (result) {
+    var requestId = ++orderHistoryRequestId;
+    var requestedOffset = orderHistoryOffset;
+    orderHistoryLoading = true;
+    syncOrderHistoryControls();
+    setBadge("orders-badge", "loading", "LOADING");
+    note("orders-page-status", "Loading fill history…");
+
+    return api("/api/orders?limit=" + encodeURIComponent(String(orderHistoryPageSize))
+      + "&offset=" + encodeURIComponent(String(requestedOffset))).then(function (result) {
+      if (requestId !== orderHistoryRequestId) return;
+
       var tbody = $("orders-history-body");
-      clear(tbody);
       var body = result.body;
-      if (result.status === 200 && body && body.ok === true && Array.isArray(body.data?.fills)) {
-        var fills = body.data.fills;
-        var totalOrders = Number.isSafeInteger(body.data.total) ? body.data.total : fills.length;
-        setBadge("orders-badge", totalOrders ? "ok" : "empty", totalOrders ? "RECONCILED (" + totalOrders + ")" : "NO FILLS");
-        fills.slice(0, 10).forEach(function (f) {
+      if (result.status === 200 && body && body.ok === true && body.data
+          && Array.isArray(body.data.fills)) {
+        var data = body.data;
+        var fills = data.fills;
+        var totalOrders = Number.isSafeInteger(data.total) && data.total >= 0 ? data.total : fills.length;
+        var currentOffset = Number.isSafeInteger(data.offset) && data.offset >= 0
+          ? data.offset : requestedOffset;
+
+        // If history shrank while the operator was on a later page, recover to
+        // the last valid page instead of showing an empty, misleading result.
+        if (currentOffset > 0 && (totalOrders === 0 || currentOffset >= totalOrders)) {
+          orderHistoryOffset = totalOrders === 0
+            ? 0
+            : Math.floor((totalOrders - 1) / orderHistoryPageSize) * orderHistoryPageSize;
+          return renderOrderHistory();
+        }
+
+        orderHistoryOffset = currentOffset;
+        orderHistoryHasMore = typeof data.hasMore === "boolean"
+          ? data.hasMore
+          : currentOffset + fills.length < totalOrders;
+        setBadge("orders-badge", totalOrders ? "ok" : "empty",
+          totalOrders ? "RECONCILED (" + totalOrders + ")" : "NO FILLS");
+
+        clear(tbody);
+        fills.forEach(function (f) {
           var tr = el("tr");
           tr.appendChild(el("td", null, fmtTime(f.timestamp)));
           tr.appendChild(el("td", null, f.symbol));
@@ -590,11 +633,37 @@
           tr.appendChild(el("td", null, f.status || "RECONCILED"));
           tbody.appendChild(tr);
         });
+
+        if (totalOrders === 0) {
+          note("orders-page-status", "No fills recorded yet.");
+          note("orders-note", "Paper/shadow history only. No real-money order was placed.");
+        } else if (fills.length === 0) {
+          note("orders-page-status", "No fills on this page.");
+          note("orders-note", "Use Previous to return to the latest fills.");
+        } else {
+          note("orders-page-status", "Showing " + (currentOffset + 1) + "–"
+            + (currentOffset + fills.length) + " of " + totalOrders + " fills");
+          note("orders-note", "Paper/shadow history; newest fills first. Real money OFF.");
+        }
       } else {
-        setBadge("orders-badge", "unavailable", "UNAVAILABLE");
+        orderHistoryHasMore = false;
+        clear(tbody);
+        var failure = failureState(result);
+        setBadge("orders-badge", failure.state, "UNAVAILABLE");
+        note("orders-page-status", "Fill history is unavailable.");
+        note("orders-note", failure.message);
       }
     }).catch(function () {
+      if (requestId !== orderHistoryRequestId) return;
+      orderHistoryHasMore = false;
+      clear($("orders-history-body"));
       setBadge("orders-badge", "unavailable", "OFFLINE");
+      note("orders-page-status", "Fill history is unavailable.");
+      note("orders-note", "Cannot reach the local API server. Try refreshing the terminal.");
+    }).finally(function () {
+      if (requestId !== orderHistoryRequestId) return;
+      orderHistoryLoading = false;
+      syncOrderHistoryControls();
     });
   }
 
@@ -925,6 +994,7 @@
         pendingOrderKey = null;
         orderOutcomeUncertain = false;
         renderPortfolio();
+        orderHistoryOffset = 0;
         renderOrderHistory();
         return;
       }
@@ -1094,6 +1164,16 @@
       this.dataset.edited = "true";
     });
     $("order-form").addEventListener("submit", submitPaperOrder);
+    $("orders-prev-button").addEventListener("click", function () {
+      if (orderHistoryLoading || orderHistoryOffset <= 0) return;
+      orderHistoryOffset = Math.max(0, orderHistoryOffset - orderHistoryPageSize);
+      renderOrderHistory();
+    });
+    $("orders-next-button").addEventListener("click", function () {
+      if (orderHistoryLoading || !orderHistoryHasMore) return;
+      orderHistoryOffset += orderHistoryPageSize;
+      renderOrderHistory();
+    });
     $("chart-sma20").addEventListener("change", applyChartVisibility);
     $("chart-sma50").addEventListener("change", applyChartVisibility);
     $("chart-volume").addEventListener("change", applyChartVisibility);

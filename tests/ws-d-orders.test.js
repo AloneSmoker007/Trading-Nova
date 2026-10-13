@@ -256,6 +256,12 @@ test("order history supports bounded pages with stable totals and rejects invali
     assert.equal(second.data.fills.length, 1);
     assert.equal(second.data.total, 3);
     assert.equal(second.data.hasMore, false);
+    const firstIds = first.data.fills.map((fill) => fill.orderId);
+    const secondIds = second.data.fills.map((fill) => fill.orderId);
+    assert.equal(new Set([...firstIds, ...secondIds]).size, 3,
+      "neighboring pages must not repeat a fill when the history is unchanged");
+    assert.ok(first.data.fills[0].timestamp >= second.data.fills[0].timestamp,
+      "page order is newest-first across the page boundary");
 
     const invalid = await fetch(srv.base + "/api/orders?limit=201");
     assert.equal(invalid.status, 400);
