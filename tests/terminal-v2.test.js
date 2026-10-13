@@ -91,6 +91,24 @@ test("GET /api/ai/council/:symbol returns 7-role AI research analysis", async ()
     assert.ok(["WAIT", "RESEARCH", "RESEARCH_READY", "NO_TRADE"].includes(council.decision));
     assert.equal(council.roles.length, 7);
 
+    const liquidity = council.roles.find((role) => role.legacyRole === "Fundamental");
+    const momentum = council.roles.find((role) => role.legacyRole === "News");
+    const volatility = council.roles.find((role) => role.legacyRole === "Sentiment");
+    assert.equal(liquidity.role, "Liquidity proxy");
+    assert.equal(liquidity.displayName, "Liquidity proxy");
+    assert.match(liquidity.basis, /24-hour quote volume only/i);
+    assert.match(liquidity.basis, /no company financial statements/i);
+    assert.equal(momentum.role, "24h momentum proxy");
+    assert.match(momentum.basis, /24-hour price change only/i);
+    assert.match(momentum.basis, /no public-news feed/i);
+    assert.equal(volatility.role, "Volatility-regime proxy");
+    assert.match(volatility.basis, /candle-volatility regime only/i);
+    assert.match(volatility.basis, /no social, survey, or news-sentiment feed/i);
+    assert.equal(council.dataCoverage.companyFundamentals, "not-connected");
+    assert.equal(council.dataCoverage.publicNews, "not-connected");
+    assert.equal(council.dataCoverage.socialSentiment, "not-connected");
+    assert.match(council.dataCoverage.note, /feeds are not connected/i);
+
     server.close();
   } finally {
     rmSync(tmp, { recursive: true, force: true });
