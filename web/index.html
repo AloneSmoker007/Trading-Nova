@@ -16,7 +16,7 @@
     <div class="header-content">
       <div>
         <h1>Trading Nova</h1>
-        <p class="tagline">Research → Validation → Risk Gate → Paper Execution. Real money OFF.</p>
+        <p class="tagline">Live market data → Gemini research & learning → Validation → Risk Gate → Paper execution. Real money OFF.</p>
       </div>
       <div class="header-badges">
         <span class="badge badge-paper">PAPER / SHADOW ONLY</span>
@@ -78,6 +78,7 @@
         <div class="card-head">
           <h2 id="chart-title">Price Chart & Indicators (<span id="chart-symbol-label">BTCUSDT</span>)</h2>
           <span class="badge" id="chart-badge" data-state="loading">LOADING…</span>
+          <span class="badge" id="stream-badge" data-state="loading">CONNECTING STREAM…</span>
         </div>
         <div class="chart-container" id="chart-container">
           <div id="price-chart" role="img" aria-label="Interactive candlestick chart with crosshair, zoom and real market data"></div>
@@ -89,6 +90,7 @@
           <button type="button" id="chart-fit-button" class="chart-fit-button">Fit view</button>
         </div>
         <p class="panel-note" id="chart-note">Interactive candles from real OHLCV data, with volume and SMA overlays. No synthetic price data.</p>
+        <p class="panel-note" id="stream-note" role="status" aria-live="polite">Live public-candle stream status will appear here. Stream values are display-only, not order execution quotes.</p>
         <p class="chart-attribution">Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView</a> · Lightweight Charts 4.2.3 (Apache-2.0)</p>
       </section>
 
@@ -316,7 +318,7 @@
           <h2 id="tutor-title">Personal AI Trading Tutor</h2>
           <span class="badge" id="tutor-badge" data-state="loading">PAPER ONLY</span>
         </div>
-        <p class="panel-note">Roman Urdu mein sawal poochho: chart, indicators, risk, orders ya P/L samjho. Is version mein live internet/news research abhi enabled nahi. Tutor order place nahi kar sakta.</p>
+        <p class="panel-note">Roman Urdu mein chart, indicators, risk, market news aur paper trades samjho. Gemini current research ke liye Google Search grounding use kar sakta hai; returned source links jawab ke neeche dikhte hain. Verified recent Journal notes context ke taur par recall ho sakte hain—yeh model ki automatic retraining nahi. Web pages aur notes ko evidence samjho, trusted instructions nahi. Tutor order place nahi kar sakta.</p>
         <div id="tutor-messages" class="tutor-messages" role="log" aria-live="polite" aria-relevant="additions">
           <p class="tutor-message tutor-assistant">Assalam-o-alaikum! Main tumhara trading tutor hoon. RSI, candles, risk ya kisi paper trade ke bare mein sawal poochho. Main uncertainty bhi explain karunga.</p>
         </div>
@@ -328,7 +330,7 @@
             <button id="tutor-send-btn" type="submit">Ask Tutor</button>
           </div>
         </form>
-        <p class="panel-note" id="tutor-note" role="status" aria-live="polite">Gemini server configuration required. API key browser mein kabhi nahi jayegi.</p>
+        <p class="panel-note" id="tutor-note" role="status" aria-live="polite">Server par GEMINI_API_KEY zaroori hai. Google Search grounding server-side hoti hai; API key browser mein kabhi nahi jayegi.</p>
       </section>
 
       <!-- Human Brain & Journal -->

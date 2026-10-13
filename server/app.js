@@ -16,7 +16,7 @@ const MAX_BODY_LENGTH=16384;
 const PAPER_ORDER_RATE_CAPACITY=30;
 const PAPER_ORDER_RATE_REFILL_PER_SECOND=0.5;
 const SECURITY_HEADERS=Object.freeze({
-  "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' wss://stream.binance.com:9443; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer","X-Frame-Options":"DENY","Cross-Origin-Opener-Policy":"same-origin"
 });
 function readRequestBody(req){return new Promise((resolve,reject)=>{const chunks=[];let size=0,complete=false,tooLarge=false;req.on("data",chunk=>{if(tooLarge)return;size+=chunk.length;if(size>MAX_BODY_LENGTH){tooLarge=true;complete=true;chunks.length=0;resolve({tooLarge:true});return;}chunks.push(chunk);});req.on("end",()=>{if(complete)return;complete=true;resolve({body:Buffer.concat(chunks).toString("utf8")});});req.on("error",error=>{if(complete)return;complete=true;reject(error);});});}
@@ -75,7 +75,64 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
         if(typeof configuredKey!=="string"||!configuredKey.trim()||(configuredModel!==undefined&&!/^[A-Za-z0-9._-]{1,80}$/.test(configuredModel))){
           const out=await tutorChat({...input,message:validated.message,history:input.history??[]},null);sendJson(res,out.status,out.body);return;
         }
-        let context=null;const symbol=typeof input?.symbol==="string"?input.symbol.trim().toUpperCase():"";if(/^[A-Z0-9]{2,24}$/.test(symbol)){try{const quote=await market.getTicker(symbol);if(quote?.data){context={symbol,marketState:quote.state,stale:Boolean(quote.stale),ageMs:Number.isFinite(quote.ageMs)?quote.ageMs:null,ticker:{last:quote.data.last,bid:quote.data.bid,ask:quote.data.ask,changePct24h:quote.data.changePct24h,quoteVolume24h:quote.data.quoteVolume24h}};}}catch{context={symbol,marketState:"unavailable",stale:true};}}
+        let context=null;
+        const symbol=typeof input?.symbol==="string"?input.symbol.trim().toUpperCase():"";
+        if(/^[A-Z0-9]{2,24}$/.test(symbol)){
+          try{
+            const quote=await market.getTicker(symbol);
+            if(quote?.data){
+              context={
+                symbol,
+                marketState:quote.state,
+                stale:Boolean(quote.stale),
+                ageMs:Number.isFinite(quote.ageMs)?quote.ageMs:null,
+                ticker:{
+                  last:quote.data.last,
+                  bid:quote.data.bid,
+                  ask:quote.data.ask,
+                  changePct24h:quote.data.changePct24h,
+                  quoteVolume24h:quote.data.quoteVolume24h
+                }
+              };
+            }
+          }catch{
+            context={symbol,marketState:"unavailable",stale:true};
+          }
+        }
+
+        // Give Gemini context from saved learning notes only when the append-only
+        // journal hash chain verifies. Journal text remains untrusted data.
+        try{
+          const journalSnapshot=await api.journal();
+          const journalData=journalSnapshot?.status===200&&journalSnapshot.body?.ok===true
+            ?journalSnapshot.body.data:null;
+          if(journalData?.verified===true&&Array.isArray(journalData.entries)){
+            const entries=journalData.entries.slice(-5).map((entry)=>({
+              timestamp:Number.isFinite(entry?.timestamp)?entry.timestamp:null,
+              type:typeof entry?.type==="string"?entry.type.slice(0,40):"note",
+              symbol:typeof entry?.symbol==="string"?entry.symbol.slice(0,24):"GENERAL",
+              title:typeof entry?.title==="string"?entry.title.slice(0,120):"Saved note",
+              text:typeof entry?.text==="string"?entry.text.slice(0,350):""
+            }));
+            context={...(context||{}),learningMemory:{
+              state:entries.length?"verified-recent-notes":"verified-but-empty",
+              journalIntegrity:"verified",
+              entries
+            }};
+          }else{
+            context={...(context||{}),learningMemory:{
+              state:"unavailable-or-unverified",
+              journalIntegrity:"not-verified",
+              entries:[]
+            }};
+          }
+        }catch{
+          context={...(context||{}),learningMemory:{
+            state:"unavailable",
+            journalIntegrity:"not-verified",
+            entries:[]
+          }};
+        }
         const out=await tutorChat({...input,message:validated.message,history:input.history??[]},context);sendJson(res,out.status,out.body);return;
       }
       if(route.name==="paperOrders"&&method==="POST"){
