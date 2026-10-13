@@ -147,10 +147,13 @@ test("POST /api/paper/orders rejects incomplete requests and never exposes a liv
     assert.equal(body.error.code, "invalid-price");
     assert.deepEqual(findSecretViolations(body, JSON.stringify(body)), []);
 
-    // GET on the order endpoint is refused; it is not a generic execution route.
+    // GET exposes a bounded, paper-only order-status view; it cannot execute an order.
     const getRes = await fetch(srv.base + "/api/paper/orders");
-    assert.equal(getRes.status, 405);
-    await getRes.json();
+    assert.equal(getRes.status, 200);
+    const ordersBody = await getRes.json();
+    assert.equal(ordersBody.ok, true);
+    assert.deepEqual(ordersBody.data.orders, []);
+    assert.equal(ordersBody.data.pendingCount, 0);
   } finally {
     await srv.close();
   }
