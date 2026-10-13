@@ -98,7 +98,7 @@
           <h2 id="order-title">Paper Order Ticket</h2>
           <span class="badge" id="order-badge" data-state="idle">PAPER / SHADOW ONLY</span>
         </div>
-        <p class="panel-note order-intro">Gated by the deterministic Risk Gate. Only Market paper orders are enabled; Limit, Stop Loss and Take Profit remain blocked until pending/trigger lifecycle support is implemented. Paper fills cross the live bid/ask and include configured slippage and fees; each fill reports its cost breakdown.</p>
+        <p class="panel-note order-intro">Every order is paper-only and passes the deterministic Risk Gate. Market orders fill from a fresh bid/ask; Limit orders wait until their limit crosses the executable quote; Stop Loss and Take Profit orders trigger from the executable side of the quote. Trigger orders may gap through the trigger and can be rejected if fresh data or risk checks fail. Paper fills cross the live bid/ask and include configured slippage and fees; each fill reports its cost breakdown.</p>
         <form id="order-form" class="order-form" aria-busy="false">
           <div class="order-form-grid">
             <div class="field">
@@ -115,23 +115,28 @@
             <div class="field">
               <label for="order-type">Order Type</label>
               <select id="order-type" name="type">
-                <option value="MARKET" selected>Market (supported)</option>
-                <option value="LIMIT" disabled>Limit (not supported yet)</option>
-                <option value="STOP_LOSS" disabled>Stop Loss (not supported yet)</option>
-                <option value="TAKE_PROFIT" disabled>Take Profit (not supported yet)</option>
+                <option value="MARKET" selected>Market</option>
+                <option value="LIMIT">Limit</option>
+                <option value="STOP_LOSS">Stop Loss</option>
+                <option value="TAKE_PROFIT">Take Profit</option>
               </select>
             </div>
             <div class="field">
               <label for="order-quantity">Quantity</label>
               <input id="order-quantity" name="quantity" type="number" min="0.00000001" step="any" value="0.001" required>
             </div>
-            <div class="field">
-              <label for="order-price">Paper Price</label>
-              <input id="order-price" name="price" type="number" min="0.0000000001" step="any" placeholder="Refresh market data" required>
+            <div class="field" id="order-price-field">
+              <label for="order-price" id="order-price-label">Market Reference Price</label>
+              <input id="order-price" name="price" type="number" min="0.0000000001" step="any" placeholder="Reference only; execution uses the live quote" required>
+              <p class="muted" id="order-price-help">Market execution does not use this value as the fill price.</p>
             </div>
-            <div class="field">
-              <label for="order-stop-price">Stop Price (unavailable until stop orders are implemented)</label>
-              <input id="order-stop-price" name="stopPrice" type="number" min="0.0000000001" step="any" placeholder="Market orders only" disabled>
+            <div class="field" id="order-stop-price-field" hidden>
+              <label for="order-stop-price">Stop Trigger Price</label>
+              <input id="order-stop-price" name="stopPrice" type="number" min="0.0000000001" step="any" placeholder="Enter stop trigger" disabled>
+            </div>
+            <div class="field" id="order-take-profit-price-field" hidden>
+              <label for="order-take-profit-price">Take-Profit Trigger Price</label>
+              <input id="order-take-profit-price" name="takeProfitPrice" type="number" min="0.0000000001" step="any" placeholder="Enter target trigger" disabled>
             </div>
           </div>
           <div class="order-options">
@@ -211,6 +216,30 @@
           <h2 id="orders-title">Order & Reconciled Fill History</h2>
           <span class="badge" id="orders-badge" data-state="loading">LOADING…</span>
         </div>
+        <section class="paper-orders-section" aria-labelledby="paper-orders-title">
+          <div class="card-head compact-head">
+            <h3 id="paper-orders-title">Open & Recent Paper Orders</h3>
+            <span class="badge" id="paper-orders-badge" data-state="loading">LOADING…</span>
+          </div>
+          <div class="table-wrap" id="paper-orders-wrap">
+            <table id="paper-orders-table">
+              <caption>Lifecycle status for paper orders</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Created</th>
+                  <th scope="col">Symbol</th>
+                  <th scope="col">Type / Trigger</th>
+                  <th scope="col">Side</th>
+                  <th scope="col">Qty</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="paper-orders-body"></tbody>
+            </table>
+          </div>
+          <p class="panel-note" id="paper-orders-note" role="status" aria-live="polite">Pending orders are monitored from fresh public quotes. Real money OFF.</p>
+        </section>
         <div class="table-wrap" id="orders-history-wrap">
           <table id="orders-history-table">
             <caption>Paper Execution Fills</caption>
