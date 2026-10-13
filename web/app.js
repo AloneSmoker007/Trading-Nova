@@ -31,6 +31,10 @@
   var chartResizeBound = false;
   var chartViewportKey = null;
   var chartNeedsFit = true;
+  var chartCandles = [];
+  var liveKlineSocket = null;
+  var liveKlineKey = null;
+  var liveKlineReconnectTimer = null;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -226,6 +230,7 @@
     $("chart-symbol-label").textContent = symbol;
     var interval = $("interval-input").value;
     var limit = $("limit-input").value;
+    connectLiveKlineStream(symbol, interval);
 
     var path = "/api/indicators/" + encodeURIComponent(symbol) +
       "?interval=" + encodeURIComponent(interval) + "&limit=" + encodeURIComponent(limit);
@@ -276,6 +281,7 @@
   }
 
   function clearInteractiveChart(message) {
+    chartCandles = [];
     if (candleSeries) candleSeries.setData([]);
     if (volumeSeries) volumeSeries.setData([]);
     if (sma20Series) sma20Series.setData([]);
@@ -415,6 +421,114 @@
     return result;
   }
 
+  function connectLiveKlineStream(symbol, interval) {
+    var key = String(symbol).toUpperCase() + "|" + String(interval);
+    if (liveKlineKey === key && liveKlineSocket &&
+        (liveKlineSocket.readyState === 0 || liveKlineSocket.readyState === 1)) return;
+
+    liveKlineKey = key;
+    if (liveKlineReconnectTimer !== null) {
+      window.clearTimeout(liveKlineReconnectTimer);
+      liveKlineReconnectTimer = null;
+    }
+    if (liveKlineSocket) {
+      var previousSocket = liveKlineSocket;
+      liveKlineSocket = null;
+      previousSocket.onclose = null;
+      previousSocket.onmessage = null;
+      previousSocket.onerror = null;
+      try { previousSocket.close(); } catch (_err) {}
+    }
+
+    if (typeof window.WebSocket !== "function") {
+      setBadge("stream-badge", "unavailable", "REST FALLBACK");
+      note("stream-note", "This browser has no WebSocket support; the chart uses periodic REST snapshots.");
+      return;
+    }
+    if (!/^[A-Z0-9]{2,24}$/.test(String(symbol)) ||
+        !/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w)$/.test(String(interval))) {
+      setBadge("stream-badge", "error", "INVALID STREAM");
+      return;
+    }
+
+    setBadge("stream-badge", "loading", "CONNECTING…");
+    note("stream-note", "Connecting to Binance public market-data stream; the feed is display-only and cannot submit orders.");
+    var socket;
+    try {
+      socket = new window.WebSocket("wss://stream.binance.com:9443/ws/" +
+        String(symbol).toLowerCase() + "@kline_" + String(interval));
+    } catch (_err) {
+      setBadge("stream-badge", "unavailable", "REST FALLBACK");
+      note("stream-note", "Live stream could not start; historical REST snapshots remain available.");
+      return;
+    }
+    liveKlineSocket = socket;
+
+    socket.onopen = function () {
+      if (liveKlineKey !== key || liveKlineSocket !== socket) return;
+      setBadge("stream-badge", "ok", "LIVE CANDLES");
+      note("stream-note", "Public Binance WebSocket connected. Updates affect chart display only; orders still use the server-side freshness checks and Risk Gate.");
+    };
+    socket.onmessage = function (event) {
+      if (liveKlineKey !== key || liveKlineSocket !== socket || !chartCandles.length ||
+          !candleSeries || !volumeSeries) return;
+      var payload;
+      try { payload = JSON.parse(event.data); } catch (_err) { return; }
+      var k = payload && payload.k;
+      if (!k) return;
+      var time = Math.floor(Number(k.t) / 1000);
+      var candle = {
+        time: time,
+        open: Number(k.o),
+        high: Number(k.h),
+        low: Number(k.l),
+        close: Number(k.c),
+        volume: Number(k.v)
+      };
+      if (!Number.isSafeInteger(time) || time <= 0 ||
+          ![candle.open, candle.high, candle.low, candle.close, candle.volume].every(Number.isFinite) ||
+          candle.open <= 0 || candle.close <= 0 || candle.volume < 0 ||
+          candle.high < candle.low || candle.open < candle.low || candle.open > candle.high ||
+          candle.close < candle.low || candle.close > candle.high) return;
+
+      var last = chartCandles[chartCandles.length - 1];
+      if (time < last.time) return;
+      if (time === last.time) chartCandles[chartCandles.length - 1] = candle;
+      else {
+        chartCandles.push(candle);
+        if (chartCandles.length > 1000) chartCandles.shift();
+      }
+
+      try {
+        candleSeries.update({ time:candle.time, open:candle.open, high:candle.high, low:candle.low, close:candle.close });
+        volumeSeries.update({
+          time:candle.time,
+          value:candle.volume,
+          color:candle.close >= candle.open ? "rgba(8,153,129,0.42)" : "rgba(242,54,69,0.42)"
+        });
+        if (sma20Series) sma20Series.setData(simpleMovingAverage(chartCandles, 20));
+        if (sma50Series) sma50Series.setData(simpleMovingAverage(chartCandles, 50));
+      } catch (_err) {
+        // Ignore out-of-order vendor updates; REST refresh rebuilds canonical history.
+      }
+    };
+    socket.onerror = function () {
+      if (liveKlineKey !== key || liveKlineSocket !== socket) return;
+      setBadge("stream-badge", "stale", "STREAM RETRY");
+      note("stream-note", "Live stream hit a network error. Reconnecting; the chart must not be treated as a guaranteed real-time feed.");
+    };
+    socket.onclose = function () {
+      if (liveKlineKey !== key || liveKlineSocket !== socket) return;
+      liveKlineSocket = null;
+      setBadge("stream-badge", "stale", "RECONNECTING…");
+      liveKlineReconnectTimer = window.setTimeout(function () {
+        if (liveKlineKey === key) connectLiveKlineStream(symbol, interval);
+      }, 5000);
+    };
+  }
+
+
+
   function drawInteractiveChart(candles, symbol, interval) {
     if (!ensureInteractiveChart()) return;
 
@@ -456,6 +570,7 @@
       }
     }
 
+    chartCandles = actual.slice();
     candleSeries.setData(actual.map(function (c) {
       return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
     }));
@@ -476,7 +591,7 @@
       chartViewportKey = key;
       chartNeedsFit = false;
     }
-    note("chart-note", actual.length + " real " + interval + " candles · scroll/zoom/crosshair enabled · overlays are derived only from displayed candles.");
+    note("chart-note", actual.length + " real " + interval + " candles · live candle updates use a separate public read-only WebSocket; paper execution remains on the server-validated quote path.");
   }
 
   function fitInteractiveChart() {
@@ -1168,6 +1283,34 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
+  function addTutorSources(sources) {
+    var messages = $("tutor-messages");
+    if (!messages || !Array.isArray(sources)) return;
+    var list = el("div", "tutor-source-list");
+    var heading = el("p", "tutor-source-heading", "Web sources returned by Gemini");
+    list.appendChild(heading);
+    var added = 0;
+    sources.slice(0, 8).forEach(function (source) {
+      if (!source || typeof source.url !== "string") return;
+      try {
+        var url = new URL(source.url);
+        if (url.protocol !== "https:" && url.protocol !== "http:") return;
+        var link = el("a", "tutor-source-link", typeof source.title === "string" && source.title.trim() ? source.title.trim() : url.hostname);
+        link.href = url.toString();
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        list.appendChild(link);
+        added += 1;
+      } catch (_err) {
+        // Invalid source URLs are ignored; do not render model-authored link markup.
+      }
+    });
+    if (!added) return;
+    messages.appendChild(list);
+    while (messages.children.length > 30) messages.removeChild(messages.firstChild);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
   function submitTutorMessage(event) {
     event.preventDefault();
     if (tutorBusy) return;
@@ -1191,10 +1334,18 @@
       if (result.status === 200 && result.body && result.body.ok === true && result.body.data) {
         var answer = result.body.data.answer;
         addTutorMessage("model", answer);
+        addTutorSources(result.body.data.sources);
         tutorHistory.push({ role: "user", text: message }, { role: "model", text: answer });
         tutorHistory = tutorHistory.slice(-8);
-        setBadge("tutor-badge", "ok", "PAPER ONLY");
-        note("tutor-note", result.body.data.note || "AI educational advice only. No order was submitted.");
+        var research = result.body.data.research;
+        if (research === "grounded") setBadge("tutor-badge", "ok", "WEB SOURCES");
+        else if (research === "disabled") setBadge("tutor-badge", "idle", "WEB OFF");
+        else setBadge("tutor-badge", "stale", "NO CITATIONS");
+        var tutorStatus = result.body.data.note || "AI educational advice only. No order was submitted.";
+        if (result.body.data.memoryState === "verified-recent-notes") tutorStatus += " Verified saved journal notes were supplied as context.";
+        else if (result.body.data.memoryState === "verified-but-empty") tutorStatus += " Journal is verified but has no saved notes yet.";
+        else if (result.body.data.memoryState === "unavailable-or-unverified" || result.body.data.memoryState === "unavailable") tutorStatus += " Journal memory was not included because its integrity could not be verified.";
+        note("tutor-note", tutorStatus);
       } else {
         var failure = result.body && result.body.error;
         var messageText = failure && typeof failure.message === "string" ? failure.message : "Tutor filhal available nahi. Thori dair baad dobara try karein.";
