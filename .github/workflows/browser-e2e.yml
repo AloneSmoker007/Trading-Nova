@@ -1,0 +1,28 @@
+name: Browser E2E
+on:
+  push:
+    branches: ["main", "test/**", "feat/**", "fix/**", "hardening/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --no-audit --no-fund
+      - name: Install pinned Playwright runtime without changing app manifests
+        run: npm install --no-save --no-package-lock --ignore-scripts playwright@1.64.0
+      - name: Install Chromium and system dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Lint the browser runner and project
+        run: npm run lint
+      - name: Run real Chromium UI checks
+        run: node scripts/browser-e2e.js
