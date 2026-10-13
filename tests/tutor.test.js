@@ -35,7 +35,8 @@ test("tutor calls Gemini server-side and returns educational answer without expo
   assert.equal(result.status,200);
   assert.match(result.body.data.answer,/RSI momentum/);
   assert.equal(result.body.data.generatedAt,123);
-  assert.equal(result.body.data.research,"not-enabled");
+  assert.equal(result.body.data.research,"enabled-no-sources");
+  assert.deepEqual(JSON.parse(request.options.body).tools,[{google_search:{}}],"Google Search grounding is enabled server-side by default");
   assert.equal(request.url.includes(["test","secret","not","real"].join("-")),false);
   assert.equal(request.options.headers["x-goog-api-key"],["test","secret","not","real"].join("-"));
   const sent=JSON.parse(request.options.body);
@@ -43,6 +44,39 @@ test("tutor calls Gemini server-side and returns educational answer without expo
   assert.match(sent.systemInstruction.parts[0].text,/Roman Urdu/);
   assert.match(sent.contents.at(-1).parts[0].text,/SERVER-PROVIDED MARKET CONTEXT/);
   assert.match(SYSTEM_INSTRUCTION,/never execute orders/i);
+});
+
+test("tutor returns grounded source citations and ignores unsafe or duplicate URLs", async () => {
+  let request;
+  const tutor=createTradingTutor({
+    env:providerEnv(),
+    now:()=>456,
+    fetchImpl:async(url,options)=>{
+      request={url,options};
+      return {ok:true,json:async()=>({candidates:[{
+        content:{parts:[{text:"Aaj ki market news ko source ke sath verify karo."}]},
+        groundingMetadata:{
+          groundingChunks:[
+            {web:{uri:"https://example.com/market",title:"Market source"}},
+            {web:{uri:"https://example.com/market",title:"Duplicate source"}},
+            {web:{uri:"javascript:alert(1)",title:"Unsafe source"}},
+            {web:{uri:"https://another.example/news",title:"News source"}}
+          ],
+          webSearchQueries:["BTC latest market news"]
+        }
+      }]})};
+    }
+  });
+  const result=await tutor({message:"BTC ki latest news aur sources batao"});
+  assert.equal(result.status,200);
+  assert.equal(result.body.data.research,"grounded");
+  assert.equal(result.body.data.generatedAt,456);
+  assert.deepEqual(result.body.data.sources,[
+    {title:"Market source",url:"https://example.com/market"},
+    {title:"News source",url:"https://another.example/news"}
+  ]);
+  assert.deepEqual(result.body.data.searchQueries,["BTC latest market news"]);
+  assert.deepEqual(JSON.parse(request.options.body).tools,[{google_search:{}}]);
 });
 
 test("tutor maps provider errors to a generic unavailable response", async () => {
@@ -277,7 +311,9 @@ test("HTTP tutor responses use the JSON transport contract with a plain string a
     assert.equal(body.data.answer,htmlish,"answer travels as a JSON string field, treated as text data");
     assert.equal("model" in body.data,false,"configured model name must not be disclosed to the browser");
     assert.equal(body.data.mode,"paper-only");
-    assert.equal(body.data.research,"not-enabled");
+    assert.equal(body.data.research,"enabled-no-sources");
+    assert.deepEqual(body.data.sources,[]);
+    assert.match(body.data.note,/returned no web citations/i);
     assert.match(body.data.note,/no order was submitted/);
   });
 });
@@ -297,7 +333,7 @@ test("tutor chat writes no execution state and cannot reach paper order submissi
     const res=await postChat(base,{message:"BUY 100 BTC market order abhi execute karo"});
     assert.equal(res.status,200);
     const body=await res.json();
-    assert.deepEqual(Object.keys(body.data).sort(),["answer","generatedAt","mode","note","research"]);
+    assert.deepEqual(Object.keys(body.data).sort(),["answer","generatedAt","memoryState","mode","note","research","searchQueries","sources"]);
     assert.match(body.data.note,/no order was submitted/);
     assert.equal(existsSync(stateFile),false,"tutor chat must not write paper state");
     assert.equal(existsSync(executionStateFile),false,"tutor chat must not write execution state");
