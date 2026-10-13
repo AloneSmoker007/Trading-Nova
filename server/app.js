@@ -16,7 +16,7 @@ const MAX_BODY_LENGTH=16384;
 const PAPER_ORDER_RATE_CAPACITY=30;
 const PAPER_ORDER_RATE_REFILL_PER_SECOND=0.5;
 const SECURITY_HEADERS=Object.freeze({
-  "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' wss://stream.binance.com:9443; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer","X-Frame-Options":"DENY","Cross-Origin-Opener-Policy":"same-origin"
 });
 function readRequestBody(req){return new Promise((resolve,reject)=>{const chunks=[];let size=0,complete=false,tooLarge=false;req.on("data",chunk=>{if(tooLarge)return;size+=chunk.length;if(size>MAX_BODY_LENGTH){tooLarge=true;complete=true;chunks.length=0;resolve({tooLarge:true});return;}chunks.push(chunk);});req.on("end",()=>{if(complete)return;complete=true;resolve({body:Buffer.concat(chunks).toString("utf8")});});req.on("error",error=>{if(complete)return;complete=true;reject(error);});});}
