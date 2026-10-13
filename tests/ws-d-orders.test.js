@@ -22,6 +22,15 @@ function tickerFetch() {
   return fakeFetch([["/ticker/24hr", jsonResponse(200, ticker24hPayload())]]);
 }
 
+function tickerFetchAt(last, bid, ask) {
+  return fakeFetch([["/ticker/24hr", jsonResponse(200, {
+    ...ticker24hPayload(),
+    lastPrice: String(last),
+    bidPrice: String(bid),
+    askPrice: String(ask)
+  })]]);
+}
+
 function asyncStore({healthy = true} = {}) {
   const durable = new DurableStore();
   return {
@@ -215,6 +224,92 @@ test("paper fills survive restart and update the portfolio", async () => {
     const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
     assert.equal(portfolio.data.state, "ok");
     assert.equal(portfolio.data.portfolio.positions[0].quantity, 0.01);
+  } finally {
+    await srv.close();
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
+
+test("STOP_LOSS triggers from fresh bid/ask after restart and fills exactly once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-stop-restart-"));
+  const stateFile = join(dir, "paper-state.json");
+  const executionStateFile = join(dir, "paper-orders.json");
+  let srv = await startTestServer({fetchImpl: tickerFetch(), stateFile, executionStateFile});
+  try {
+    const opened = await post(srv.base, validOrder("stop-loss-open-long"));
+    assert.equal(opened.status, 200);
+    const pending = await post(srv.base, {
+      ...validOrder("stop-loss-protect-long"),
+      side: "SELL",
+      type: "STOP_LOSS",
+      price: 41000,
+      stopPrice: 41000,
+      reduceOnly: true
+    });
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.data.order.status, "PENDING");
+
+    await srv.close();
+    srv = await startTestServer({
+      fetchImpl: tickerFetchAt(40000.5, 39999.5, 40001.5),
+      stateFile,
+      executionStateFile
+    });
+
+    const list = await fetch(srv.base + "/api/paper/orders").then((r) => r.json());
+    const stop = list.data.orders.find((order) => order.orderId === pending.body.data.order.orderId);
+    assert.equal(stop.status, "FILLED");
+    assert.equal(stop.type, "STOP_LOSS");
+    assert.ok(stop.actualFillPrice < 41000, "stop order uses current executable quote when price gaps through trigger");
+    const fills = await fetch(srv.base + "/api/orders").then((r) => r.json());
+    assert.equal(fills.data.total, 2);
+    assert.equal(fills.data.fills.filter((fill) => fill.type === "STOP_LOSS").length, 1);
+
+    await fetch(srv.base + "/api/paper/orders").then((r) => r.json());
+    const fillsAfterPoll = await fetch(srv.base + "/api/orders").then((r) => r.json());
+    assert.equal(fillsAfterPoll.data.total, 2, "polling a filled trigger must not duplicate execution");
+  } finally {
+    await srv.close();
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
+
+test("TAKE_PROFIT remains pending until its target crosses and closes the paper position", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-profit-restart-"));
+  const stateFile = join(dir, "paper-state.json");
+  const executionStateFile = join(dir, "paper-orders.json");
+  let srv = await startTestServer({fetchImpl: tickerFetch(), stateFile, executionStateFile});
+  try {
+    const opened = await post(srv.base, validOrder("take-profit-open-long"));
+    assert.equal(opened.status, 200);
+    const pending = await post(srv.base, {
+      ...validOrder("take-profit-close-long"),
+      side: "SELL",
+      type: "TAKE_PROFIT",
+      price: 43000,
+      takeProfitPrice: 43000,
+      reduceOnly: true
+    });
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.data.order.status, "PENDING");
+
+    await srv.close();
+    srv = await startTestServer({
+      fetchImpl: tickerFetchAt(43500, 43499, 43501),
+      stateFile,
+      executionStateFile
+    });
+
+    const list = await fetch(srv.base + "/api/paper/orders").then((r) => r.json());
+    const target = list.data.orders.find((order) => order.orderId === pending.body.data.order.orderId);
+    assert.equal(target.status, "FILLED");
+    assert.equal(target.type, "TAKE_PROFIT");
+    assert.ok(target.actualFillPrice >= 43000);
+    const portfolio = await fetch(srv.base + "/api/portfolio").then((r) => r.json());
+    assert.equal(portfolio.data.portfolio.positions.length, 0);
+    const fills = await fetch(srv.base + "/api/orders").then((r) => r.json());
+    assert.equal(fills.data.total, 2);
+    assert.equal(fills.data.fills.filter((fill) => fill.type === "TAKE_PROFIT").length, 1);
   } finally {
     await srv.close();
     rmSync(dir, {recursive: true, force: true});
