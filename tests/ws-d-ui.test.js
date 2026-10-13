@@ -151,7 +151,8 @@ test("Order history exposes accessible bounded pagination controls", () => {
   assert.match(app, /orderHistoryRequestId/);
   assert.match(app, /fills\.forEach\(function \(f\)/);
   assert.doesNotMatch(app, /fills\.slice\(0, 10\)/);
-  assert.match(app, /Showing .*of .* fills/);
+  assert.ok(app.includes('"Showing "'), "page range is shown to the user");
+  assert.ok(app.includes('" of " + totalOrders + " fills"'), "page range includes total fill count");
   assert.match(css, /\.orders-pagination/);
 });
 
