@@ -228,7 +228,12 @@
             <tbody id="orders-history-body"></tbody>
           </table>
         </div>
-        <p class="panel-note" id="orders-note"></p>
+        <nav class="orders-pagination" aria-label="Order history pages">
+          <button type="button" id="orders-prev-button" aria-label="Previous fill history page" disabled>Previous</button>
+          <span id="orders-page-status" role="status" aria-live="polite">Loading fill history…</span>
+          <button type="button" id="orders-next-button" aria-label="Next fill history page" disabled>Next</button>
+        </nav>
+        <p class="panel-note" id="orders-note" role="status" aria-live="polite"></p>
       </section>
 
       <!-- System Health & Technical Indicators -->
