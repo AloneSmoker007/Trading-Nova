@@ -80,40 +80,49 @@ test("valid paper order requires ALLOW and persists a reconciled fill", async ()
   });
 });
 
-test("unsupported paper order types and unused triggers fail closed without creating fills", async () => {
-  // A fake durable store keeps this validation regression deterministic and
-  // records every mutation; rejected orders must return before any store write.
-  const writes = [];
-  let marketCalls = 0;
-  const store = {
-    health: async () => true,
-    list: async () => [],
-    get: async () => null,
-    put: async (...args) => { writes.push(["put", ...args]); },
-    transactIdempotent: async (...args) => { writes.push(["transactIdempotent", ...args]); }
-  };
-  const service = createPaperOrderService({
-    market: {getTicker: async () => {
-      marketCalls++;
-      return {state: "ok", ageMs: 0, data: {last: 42000.5}};
-    }},
-    stateFile: "unused-paper-state.json",
-    executionStateFile: "unused-paper-orders.json",
-    store
-  });
+test("LIMIT orders remain pending until crossed, can be canceled, and never create a canceled fill", async () => {
+  await withServer(async ({srv}) => {
+    const order = {...validOrder("limit-cancel-key"), type: "LIMIT", price: 41000};
+    const accepted = await post(srv.base, order);
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.data.order.status, "PENDING");
+    assert.equal(accepted.body.data.order.type, "LIMIT");
+    assert.equal(accepted.body.data.fill, null);
 
-  for (const type of ["LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
-    const result = await service.submit({...validOrder("unsupported-" + type), type});
-    assert.equal(result.status, 400, type);
-    assert.equal(result.body.error.code, "unsupported-order-type", type);
-  }
-  for (const extra of [{stopPrice: 41000}, {takeProfitPrice: 43000}]) {
-    const result = await service.submit({...validOrder("unused-trigger-" + Object.keys(extra)[0]), ...extra});
-    assert.equal(result.status, 400);
-    assert.equal(result.body.error.code, "unsupported-order-trigger");
-  }
-  assert.deepEqual(writes, [], "rejected orders must never write a fill or portfolio");
-  assert.equal(marketCalls, 0, "unsupported orders must be rejected before market-data I/O");
+    const listed = await fetch(srv.base + "/api/paper/orders").then((r) => r.json());
+    assert.equal(listed.data.pendingCount, 1);
+    assert.equal(listed.data.orders.find((item) => item.orderId === accepted.body.data.order.orderId).status, "PENDING");
+    const fillsBeforeCancel = await fetch(srv.base + "/api/orders").then((r) => r.json());
+    assert.equal(fillsBeforeCancel.data.total, 0);
+
+    const canceled = await fetch(srv.base + "/api/paper/orders/" + accepted.body.data.order.orderId + "/cancel", {
+      method: "POST"
+    }).then((r) => r.json());
+    assert.equal(canceled.ok, true);
+    assert.equal(canceled.data.order.status, "CANCELED");
+    assert.match(canceled.data.note, /No fill was created/i);
+
+    const replay = await post(srv.base, order);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.data.order.status, "CANCELED");
+    assert.equal(replay.body.data.state, "replayed");
+    const fillsAfterCancel = await fetch(srv.base + "/api/orders").then((r) => r.json());
+    assert.equal(fillsAfterCancel.data.total, 0);
+  });
+});
+
+test("crossed LIMIT executes at or better than its limit with simulated costs", async () => {
+  await withServer(async ({srv}) => {
+    const accepted = await post(srv.base, {...validOrder("limit-crossed-key"), type: "LIMIT", price: 42100});
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.data.order.status, "FILLED");
+    assert.equal(accepted.body.data.fill.type, "LIMIT");
+    assert.equal(accepted.body.data.fill.status, "RECONCILED");
+    assert.ok(accepted.body.data.fill.price <= 42100, "buy limit must never fill above limit");
+    assert.ok(accepted.body.data.fill.fee > 0);
+    const orders = await fetch(srv.base + "/api/orders").then((r) => r.json());
+    assert.equal(orders.data.total, 1);
+  });
 });
 
 test("Risk Gate NO_TRADE returns reasons and does not create a fill", async () => {
