@@ -779,7 +779,14 @@ export function createPaperOrderService({
   }
 
   async function processPendingOrders() {
-    return serialize(() => processPendingOrdersLocked());
+    return serialize(async () => {
+      if (!(await initialize())) return {state: "error", reason: storeError, processed: 0};
+      const records = await stateValues("paper-orders");
+      if (!records.some((record) => record?.status === "PENDING")) {
+        return {state: "ok", processed: 0};
+      }
+      return processPendingOrdersLocked();
+    });
   }
 
   async function getPaperOrders() {
