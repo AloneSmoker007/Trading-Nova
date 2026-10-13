@@ -239,6 +239,7 @@ export function createPaperOrderService({
               throw new Error("database health check failed");
             }
             await stateValues("paper-fills");
+            await stateValues("paper-orders");
           } catch {
             storeError = "paper-order-state-unavailable";
           }
@@ -258,7 +259,7 @@ export function createPaperOrderService({
 
   async function persist() {
     if (databaseBacked) return;
-    const temporary = `${executionStateFile}.${randomUUID()}.tmp`;
+    const temporary = executionStateFile + "." + randomUUID() + ".tmp";
     try {
       await mkdir(dirname(executionStateFile), {recursive: true});
       await writeFile(temporary, JSON.stringify(store.snapshot()), {flag: "wx", mode: 0o600});
@@ -273,9 +274,7 @@ export function createPaperOrderService({
   async function baseState() {
     const snapshot = await loadPaperState(stateFile, now());
     if (snapshot.state === "error") return {error: "paper-state-error", reason: snapshot.reason};
-    if (snapshot.journal?.integrity === "broken") {
-      return {error: "paper-journal-integrity-broken"};
-    }
+    if (snapshot.journal?.integrity === "broken") return {error: "paper-journal-integrity-broken"};
     if (snapshot.state === "empty") {
       return {
         state: "empty",
@@ -290,7 +289,7 @@ export function createPaperOrderService({
 
   async function stateValues(namespace) {
     if (typeof store.list === "function") return store.list(namespace);
-    const prefix = `${namespace}:`;
+    const prefix = namespace + ":";
     return [...store.state.entries()]
       .filter(([key]) => key.startsWith(prefix))
       .map(([, value]) => value);
@@ -354,28 +353,187 @@ export function createPaperOrderService({
     }
   }
 
-  async function getPortfolio() {
-    return serialize(async () => {
-      if (!(await initialize())) return {state: "error", reason: storeError};
-      const base = await baseState();
-      if (base.error) return {state: "error", reason: base.reason || base.error};
-      const fillValues = await stateValues("paper-fills");
-      const portfolio = await currentPortfolio(base, fillValues);
-      if (!portfolio) return {state: "error", reason: "paper-order-state-invalid"};
-      const hasOrders = fillValues.length > 0;
-      if (!hasOrders && base.state === "empty" && !(await store.get("paper-portfolio", "current"))) {
-        return {state: "empty", portfolio: null, limits: null, updatedAt: null, ageMs: null};
-      }
-      const latestFill = fillValues.reduce((latest, fill) => Math.max(latest, fill.timestamp || 0), 0);
-      const updatedAt = latestFill || base.updatedAt || null;
-      return {
-        state: "ok",
-        portfolio,
-        limits: base.limits,
-        updatedAt,
-        ageMs: updatedAt === null ? null : Math.max(0, now() - updatedAt)
+  async function getPortfolioLocked() {
+    const base = await baseState();
+    if (base.error) return {state: "error", reason: base.reason || base.error};
+    const fillValues = await stateValues("paper-fills");
+    const portfolio = await currentPortfolio(base, fillValues);
+    if (!portfolio) return {state: "error", reason: "paper-order-state-invalid"};
+    const hasOrders = fillValues.length > 0;
+    if (!hasOrders && base.state === "empty" && !(await store.get("paper-portfolio", "current"))) {
+      return {state: "empty", portfolio: null, limits: null, updatedAt: null, ageMs: null};
+    }
+    const latestFill = fillValues.reduce((latest, fill) => Math.max(latest, fill.timestamp || 0), 0);
+    const updatedAt = latestFill || base.updatedAt || null;
+    return {
+      state: "ok",
+      portfolio,
+      limits: base.limits,
+      updatedAt,
+      ageMs: updatedAt === null ? null : Math.max(0, now() - updatedAt)
+    };
+  }
+
+  async function saveOrderRecord(record) {
+    await store.put("paper-orders", record.idempotencyKey, record);
+    await persist();
+    return record;
+  }
+
+  async function ensureOrderRecords() {
+    const records = await stateValues("paper-orders");
+    const known = new Set(records.map((record) => record?.idempotencyKey).filter(Boolean));
+    const fills = await stateValues("paper-fills");
+    let changed = false;
+    for (const fill of fills) {
+      const key = fill?.idempotencyKey || fill?.orderId;
+      if (!key || known.has(key)) continue;
+      const type = fill.type || "MARKET";
+      const record = {
+        orderId: fill.orderId || key,
+        idempotencyKey: key,
+        symbol: fill.symbol,
+        side: fill.side,
+        type,
+        quantity: fill.quantity,
+        price: type === "LIMIT" ? (fill.limitPrice ?? fill.price)
+          : type === "STOP_LOSS" ? (fill.stopPrice ?? fill.price)
+            : type === "TAKE_PROFIT" ? (fill.takeProfitPrice ?? fill.price) : fill.price,
+        limitPrice: fill.limitPrice ?? null,
+        stopPrice: fill.stopPrice ?? null,
+        takeProfitPrice: fill.takeProfitPrice ?? null,
+        reduceOnly: fill.reduceOnly === true,
+        orderIntentHash: fill.orderIntentHash || null,
+        status: "FILLED",
+        createdAt: fill.timestamp || now(),
+        updatedAt: fill.timestamp || now(),
+        timestamp: fill.timestamp || now(),
+        filledAt: fill.timestamp || now(),
+        fillOrderId: fill.orderId || key,
+        legacyRecovered: true
       };
+      await store.put("paper-orders", key, record);
+      records.push(record);
+      known.add(key);
+      changed = true;
+    }
+    if (changed) await persist();
+    return records;
+  }
+
+  function baseOrderRecord(order, status = "PENDING") {
+    const t = now();
+    return {
+      orderId: randomUUID(),
+      idempotencyKey: order.idempotencyKey,
+      symbol: order.symbol,
+      side: order.side,
+      type: order.type,
+      quantity: order.quantity,
+      price: order.price,
+      limitPrice: order.limitPrice,
+      stopPrice: order.stopPrice,
+      takeProfitPrice: order.takeProfitPrice,
+      reduceOnly: order.reduceOnly === true,
+      orderIntentHash: orderIntentHash(order),
+      status,
+      createdAt: t,
+      updatedAt: t,
+      timestamp: t
+    };
+  }
+
+  function gateResult({order, portfolio, projectedPortfolio, dataFresh, killSwitch}) {
+    return evaluateRiskGate({
+      order: {symbol: order.symbol, side: order.side, quantity: order.quantity, price: order.price, reduceOnly: order.reduceOnly},
+      portfolio,
+      projectedPortfolio,
+      riskConfig: RISK_CONFIG,
+      dataFresh,
+      killSwitch,
+      approvedConfigHash: RISK_CONFIG_HASH
     });
+  }
+
+  function gateRejected(verdict) {
+    return verdict.decision !== "ALLOW";
+  }
+
+  async function placePendingOrder(order, base, portfolio, marketState) {
+    if (!marketState.fresh) {
+      const verdict = gateResult({
+        order,
+        portfolio,
+        projectedPortfolio: portfolio,
+        dataFresh: false,
+        killSwitch: base.limits?.ok === false
+      });
+      return noTrade(verdict, "pending order rejected because critical market data is stale or unavailable");
+    }
+    const quote = marketState.quotes.get(order.symbol);
+    if (!quote) {
+      return unavailable("execution-quote-unavailable", "a fresh valid bid/ask quote is required to accept a pending paper order");
+    }
+    const existingOrders = await stateValues("paper-orders");
+    const pendingCount = existingOrders.filter((item) => item?.status === "PENDING").length;
+    if (pendingCount >= 100) {
+      return fail(429, "pending-order-capacity-reached", "at most 100 pending paper orders may be active");
+    }
+    const fee = order.quantity * order.price * executionCostConfig.feeRate;
+    if (![fee, order.quantity * order.price].every(Number.isFinite)) {
+      return fail(400, "invalid-order-notional", "order notional and fees must be finite");
+    }
+    if (order.side === "BUY" && order.quantity * order.price + fee > portfolio.cash) {
+      return {
+        status: 400,
+        body: {
+          ok: false, state: "error",
+          error: {code: "risk-gate-rejected", message: "order rejected by risk gate", reason: "INSUFFICIENT_CASH"},
+          verdict: {decision: "NO_TRADE", reasons: ["INSUFFICIENT_CASH"]}
+        }
+      };
+    }
+    let projected;
+    try {
+      projected = applyFill(portfolio, {
+        symbol: order.symbol, side: order.side, quantity: order.quantity,
+        price: order.price, markPrice: marketState.marks.get(order.symbol), fee
+      });
+    } catch {
+      return {
+        status: 400, body: {
+          ok: false, state: "error",
+          error: {code: "risk-gate-rejected", message: "pending order projected portfolio is invalid"},
+          verdict: {decision: "NO_TRADE", reasons: ["PROJECTED_PORTFOLIO_UNAVAILABLE"]}
+        }
+      };
+    }
+    const verdict = gateResult({
+      order, portfolio: marketState.portfolio, projectedPortfolio: projected,
+      dataFresh: true, killSwitch: base.limits?.ok === false
+    });
+    if (gateRejected(verdict)) return noTrade(verdict);
+
+    const record = baseOrderRecord(order);
+    try {
+      const saved = await store.transactIdempotent("paper-order-create:" + order.idempotencyKey, async (tx) => {
+        const prior = await tx.get("paper-orders", order.idempotencyKey);
+        if (prior) return prior;
+        await tx.put("paper-orders", order.idempotencyKey, record);
+        return record;
+      });
+      await persist();
+      await processPendingOrdersLocked({orderId: saved.orderId});
+      const finalOrder = await store.get("paper-orders", order.idempotencyKey) || saved;
+      if (finalOrder.status === "FILLED") {
+        const fill = await store.get("paper-fills", order.idempotencyKey);
+        if (fill) return orderSuccess(finalOrder, fill, {decision: "ALLOW"}, false);
+      }
+      return pendingOrderSuccess(finalOrder, verdict, false);
+    } catch {
+      storeError ||= "paper-order-state-unavailable";
+      return fail(500, "paper-order-not-persisted", "pending paper order could not be safely persisted");
+    }
   }
 
   async function submit(body) {
@@ -387,18 +545,32 @@ export function createPaperOrderService({
       const parsed = parseOrderRequest(body);
       if (parsed.error) return {status: 400, body: {ok: false, state: "error", error: parsed.error}};
       const order = parsed.order;
+      const intentHash = orderIntentHash(order);
       const prior = await store.get("paper-fills", order.idempotencyKey);
       if (prior) {
-        const intentHash = hashOrderPayload({...order, price: 0});
-        if (prior.intentHash !== intentHash) {
+        const matches = prior.orderIntentHash
+          ? prior.orderIntentHash === intentHash
+          : order.type === "MARKET" && prior.intentHash === hashOrderPayload({...order, price: 0});
+        if (!matches) return fail(409, "idempotency-key-reused", "idempotencyKey was already used for a different order");
+        const record = await store.get("paper-orders", order.idempotencyKey);
+        return orderSuccess(record || order, prior, {decision: "ALLOW", replayed: true}, true);
+      }
+      const existingOrder = await store.get("paper-orders", order.idempotencyKey);
+      if (existingOrder) {
+        if (existingOrder.orderIntentHash && existingOrder.orderIntentHash !== intentHash) {
           return fail(409, "idempotency-key-reused", "idempotencyKey was already used for a different order");
         }
-        return orderSuccess(order, prior, {decision: "ALLOW", replayed: true}, true);
+        return pendingOrderSuccess(existingOrder, {
+          decision: existingOrder.status === "REJECTED" ? "NO_TRADE" : "ALLOW",
+          reasons: existingOrder.rejectionReasons || [],
+          replayed: true
+        }, true);
       }
 
       const base = await baseState();
       if (base.error) return fail(500, base.error, "paper portfolio state is unavailable", base.reason);
-      let portfolio = await currentPortfolio(base, await stateValues("paper-fills"));
+      const fillValues = await stateValues("paper-fills");
+      let portfolio = await currentPortfolio(base, fillValues);
       if (!portfolio) return fail(500, "paper-portfolio-invalid", "paper portfolio state is invalid");
       const marketState = await freshPortfolio(portfolio, order.symbol);
       if (marketState.fresh) {
@@ -411,20 +583,21 @@ export function createPaperOrderService({
           return fail(500, "paper-order-state-unavailable", "paper order state is unavailable");
         }
       }
+
+      if (order.type !== "MARKET") {
+        return placePendingOrder(order, base, portfolio, marketState);
+      }
+
       let execution = null;
       if (marketState.fresh) {
         const quote = marketState.quotes.get(order.symbol);
         if (!quote) {
-          return unavailable("execution-quote-unavailable", "a fresh, valid bid/ask quote is required for paper market execution");
+          return unavailable("execution-quote-unavailable", "a fresh valid bid/ask quote is required for paper market execution");
         }
         try {
           execution = estimateMarketExecution({
-            side: order.side,
-            quantity: order.quantity,
-            last: marketState.marks.get(order.symbol),
-            bid: quote.bid,
-            ask: quote.ask,
-            feeRate: executionCostConfig.feeRate,
+            side: order.side, quantity: order.quantity, last: marketState.marks.get(order.symbol),
+            bid: quote.bid, ask: quote.ask, feeRate: executionCostConfig.feeRate,
             slippageBps: executionCostConfig.slippageBps
           });
         } catch {
@@ -441,13 +614,8 @@ export function createPaperOrderService({
         return {
           status: 400,
           body: {
-            ok: false,
-            state: "error",
-            error: {
-              code: "risk-gate-rejected",
-              message: "order rejected by risk gate",
-              reason: "INSUFFICIENT_CASH"
-            },
+            ok: false, state: "error",
+            error: {code: "risk-gate-rejected", message: "order rejected by risk gate", reason: "INSUFFICIENT_CASH"},
             verdict: {decision: "NO_TRADE", reasons: ["INSUFFICIENT_CASH"]}
           }
         };
@@ -455,56 +623,35 @@ export function createPaperOrderService({
       let projectedPortfolio = portfolio;
       if (execution) {
         try {
-          // Simulate the exact executable price and fee before asking the Risk
-          // Gate. This is a calculation only; persistence still happens after
-          // a genuine ALLOW artifact is issued.
           projectedPortfolio = applyFill(portfolio, {
-            symbol: order.symbol,
-            side: order.side,
-            quantity: order.quantity,
-            price: execution.executionPrice,
-            markPrice: execution.referencePrice,
-            fee: execution.fee
+            symbol: order.symbol, side: order.side, quantity: order.quantity,
+            price: execution.executionPrice, markPrice: execution.referencePrice, fee: execution.fee
           });
         } catch {
           return {
-            status: 400,
-            body: {
-              ok: false,
-              state: "error",
+            status: 400, body: {
+              ok: false, state: "error",
               error: {code: "risk-gate-rejected", message: "projected post-fill portfolio is invalid"},
               verdict: {decision: "NO_TRADE", reasons: ["PROJECTED_PORTFOLIO_UNAVAILABLE"]}
             }
           };
         }
       }
-      const verdict = evaluateRiskGate({
-        order: gatedOrder,
-        portfolio: marketState.portfolio,
-        projectedPortfolio,
-        riskConfig: RISK_CONFIG,
-        dataFresh: marketState.fresh,
-        killSwitch: base.limits?.ok === false,
-        approvedConfigHash: RISK_CONFIG_HASH
+      const verdict = gateResult({
+        order: gatedOrder, portfolio: marketState.portfolio, projectedPortfolio,
+        dataFresh: marketState.fresh, killSwitch: base.limits?.ok === false
       });
-      if (verdict.decision !== "ALLOW") {
-        return {
-          status: 400,
-          body: {
-            ok: false,
-            state: "error",
-            error: {
-              code: "risk-gate-rejected",
-              message: "order rejected by risk gate",
-              reason: verdict.reasons.join(", ")
-            },
-            verdict: {decision: "NO_TRADE", reasons: verdict.reasons}
-          }
-        };
-      }
+      if (gateRejected(verdict)) return noTrade(verdict);
+
+      const orderRecord = baseOrderRecord(order, "SUBMITTING");
       try {
         const fill = await engine.submit(
-          {...gatedOrder, id: order.idempotencyKey},
+          {
+            ...gatedOrder, id: orderRecord.orderId, orderId: orderRecord.orderId,
+            idempotencyKey: order.idempotencyKey, type: order.type,
+            limitPrice: order.limitPrice, stopPrice: order.stopPrice,
+            takeProfitPrice: order.takeProfitPrice, orderIntentHash: intentHash
+          },
           {
             markPrice: gatedOrder.price,
             referencePrice: execution?.referencePrice ?? gatedOrder.price,
@@ -512,15 +659,177 @@ export function createPaperOrderService({
             gateArtifact: verdict.artifact,
             onFill: async (tx, committedFill) => {
               await tx.put("paper-portfolio", "current", applyFill(portfolio, committedFill));
+              await tx.put("paper-orders", order.idempotencyKey, {
+                ...orderRecord, status: "FILLED", updatedAt: now(),
+                filledAt: committedFill.timestamp, fillOrderId: committedFill.orderId
+              });
             }
           }
         );
         await persist();
-        return orderSuccess(gatedOrder, fill, verdict, false);
+        const record = await store.get("paper-orders", order.idempotencyKey);
+        return orderSuccess(record || gatedOrder, fill, verdict, false);
       } catch {
         storeError ||= "paper-order-state-unavailable";
         return fail(500, "paper-order-not-persisted", "paper order could not be safely persisted");
       }
+    });
+  }
+
+  async function processPendingOrdersLocked({orderId} = {}) {
+    if (!(await initialize())) return {state: "error", reason: storeError, processed: 0};
+    const records = await ensureOrderRecords();
+    const pending = records
+      .filter((record) => record?.status === "PENDING" && (!orderId || record.orderId === orderId))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+      .slice(0, 100);
+    let processed = 0;
+    for (const order of pending) {
+      try {
+        const alreadyFilled = await store.get("paper-fills", order.idempotencyKey);
+        if (alreadyFilled) {
+          await saveOrderRecord({...order, status: "FILLED", updatedAt: now(),
+            filledAt: alreadyFilled.timestamp, fillOrderId: alreadyFilled.orderId});
+          processed++;
+          continue;
+        }
+        const base = await baseState();
+        if (base.error) continue;
+        const fillValues = await stateValues("paper-fills");
+        const portfolio = await currentPortfolio(base, fillValues);
+        if (!portfolio) continue;
+        const marketState = await freshPortfolio(portfolio, order.symbol);
+        if (!marketState.fresh) continue;
+        const quote = marketState.quotes.get(order.symbol);
+        if (!quote || !isOrderTriggered(order, quote)) continue;
+
+        let execution;
+        try {
+          execution = estimateOrderExecution(order, quote, marketState.marks.get(order.symbol), executionCostConfig);
+        } catch {
+          continue;
+        }
+        const gatedOrder = {
+          symbol: order.symbol, side: order.side, quantity: order.quantity,
+          price: execution.executionPrice, reduceOnly: order.reduceOnly === true
+        };
+        if (gatedOrder.side === "BUY"
+            && gatedOrder.quantity * gatedOrder.price + execution.fee > marketState.portfolio.cash) {
+          const rejected = {...order, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: ["INSUFFICIENT_CASH"], rejectionCode: "risk-gate-rejected"};
+          await saveOrderRecord(rejected);
+          processed++;
+          continue;
+        }
+        let projectedPortfolio;
+        try {
+          projectedPortfolio = applyFill(marketState.portfolio, {
+            symbol: order.symbol, side: order.side, quantity: order.quantity,
+            price: execution.executionPrice, markPrice: execution.referencePrice, fee: execution.fee
+          });
+        } catch {
+          const rejected = {...order, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: ["PROJECTED_PORTFOLIO_UNAVAILABLE"], rejectionCode: "risk-gate-rejected"};
+          await saveOrderRecord(rejected);
+          processed++;
+          continue;
+        }
+        const verdict = gateResult({
+          order: gatedOrder, portfolio: marketState.portfolio, projectedPortfolio,
+          dataFresh: true, killSwitch: base.limits?.ok === false
+        });
+        if (gateRejected(verdict)) {
+          const rejected = {...order, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: verdict.reasons, rejectionCode: "risk-gate-rejected"};
+          await saveOrderRecord(rejected);
+          processed++;
+          continue;
+        }
+        const fill = await engine.submit(
+          {
+            ...gatedOrder, id: order.orderId, orderId: order.orderId,
+            idempotencyKey: order.idempotencyKey, type: order.type,
+            limitPrice: order.limitPrice, stopPrice: order.stopPrice,
+            takeProfitPrice: order.takeProfitPrice, orderIntentHash: order.orderIntentHash
+          },
+          {
+            markPrice: execution.executionPrice,
+            referencePrice: execution.referencePrice,
+            execution,
+            gateArtifact: verdict.artifact,
+            onFill: async (tx, committedFill) => {
+              await tx.put("paper-portfolio", "current", applyFill(marketState.portfolio, committedFill));
+              await tx.put("paper-orders", order.idempotencyKey, {
+                ...order, status: "FILLED", updatedAt: now(),
+                filledAt: committedFill.timestamp, fillOrderId: committedFill.orderId,
+                lastTriggerQuote: {bid: quote.bid, ask: quote.ask},
+                actualFillPrice: committedFill.price
+              });
+            }
+          }
+        );
+        await persist();
+        if (fill?.status === "RECONCILED") processed++;
+      } catch {
+        storeError ||= "paper-order-state-unavailable";
+        break;
+      }
+    }
+    return {state: storeError ? "error" : "ok", processed, reason: storeError};
+  }
+
+  async function processPendingOrders() {
+    return serialize(() => processPendingOrdersLocked());
+  }
+
+  async function getPaperOrders() {
+    return serialize(async () => {
+      if (!(await initialize())) return {state: "error", reason: storeError};
+      await processPendingOrdersLocked();
+      const records = await ensureOrderRecords();
+      const orders = records
+        .filter((record) => record && typeof record.orderId === "string")
+        .sort((a, b) => (b.createdAt || b.timestamp || 0) - (a.createdAt || a.timestamp || 0))
+        .slice(0, 100);
+      return {
+        state: storeError ? "error" : "ok",
+        orders,
+        total: records.length,
+        pendingCount: records.filter((record) => record.status === "PENDING").length,
+        note: "Paper/shadow only. Trigger orders are simulated from fresh public bid/ask quotes; real money OFF."
+      };
+    });
+  }
+
+  async function cancelOrder(orderId) {
+    return serialize(async () => {
+      if (tradingMode !== "paper") return fail(403, "trading-mode-not-paper", "order cancellation only available in paper mode");
+      if (typeof orderId !== "string" || !orderId.trim()) return fail(400, "invalid-order-id", "orderId is required");
+      if (!(await initialize())) return fail(500, storeError, "paper order state is unavailable");
+      const records = await ensureOrderRecords();
+      const order = records.find((record) => record.orderId === orderId);
+      if (!order) return fail(404, "order-not-found", "paper order was not found");
+      if (order.status === "CANCELED") {
+        return {status: 200, body: {ok: true, data: {order, state: "replayed", note: "Order was already canceled. Real money OFF."}}};
+      }
+      if (order.status !== "PENDING") {
+        return fail(409, "order-not-cancelable", "only pending paper orders can be canceled", order.status);
+      }
+      const canceled = {...order, status: "CANCELED", canceledAt: now(), updatedAt: now()};
+      try {
+        await saveOrderRecord(canceled);
+        return {status: 200, body: {ok: true, data: {order: canceled, state: "ok", note: "Pending paper order canceled. No fill was created; real money OFF."}}};
+      } catch {
+        storeError ||= "paper-order-state-unavailable";
+        return fail(500, "paper-order-not-persisted", "paper order cancellation could not be safely persisted");
+      }
+    });
+  }
+
+  async function getPortfolio() {
+    return serialize(async () => {
+      if (!(await initialize())) return {state: "error", reason: storeError};
+      return getPortfolioLocked();
     });
   }
 
@@ -539,11 +848,11 @@ export function createPaperOrderService({
       const orderFills = (await stateValues("paper-fills"))
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       return {state: "ok", fills: orderFills.slice(offset, offset + limit), total: orderFills.length,
-        limit, offset, hasMore: offset + limit < orderFills.length};
+        limit, offset, hasMore: offset + orderFills.length < orderFills.length};
     });
   }
 
-  return {submit, getPortfolio, getOrders};
+  return {submit, getPortfolio, getOrders, getPaperOrders, cancelOrder, processPendingOrders};
 }
 
 function orderSuccess(order, fill, verdict, replayed) {
