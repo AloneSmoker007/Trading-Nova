@@ -328,6 +328,32 @@ export function createApi({
     }
   }
 
+  async function paperOrders() {
+    const result = await paperOrderService.getPaperOrders();
+    if (result.state === "error") {
+      return fail(500, "error", "paper-orders-error", "could not fetch pending paper orders");
+    }
+    return ok({
+      state: "ok",
+      orders: result.orders,
+      total: result.total,
+      pendingCount: result.pendingCount,
+      note: result.note || paperNote
+    });
+  }
+
+  async function cancelPaperOrder(orderId) {
+    try {
+      return await paperOrderService.cancelOrder(orderId);
+    } catch {
+      return fail(500, "error", "paper-order-cancel-failed", "paper order could not be safely canceled");
+    }
+  }
+
+  async function processPaperOrders() {
+    return paperOrderService.processPendingOrders();
+  }
+
   async function markets() {
     const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"];
     const results = [];
@@ -503,7 +529,7 @@ export function createApi({
     }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, markets, aiCouncil, orders, riskStatus, strategyLab, addJournalEntry};
+  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, aiCouncil, orders, riskStatus, strategyLab, addJournalEntry};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};
