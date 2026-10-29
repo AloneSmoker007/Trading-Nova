@@ -452,7 +452,7 @@ async function main() {
         await page.locator("#tutor-check-status-btn").click();
         await page.getByText("AI setup check ke liye connection nahi mila. Dobara try karein.", {exact: true}).waitFor();
         assert.equal(await page.locator("#tutor-send-btn").isDisabled(), true);
-        assert.equal(tutorRequests.length, 2);
+        assert.equal(tutorRequests.length, 3);
       } finally {
         tutorSetupMode = "unconfigured";
         tutorReplyMode = "grounded";
