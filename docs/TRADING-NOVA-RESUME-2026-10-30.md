@@ -2,7 +2,19 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
-## Latest active coding task — persisted editable watchlist
+## Current task — paper quote-currency boundary
+
+Base main: `0103135d026ab95c6460f9269f1bcce74b89d981`; PR #86 is merged, all enabled main checks passed (CI 40952817734, Chromium 40952817672). No open PR existed at this task's start. No applicable AGENTS.md was found.
+
+Reproduced with isolated fake market/store: ETHBTC MARKET received ALLOW and a reconciled 0.05 cash fill using a 0.05 BTC quote, legacy ETHBTC LIMIT filled after service recreation, and a legacy ETHBTC holding allowed a new USDT fill. All three new behavior tests failed before the fix.
+
+The terminal paper ledger is explicitly USDT-only until a separately designed FX/multi-currency ledger exists. The HTTP order service rejects non-USDT requests with 400 `unsupported-quote-currency` for every supported order type before market calls/state writes; general read-only symbol parsing and generic execution/risk modules remain unchanged. Legacy unsupported pending orders become durably REJECTED without a new fill. Existing unsupported positions prevent fresh market/risk evidence and further execution without rewriting holdings, history or cash; historical accounting requires separate reviewed reconciliation, not guessed conversion.
+
+Acceptance: supported normalized USDT orders still execute through the existing Risk Gate, invalid currencies cause zero market requests and state writes, pending rejection is idempotent across service recreation, unsupported holdings are preserved and block new fills, and HTTP rejects all four order types. Meaningful regressions live in tests/paper-quote-currency.test.js and tests/ws-d-orders.test.js. Read the matching PR for exact candidate SHA, final checks and merge evidence. No provider calls, paid resources, runtime credentials, live orders or external certification are part of this fix.
+
+Local validation: 596 total, 589 pass, 0 fail, 7 expected external-PostgreSQL skips; lint, credential-pattern secret scan and diff checks passed. Exact remote-head CI and Chromium are required before merge.
+
+## Completed task — persisted editable watchlist
 
 Starting main: `863be3e37ad5eebd31a8d8c0d0b435bc311770df`; PR #85 tutor setup/research mode is merged with green main CI (`40949485921`) and Chromium (`40949486087`). The user explicitly asked to code immediately rather than wait for the hourly worker. Scheduled continuation is temporarily paused during this active implementation to prevent overlapping writers; restore the enabled background handoff once this task completes.
 
@@ -85,7 +97,7 @@ PostgreSQL documents that newer dump output is not guaranteed to restore into an
 
 Use `docs/V1-PRODUCT-GAP-AUDIT.md` against current code before selecting the next task; some backlog prose is stale (for example, the current backtest API already implements an automatic temporal split).
 
-Remaining categories include persisted editable watchlists, structured source-backed research feeds, journal-to-trade/outcome learning, fuller paper-fill realism, and external operational certification. Re-verify each gap before editing.
+Remaining categories include structured source-backed research feeds, journal-to-trade/outcome learning, fuller paper-fill realism, and external operational certification. Re-verify each gap before editing.
 
 Production deployment/restore, measured RTO/RPO, sustained market-feed and paper/shadow evidence, alerts, independent security review and human V1 approval remain separate gates. CI restore success alone cannot certify those.
 
