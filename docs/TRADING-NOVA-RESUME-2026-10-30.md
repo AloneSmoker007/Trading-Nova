@@ -14,7 +14,7 @@ Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
 1. Use `postgres:16` for the audit and recovery service containers, matching the existing operational-evidence workflow.
 2. The first candidate passed container startup and audit integration, but the actual restore exposed another compatibility failure: `SET transaction_timeout = 0` was rejected by PostgreSQL 16. The runner-selected backup tools were incompatible with the restore target.
-3. Select `/usr/lib/postgresql/16/bin` for both `pg_dump` and `pg_restore`; install `postgresql-client-16` only if these executables are missing, and print their versions before the drill. Keep the existing restore, integrity, audit-chain, migration and sentinel assertions intact.
+3. Pin the recovery runner to `ubuntu-24.04`, select `/usr/lib/postgresql/16/bin` for both `pg_dump` and `pg_restore`, install `postgresql-client-16` only if these executables are missing, and print their versions before the drill. The intervening `ubuntu-latest` candidate landed on Ubuntu 26.04, whose configured repositories did not provide `postgresql-client-16`; do not rely on a moving runner default for this version-sensitive drill. Keep the existing restore, integrity, audit-chain, migration and sentinel assertions intact.
 
 PostgreSQL documents that newer dump output is not guaranteed to restore into an older server: https://www.postgresql.org/docs/16/app-pgdump.html.
 

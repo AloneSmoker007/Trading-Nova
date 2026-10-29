@@ -80,7 +80,7 @@ jobs:
       - run: node --test tests/postgres.integration.test.js
 
   recovery-drill:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
       postgres:
