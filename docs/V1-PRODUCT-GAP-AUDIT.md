@@ -106,3 +106,7 @@ Priorities: **P0** = correctness/safety mismatch to block before representing th
 - Real-money execution remains disabled; no profitability guarantee is made.
 
 **Rule:** code present is not automatically end-to-end complete; tests passing are not production certification; no real artifact means no external-evidence PASS.
+
+## Paper cash currency contract — 30 October 2026 PKT
+
+The browser/API paper account uses a single USDT ledger. Order submission supports USDT-quoted symbols only; the read-only market parser and generic engine remain broader. Non-USDT order requests fail before quote work, legacy pending non-USDT orders are rejected without execution, and legacy non-USDT positions block further execution without silently converting balances. This fixes a reproduced currency-unit mismatch, not a full FX ledger or historical accounting repair. See tests/paper-quote-currency.test.js, tests/ws-d-orders.test.js and the matching PR for final CI/merge evidence.

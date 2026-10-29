@@ -22,6 +22,8 @@ const DEFAULT_RISK_CONFIG = Object.freeze({
   maxConcentrationNotional: 5000
 });
 const {config: RISK_CONFIG, hash: RISK_CONFIG_HASH} = createRiskConfig(DEFAULT_RISK_CONFIG);
+// This terminal has one USDT cash ledger; no FX conversion ledger exists.
+const supportsPaperQuote = (symbol) => typeof symbol === "string" && /^[A-Z0-9]{1,20}USDT$/.test(symbol);
 const ALLOWED_FIELDS = new Set(["symbol", "side", "quantity", "price", "idempotencyKey", "reduceOnly", "type", "stopPrice", "takeProfitPrice"]);
 const fail = (status, code, message, reason) => ({
   status,
@@ -41,6 +43,9 @@ function parseOrderRequest(body) {
   }
   const symbol = parseSymbol(body.symbol);
   if (!symbol.ok) return {error: {code: symbol.code, message: symbol.message}};
+  if (!supportsPaperQuote(symbol.symbol)) {
+    return {error: {code: "unsupported-quote-currency", message: "Paper orders require a USDT-quoted symbol; currency conversion is not supported."}};
+  }
 
   const side = normalizeSide(body.side);
   if (!["BUY", "SELL"].includes(side)) {
@@ -321,6 +326,8 @@ export function createPaperOrderService({
     const symbols = [...new Set([newSymbol, ...(portfolio.positions || []).map((p) => p.symbol)])];
     const marks = new Map();
     const quotes = new Map();
+    // Legacy cross-currency holdings cannot become USDT marks or risk evidence.
+    if (!symbols.every(supportsPaperQuote)) return {fresh: false, portfolio, marks, quotes};
     for (const symbol of symbols) {
       try {
         const result = await market.getTicker(symbol);
@@ -690,6 +697,12 @@ export function createPaperOrderService({
         if (alreadyFilled) {
           await saveOrderRecord({...order, status: "FILLED", updatedAt: now(),
             filledAt: alreadyFilled.timestamp, fillOrderId: alreadyFilled.orderId});
+          processed++;
+          continue;
+        }
+        if (!supportsPaperQuote(order.symbol)) {
+          await saveOrderRecord({...order, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: ["UNSUPPORTED_QUOTE_CURRENCY"], rejectionCode: "unsupported-quote-currency"});
           processed++;
           continue;
         }

@@ -667,3 +667,16 @@ test("applyFill flattens a closed position even when quantity is float dust", ()
   const closed = applyFill(opened, {symbol: "BTCUSDT", side: "SELL", quantity: 0.1, price: 100});
   assert.deepEqual(closed.positions, []);
 });
+
+test("HTTP paper orders reject non-USDT quote currencies before market work", async () => {
+  let marketCalls = 0;
+  await withServer(async ({srv}) => {
+    for (const type of ["MARKET", "LIMIT", "STOP_LOSS", "TAKE_PROFIT"]) {
+      const result = await post(srv.base, {...validOrder(`wrong-currency-${type}`), symbol: "ETHBTC", type});
+      assert.equal(result.status, 400);
+      assert.equal(result.body.error.code, "unsupported-quote-currency");
+      assert.match(result.body.error.message, /USDT/);
+    }
+    assert.equal(marketCalls, 0);
+  }, {fetchImpl: async () => { marketCalls++; throw new Error("unexpected market request"); }});
+});

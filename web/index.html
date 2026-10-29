@@ -106,7 +106,7 @@
           <h2 id="order-title">Paper Order Ticket</h2>
           <span class="badge" id="order-badge" data-state="idle">PAPER / SHADOW ONLY</span>
         </div>
-        <p class="panel-note order-intro">Every order is paper-only and passes the deterministic Risk Gate. Market orders fill from a fresh bid/ask; Limit orders wait until their limit crosses the executable quote; Stop Loss and Take Profit orders trigger from the executable side of the quote. Trigger orders may gap through the trigger and can be rejected if fresh data or risk checks fail. Paper fills cross the live bid/ask and include configured slippage and fees; each fill reports its cost breakdown.</p>
+        <p class="panel-note order-intro">Paper cash and execution are USDT-only; currency conversion is not supported. Every order is paper-only and passes the deterministic Risk Gate. Market orders fill from a fresh bid/ask; Limit orders wait until their limit crosses the executable quote; Stop Loss and Take Profit orders trigger from the executable side of the quote. Trigger orders may gap through the trigger and can be rejected if fresh data or risk checks fail. Paper fills cross the live bid/ask and include configured slippage and fees; each fill reports its cost breakdown.</p>
         <form id="order-form" class="order-form" aria-busy="false">
           <div class="order-form-grid">
             <div class="field">
