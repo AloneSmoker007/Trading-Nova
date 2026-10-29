@@ -383,8 +383,29 @@ export function createApi({
     const sym = parseSymbol(symbolRaw);
     if (!sym.ok) return fail(400, "error", sym.code, sym.message);
     const tickerRes = await market.getTicker(sym.symbol);
+    const tickerReadAt = now();
     const candlesRes = await market.getCandles(sym.symbol, {interval: "1h", limit: 100});
+    const candlesReadAt = now();
+    if (!["ok", "stale"].includes(tickerRes?.state)
+        || !Number.isFinite(tickerRes?.data?.last) || tickerRes.data.last <= 0
+        || !["ok", "stale"].includes(candlesRes?.state)
+        || !Array.isArray(candlesRes.data) || candlesRes.data.length < 20) {
+      return fail(503, "unavailable", "council-data-unavailable", "AI Council needs a market quote and sufficient candle history; no current analysis is available");
+    }
+    // Fetch/cache recency is part of the evidence. A successful HTTP response
+    // carrying an old snapshot must never become a fresh research signal.
     const pState = await paperOrderService.getPortfolio();
+    const assessedAt = now();
+    const snapshotFreshness = (result, readAt) => {
+      const elapsedMs = assessedAt - readAt;
+      const ageMs = Number.isFinite(result.ageMs) && result.ageMs >= 0
+        && Number.isFinite(elapsedMs) && elapsedMs >= 0 ? result.ageMs + elapsedMs : null;
+      return {state: result.state, ageMs,
+        fresh: result.state === "ok" && result.stale !== true && ageMs !== null && ageMs <= FRESH_MAX_AGE_MS};
+    };
+    const freshness = {maxAgeMs: FRESH_MAX_AGE_MS,
+      ticker: snapshotFreshness(tickerRes, tickerReadAt), candles: snapshotFreshness(candlesRes, candlesReadAt)};
+    const stale = !freshness.ticker.fresh || !freshness.candles.fresh;
 
     const council = computeAiCouncil({
       ticker: tickerRes.data,
@@ -392,8 +413,16 @@ export function createApi({
       portfolio: pState.portfolio,
       limits: pState.limits
     });
+    if (stale) {
+      council.decision = "WAIT";
+      council.opportunityScore = null;
+      council.uncertainty = "High";
+      council.explanation = "WAIT/NO-TRADE: market snapshot is stale or freshness unknown. Historical role details are for reference only; obtain fresh quote and candle snapshots before using current research scores.";
+      council.note = "Historical snapshot only; no current opportunity score. Deterministic Risk Gate remains mandatory for every paper order.";
+    }
 
-    return ok({state: "ok", council, note: "Advisory AI multi-brain research council. Cannot bypass Risk Gate."});
+    return ok({state: stale ? "stale" : "ok", council, freshness,
+      note: "Advisory AI multi-brain research council. Cannot bypass Risk Gate."});
   }
 
   async function orders(query) {

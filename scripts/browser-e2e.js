@@ -17,6 +17,7 @@ const server = createNovaServer({
 const requestBodies = [];
 const orderOffsets = [];
 let orderHistoryMode = "pages";
+let councilMode = "unavailable";
 
 function fillsForPage(offset, limit = 10) {
   const total = 25;
@@ -46,6 +47,35 @@ async function installApiFixtures(page) {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
+
+    if (pathname.startsWith("/api/ai/council/")) {
+      if (councilMode === "offline") {
+        await route.abort("failed");
+        return;
+      }
+      const unavailable = councilMode === "unavailable";
+      const stale = councilMode === "stale";
+      await route.fulfill({
+        status: unavailable ? 503 : 200,
+        contentType: "application/json",
+        body: JSON.stringify(unavailable ? {
+          ok: false, state: "unavailable",
+          error: {code: "council-data-unavailable", message: "Fixture market data unavailable"}
+        } : {
+          ok: true,
+          data: {state: stale ? "stale" : "ok", council: {
+            opportunityScore: stale ? null : 78,
+            decision: stale ? "WAIT" : "RESEARCH_READY",
+            uncertainty: stale ? "High" : "low",
+            roles: [{displayName: "Technical indicators", displayStatus: "FIXTURE", score: 78,
+              reason: "Deterministic browser fixture", basis: "Synthetic test input only"}],
+            explanation: stale ? "WAIT/NO-TRADE: stale market snapshot." : "Fresh fixture research.",
+            dataCoverage: {note: "Fixture: no live news feed connected."}
+          }}
+        })
+      });
+      return;
+    }
 
     if (pathname === "/api/paper/orders" && request.method() === "GET") {
       await route.fulfill({
@@ -265,6 +295,48 @@ async function main() {
         assert.match(await page.locator("#order-note").innerText(), /No order was placed\./);
         assert.match(await page.locator("#paper-banner").innerText(), /real money OFF/i);
       } finally {
+        await page.close();
+      }
+    });
+
+    await run("AI Council marks stale snapshots and clears prior scores on unavailable or offline data", async () => {
+      councilMode = "fresh";
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#ai-badge").getByText("ANALYZED", {exact: true}).waitFor();
+        assert.equal(await page.locator("#ai-score-val").innerText(), "78 / 100");
+        await page.locator("#ai-decision-badge").getByText("RESEARCH_READY", {exact: true}).waitFor();
+
+        councilMode = "stale";
+        await page.locator("#refresh-btn").click();
+        await page.locator("#ai-badge").getByText("STALE SNAPSHOT", {exact: true}).waitFor();
+        assert.equal(await page.locator("#ai-score-val").innerText(), "N/A");
+        assert.equal(await page.locator("#ai-decision-badge").innerText(), "WAIT");
+        assert.equal(await page.locator("#ai-uncertainty-val").innerText(), "HIGH");
+
+        councilMode = "fresh";
+        await page.locator("#refresh-btn").click();
+        await page.locator("#ai-badge").getByText("ANALYZED", {exact: true}).waitFor();
+        assert.equal(await page.locator("#ai-roles-list .ai-role-item").count(), 1);
+
+        councilMode = "unavailable";
+        await page.locator("#refresh-btn").click();
+        await page.locator("#ai-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
+        assert.equal(await page.locator("#ai-score-val").innerText(), "N/A");
+        assert.equal(await page.locator("#ai-decision-badge").innerText(), "WAIT");
+        assert.equal(await page.locator("#ai-roles-list .ai-role-item").count(), 0);
+
+        councilMode = "fresh";
+        await page.locator("#refresh-btn").click();
+        await page.locator("#ai-badge").getByText("ANALYZED", {exact: true}).waitFor();
+        councilMode = "offline";
+        await page.locator("#refresh-btn").click();
+        await page.locator("#ai-badge").getByText("OFFLINE", {exact: true}).waitFor();
+        assert.equal(await page.locator("#ai-score-val").innerText(), "N/A");
+        assert.equal(await page.locator("#ai-decision-badge").innerText(), "WAIT");
+        assert.equal(await page.locator("#ai-roles-list .ai-role-item").count(), 0);
+      } finally {
+        councilMode = "unavailable";
         await page.close();
       }
     });
