@@ -319,18 +319,21 @@
           <span class="badge" id="tutor-badge" data-state="loading">PAPER ONLY</span>
         </div>
         <p class="panel-note">Roman Urdu mein chart, indicators, risk, market news aur paper trades samjho. Gemini current research ke liye Google Search grounding use kar sakta hai; returned source links jawab ke neeche dikhte hain. Verified recent Journal notes context ke taur par recall ho sakte hain—yeh model ki automatic retraining nahi. Web pages aur notes ko evidence samjho, trusted instructions nahi. Tutor order place nahi kar sakta.</p>
+        <p class="panel-note" id="tutor-connection-status" role="status" aria-live="polite">AI setup check ho raha hai…</p>
+        <button type="button" id="tutor-check-status-btn">Check AI setup</button>
         <div id="tutor-messages" class="tutor-messages" role="log" aria-live="polite" aria-relevant="additions">
           <p class="tutor-message tutor-assistant">Assalam-o-alaikum! Main tumhara trading tutor hoon. RSI, candles, risk ya kisi paper trade ke bare mein sawal poochho. Main uncertainty bhi explain karunga.</p>
         </div>
         <form id="tutor-form" class="tutor-form">
           <label for="tutor-input">Tumhara sawal</label>
           <textarea id="tutor-input" rows="3" maxlength="2000" placeholder="Misal: RSI 70 ka kya matlab hai aur trade fail kab ho sakti hai?" required></textarea>
+          <label><input type="checkbox" id="tutor-require-sources"> Is sawal ke liye web sources zaroori hain</label>
           <div class="tutor-actions">
             <span class="muted">Max 2000 characters · AI advice only</span>
-            <button id="tutor-send-btn" type="submit">Ask Tutor</button>
+            <button id="tutor-send-btn" type="submit" disabled>Ask Tutor</button>
           </div>
         </form>
-        <p class="panel-note" id="tutor-note" role="status" aria-live="polite">Server par GEMINI_API_KEY zaroori hai. Google Search grounding server-side hoti hai; API key browser mein kabhi nahi jayegi.</p>
+        <p class="panel-note" id="tutor-note" role="status" aria-live="polite">Current research ke liye web sources ka option chuno. Sources na milen to is mode mein unverified jawab nahi dikhaya jayega. Source links milna har claim ki correctness ki guarantee nahi.</p>
       </section>
 
       <!-- Human Brain & Journal -->

@@ -2,13 +2,29 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Latest bounded task — Tutor setup and sources-required research
+
+Starting main: `f1b4ab0a15c4c1df79f379e5aab596b7a3c782f3`. PR #84 is merged and its main CI/browser checks passed; do not duplicate the council-freshness fix recorded below.
+
+The current user again requested active coding, with real AI and internet research as core requirements. The implementation keeps the existing Gemini adapter and adds:
+- An authenticated `GET/HEAD /api/tutor/status` configuration projection with no provider/market requests, credentials or configured model values. `connection: not-checked` prevents a configured key being described as a proven live connection.
+- A browser setup check and retry control. Asking is disabled until configuration is available; current answer/research state is separate from setup status.
+- Explicit `researchMode: required-sources` alongside the backward-compatible `auto` mode. Disabled web research fails before provider/optional market work. A successful provider answer without usable grounding links is withheld in required-sources mode; ordinary educational answers retain their existing no-citations state.
+- Browser and HTTP success/failure/privacy/authentication regression coverage. This records implementation intent; read the matching PR for final head, CI and merge evidence.
+
+Local validation for this increment: 583 total tests, 577 pass, 0 fail, 6 skip; lint, JavaScript syntax and diff checks passed. The secret scan is run sequentially after tests, because test temporary-directory cleanup can race a simultaneous tree scan. Grounding links containing embedded username/password fields are rejected. Final Chromium and GitHub CI remain required before merge.
+
+Source links are retrieval evidence, not proof that every statement is supported, timely or correct. Structured news/fundamental/sentiment feeds connected to council scoring, publication timestamps, source trust and a live configured Gemini/runtime check remain separate unfinished work. No live provider call, deployment, credentials change or spend is claimed by these tests.
+
+Continue the matching `feat/tutor-research-status-20261030` PR before a new implementation. After it passes and merges, select the next verified bug or missing paper-V1 slice from the current product gap audit. Keep the authorized hourly continuation task aligned with the latest checkpoint.
+
 ## Autonomous continuation authorized — 30 October 2026 PKT
 
 The user explicitly authorized continued Trading-Nova bug fixing and development while away, with implementation choices made autonomously. Preserve the existing product: a professional TradingView-like terminal, source-backed live/near-live markets, realistic fake-money paper execution, Roman Urdu Gemini teaching, safe internet research, multi-role evidence/uncertainty/WAIT, journal/thesis/outcome learning, backtesting and server-authoritative risk. Merge bounded fixes only after exact-head CI is green and the diff has been reviewed. No repeated permission is needed for these authorized code tasks.
 
 An hourly background continuation task was created and confirmed enabled. This is scheduled work, not a nonstop worker or a guarantee of completion while the user sleeps. Prevent overlapping implementations; inspect open PRs and resume the existing task before starting another. Budget remains zero incremental spend; real-money execution stays OFF.
 
-### Current bounded bug: AI Council snapshot freshness
+### Completed bounded bug: AI Council snapshot freshness
 
 After PR #83 merged, main was verified at `d7b55c5ce1e69f754ab5420e82aa815ae72e7d5f`, with all enabled CI and browser jobs green. Quality suite: 554 pass / 0 fail / 6 skip. Production feed soak remained skipped.
 
@@ -22,7 +38,7 @@ Acceptance and implementation:
 - New API/HTTP regressions reproduced the old behavior: 0/15 passing before the fix. Focused freshness/legacy council/terminal suite: 24/24 passing after the fix. Real Chromium stale/unavailable/offline checks were added; final CI remains authoritative for the complete candidate.
 - An additional injected-clock regression reproduced a quote aging during the candle read (15/16 freshness cases passed before that adjustment). Snapshot ages now include elapsed work before analysis. Final local suite: 576 total, 570 pass, 0 fail, 6 skip; lint, sequential secret scan, browser-script/asset syntax and diff checks passed. Final remote CI/browser results and merge state must be read from the matching PR.
 
-Continue from the matching `fix/council-stale-inputs-20261030` PR, not a duplicate implementation. Record its final exact head, validation and merge result in the PR. Then re-verify the remaining gap audit before selecting the next bounded task. No unsupported feature or external certification claim is authorized by a green unit test.
+Completed as PR #84, merged at `f1b4ab0a15c4c1df79f379e5aab596b7a3c782f3`. Merged-main CI run `40946013332` and Chromium run `40946013143` passed; local main also passed 570 tests with 6 skips. Re-verify remaining gaps before selecting the next bounded task. No unsupported feature or external certification claim is authorized by a green unit test.
 
 ## Recovered and verified state
 
@@ -40,7 +56,7 @@ Continue from the matching `fix/council-stale-inputs-20261030` PR, not a duplica
 
 PostgreSQL documents that newer dump output is not guaranteed to restore into an older server: https://www.postgresql.org/docs/16/app-pgdump.html.
 
-## Validation and continuation rules
+## PR #83 original validation record (before final CI)
 
 - Clean `npm ci` succeeded under local Node v24.22.1.
 - Full unchanged application suite: 560 tests, 554 passed, 0 failed, 6 skipped. Local external PostgreSQL cases were unavailable; these skips are not database evidence.
