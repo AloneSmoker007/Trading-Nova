@@ -68,6 +68,12 @@
         <h2 id="watchlist-title">Watchlist & Market Overview</h2>
         <span class="badge" id="watchlist-badge" data-state="loading">LOADING…</span>
       </div>
+      <form id="watchlist-form" class="watchlist-editor">
+        <label for="watchlist-symbol-input">Add USDT market symbol</label>
+        <input id="watchlist-symbol-input" maxlength="24" placeholder="e.g. XRPUSDT" required autocomplete="off">
+        <button id="watchlist-add-btn" type="submit" disabled>Add to watchlist</button>
+      </form>
+      <p id="watchlist-note" class="panel-note" role="status" aria-live="polite">Loading saved watchlist…</p>
       <div class="watchlist-grid" id="watchlist-grid"></div>
     </section>
 

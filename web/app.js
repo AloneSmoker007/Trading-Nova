@@ -136,49 +136,124 @@
 
   // ---------------------------------------------------------------- Panels
 
+  var watchlistSymbols = [];
+  var watchlistRevision = null;
+  var watchlistSaving = false;
+  var watchlistRequestId = 0;
+
+  function watchlistControl(label, text, action, disabled) {
+    var button = el("button", "watchlist-control", text);
+    button.type = "button";
+    button.setAttribute("aria-label", label);
+    button.disabled = disabled;
+    button.addEventListener("click", action);
+    return button;
+  }
+
+  function moveWatchlistSymbol(symbol, direction) {
+    var index = watchlistSymbols.indexOf(symbol);
+    var target = index + direction;
+    if (index < 0 || target < 0 || target >= watchlistSymbols.length) return;
+    var symbols = watchlistSymbols.slice();
+    symbols.splice(index, 1);
+    symbols.splice(target, 0, symbol);
+    return saveWatchlistSymbols(symbols);
+  }
+
   function renderWatchlist() {
+    if (watchlistSaving) return Promise.resolve(false);
+    var requestId = ++watchlistRequestId;
     setBadge("watchlist-badge", "loading");
+    $("watchlist-add-btn").disabled = true;
     return api("/api/markets").then(function (result) {
+      if (requestId !== watchlistRequestId || watchlistSaving) return false;
       var container = $("watchlist-grid");
       clear(container);
       var body = result.body;
-      if (result.status === 200 && body && body.ok === true && Array.isArray(body.data?.markets)) {
-        setBadge("watchlist-badge", "ok", "ACTIVE (" + body.data.markets.length + ")");
-        body.data.markets.forEach(function (m) {
+      var data = body?.data;
+      if (result.status === 200 && body?.ok === true && Array.isArray(data?.markets)
+          && Array.isArray(data.symbols) && Number.isSafeInteger(data.revision)) {
+        watchlistSymbols = data.symbols.slice();
+        watchlistRevision = data.revision;
+        $("watchlist-add-btn").disabled = false;
+        $("watchlist-symbol-input").disabled = false;
+        setBadge("watchlist-badge", data.state === "empty" ? "empty" : data.state === "stale" ? "stale" : "ok",
+          data.state === "empty" ? "EMPTY" : data.state === "stale" ? "PARTIAL / STALE" : "ACTIVE (" + data.symbols.length + ")");
+        if (!data.symbols.length) container.appendChild(el("p", "panel-note", "Watchlist khali hai. Upar se market symbol add karein."));
+        data.markets.forEach(function (m, index) {
           var chip = el("div", "watchlist-chip");
-          chip.tabIndex = 0;
-          chip.role = "button";
-          chip.setAttribute("aria-label", "Switch target symbol to " + m.symbol);
-
-          var head = el("div", "watchlist-chip-head");
+          var select = el("button", "watchlist-select");
+          select.type = "button";
+          select.setAttribute("aria-label", "Switch target symbol to " + m.symbol);
+          var head = el("span", "watchlist-chip-head");
           head.appendChild(el("span", "watchlist-symbol", m.symbol));
-          var change = el("span", "watchlist-change " + (m.changePct24h >= 0 ? "up" : "down"),
-            (m.changePct24h >= 0 ? "+" : "") + fmtPct(m.changePct24h));
-          head.appendChild(change);
-
-          chip.appendChild(head);
-          chip.appendChild(el("div", "watchlist-price", "$" + fmtNum(m.last)));
-          chip.appendChild(el("div", "watchlist-vol", "24h Vol: $" + fmtNum(m.volume24h, 0)));
-
-          chip.addEventListener("click", function () {
+          var knownChange = Number.isFinite(m.changePct24h);
+          head.appendChild(el("span", "watchlist-change " + (!knownChange ? "" : m.changePct24h >= 0 ? "up" : "down"),
+            knownChange ? (m.changePct24h >= 0 ? "+" : "") + fmtPct(m.changePct24h) : "CHANGE N/A"));
+          select.appendChild(head);
+          select.appendChild(el("span", "watchlist-price", Number.isFinite(m.last) ? fmtNum(m.last) + " USDT" : "PRICE UNAVAILABLE"));
+          select.appendChild(el("span", "watchlist-vol", m.state === "ok" ? "24h quote vol: " + (Number.isFinite(m.quoteVolume24h) ? fmtNum(m.quoteVolume24h, 0) + " USDT" : "N/A") : m.state === "stale" ? "STALE SNAPSHOT" : "QUOTE UNAVAILABLE"));
+          select.addEventListener("click", function () {
             $("symbol-input").value = m.symbol;
+            $("symbol-input").dispatchEvent(new Event("input", {bubbles: true}));
             refreshAll();
           });
-          chip.addEventListener("keydown", function (e) {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              $("symbol-input").value = m.symbol;
-              refreshAll();
-            }
-          });
+          chip.appendChild(select);
+          var controls = el("div", "watchlist-controls");
+          controls.appendChild(watchlistControl("Move " + m.symbol + " up", "Up", function () {moveWatchlistSymbol(m.symbol, -1);}, index === 0));
+          controls.appendChild(watchlistControl("Move " + m.symbol + " down", "Down", function () {moveWatchlistSymbol(m.symbol, 1);}, index === data.markets.length - 1));
+          controls.appendChild(watchlistControl("Remove " + m.symbol, "Remove", function () {saveWatchlistSymbols(watchlistSymbols.filter(function (symbol) {return symbol !== m.symbol;}));}, false));
+          chip.appendChild(controls);
           container.appendChild(chip);
         });
-      } else {
-        setBadge("watchlist-badge", "unavailable", "UNAVAILABLE");
+        note("watchlist-note", data.isDefault ? "Default watchlist. Add, remove ya reorder karne par list save ho jayegi." : "Saved watchlist · " + data.symbols.length + "/20 symbols.");
+        return true;
       }
+      watchlistRevision = null;
+      setBadge("watchlist-badge", "unavailable", "UNAVAILABLE");
+      note("watchlist-note", "Saved watchlist load nahi hui. Refresh karke dobara try karein.");
+      return false;
     }).catch(function () {
+      if (requestId !== watchlistRequestId) return false;
+      watchlistRevision = null;
+      clear($("watchlist-grid"));
       setBadge("watchlist-badge", "unavailable", "OFFLINE");
+      note("watchlist-note", "Watchlist connection unavailable. Refresh karke dobara try karein.");
+      return false;
     });
+  }
+
+  function saveWatchlistSymbols(symbols) {
+    if (watchlistSaving || watchlistRevision === null) return Promise.resolve(false);
+    watchlistSaving = true;
+    ++watchlistRequestId;
+    document.querySelectorAll("#watchlist-grid button, #watchlist-form input, #watchlist-form button").forEach(function (control) {control.disabled = true;});
+    note("watchlist-note", "Saving watchlist…");
+    var saved = false;
+    var message = "Save not confirmed. Check the refreshed saved list before retrying.";
+    return api("/api/watchlist", {method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({symbols: symbols, revision: watchlistRevision})}).then(function (result) {
+      saved = result.status === 200 && result.body?.ok === true;
+      if (saved) message = "Watchlist saved.";
+      else if (result.status === 409) message = "List doosre tab mein change hui. Latest list reload ki hai; apni edit dobara karein.";
+      else if (result.status === 429) message = "Edits bohat tez ho rahi hain. Thori dair baad dobara try karein.";
+      else if (result.status === 400) message = result.body?.error?.message || "Watchlist input invalid.";
+    }).catch(function () {}).then(function () {
+      watchlistSaving = false;
+      $("watchlist-symbol-input").disabled = false;
+      return renderWatchlist().then(function (loaded) {if (loaded) note("watchlist-note", message); return saved;});
+    });
+  }
+
+  function addWatchlistSymbol(event) {
+    event.preventDefault();
+    var input = $("watchlist-symbol-input");
+    var symbol = input.value.trim().toUpperCase();
+    if (!/^[A-Z0-9]{1,20}USDT$/.test(symbol) || watchlistSymbols.indexOf(symbol) !== -1 || watchlistSymbols.length >= 20) {
+      note("watchlist-note", "Unique USDT market symbol dein, misal XRPUSDT. Maximum 20 symbols save ho sakte hain.");
+      return;
+    }
+    return saveWatchlistSymbols(watchlistSymbols.concat(symbol)).then(function (saved) {if (saved) input.value = "";});
   }
 
   function renderMarket() {
@@ -1506,6 +1581,7 @@
     $("run-backtest-btn").addEventListener("click", renderStrategyLab);
 
     $("journal-form").addEventListener("submit", submitJournalEntry);
+    $("watchlist-form").addEventListener("submit", addWatchlistSymbol);
     $("tutor-form").addEventListener("submit", submitTutorMessage);
     $("tutor-check-status-btn").addEventListener("click", renderTutorStatus);
     renderTutorStatus();

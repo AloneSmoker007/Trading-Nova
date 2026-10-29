@@ -28,6 +28,7 @@ function matchApi(pathname){
   if(pathname==="/api/tutor/chat")return{name:"tutorChat",params:{}};
   if(pathname==="/api/tutor/status")return{name:"tutorStatus",params:{}};
   if(pathname==="/api/markets")return{name:"markets",params:{}};
+  if(pathname==="/api/watchlist")return{name:"watchlist",params:{}};
   let m=/^\/api\/market\/([^\/]+)$/.exec(pathname);if(m)return{name:"marketData",params:{symbol:m[1]}};
   m=/^\/api\/indicators\/([^\/]+)$/.exec(pathname);if(m)return{name:"indicators",params:{symbol:m[1]}};
   m=/^\/api\/ai\/council\/([^\/]+)$/.exec(pathname);if(m)return{name:"aiCouncil",params:{symbol:m[1]}};
@@ -50,7 +51,7 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
     feeRate:paperFeeRate===undefined?environmentCosts.feeRate:paperFeeRate,
     slippageBps:paperSlippageBps===undefined?environmentCosts.slippageBps:paperSlippageBps
   });
-  const market=createMarketService({fetchImpl,now});const startedAt=now();const api=createApi({market,stateFile,executionStateFile,store,now,tradingMode:"paper",startedAt,paperFeeRate:executionCosts.feeRate,paperSlippageBps:executionCosts.slippageBps});const orderLimiters=new Map();const tutorLimiters=new Map();const tutorChat=createTradingTutor({fetchImpl,now});const accessGuard=createAccessGuard({password:process.env.NOVA_ACCESS_PASSWORD,secret:process.env.NOVA_SESSION_SECRET,production:process.env.NODE_ENV==="production",now});
+  const market=createMarketService({fetchImpl,now});const startedAt=now();const api=createApi({market,stateFile,executionStateFile,store,now,tradingMode:"paper",startedAt,paperFeeRate:executionCosts.feeRate,paperSlippageBps:executionCosts.slippageBps});const orderLimiters=new Map();const tutorLimiters=new Map();const watchlistLimiters=new Map();const tutorChat=createTradingTutor({fetchImpl,now});const accessGuard=createAccessGuard({password:process.env.NOVA_ACCESS_PASSWORD,secret:process.env.NOVA_SESSION_SECRET,production:process.env.NODE_ENV==="production",now});
   const server=createServer(async(req,res)=>{const method=req.method||"GET";try{
     if(typeof req.url!=="string"||req.url.length===0||req.url.length>MAX_URL_LENGTH){sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
     let url;try{url=new URL(req.url,"http://127.0.0.1");}catch{sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
@@ -61,8 +62,15 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
       const route=matchApi(pathname);
       if(!route){sendJson(res,404,{ok:false,state:"error",error:{code:"not-found",message:"unknown API route"}},{omitBody:method==="HEAD"});return;}
       const allowed=route.name==="paperOrders"?["GET","HEAD","POST"]
-        :(["cancelPaperOrder","addJournalEntry","tutorChat"].includes(route.name)?["POST"]:["GET","HEAD"]);
+        :(route.name==="watchlist"?["GET","HEAD","PUT"]
+        :(["cancelPaperOrder","addJournalEntry","tutorChat"].includes(route.name)?["POST"]:["GET","HEAD"]));
       if(!allowed.includes(method)){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:allowed.join(", ")});return;}
+      if(route.name==="watchlist"&&method==="PUT"){
+        const limiter=getBoundedTokenBucket(watchlistLimiters,req.socket.remoteAddress||"unknown",{capacity:30,refillPerSecond:0.5,now});
+        if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"Watchlist edits are temporarily rate limited."}},{"Retry-After":"2"});return;}
+        const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"Watchlist request is too large."}},{Connection:"close"});return;}
+        const out=await api.saveWatchlist(request.body);sendJson(res,out.status,out.body);return;
+      }
       if(route.name==="tutorStatus"){
         sendJson(res,200,{ok:true,data:tutorConfigurationStatus()},{omitBody:method==="HEAD"});return;
       }

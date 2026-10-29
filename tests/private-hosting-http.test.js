@@ -34,6 +34,8 @@ test("private hosting HTTP gate protects assets and API, then permits login and 
   assert.equal((await unauthApi.json()).error.code, "authentication-required");
   const unauthTutorStatus = await fetch(base + "/api/tutor/status");
   assert.equal(unauthTutorStatus.status, 401);
+  assert.equal((await fetch(base + "/api/watchlist")).status, 401);
+  assert.equal((await fetch(base + "/api/watchlist", {method: "PUT", body: "{}"})).status, 401);
 
   const unauthAsset = await fetch(base + "/app.js");
   assert.equal(unauthAsset.status, 200);
@@ -62,6 +64,7 @@ test("private hosting HTTP gate protects assets and API, then permits login and 
   const tutorStatus = await fetch(base + "/api/tutor/status", {headers: {cookie}});
   assert.equal(tutorStatus.status, 200);
   assert.equal((await tutorStatus.json()).data.connection, "not-checked");
+  assert.equal((await fetch(base + "/api/watchlist", {headers: {cookie}})).status, 200);
 
   const logout = await fetch(base + "/api/auth/logout", {
     method:"POST",headers:{origin,cookie},redirect:"manual"
