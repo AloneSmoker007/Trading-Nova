@@ -2,6 +2,28 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Autonomous continuation authorized — 30 October 2026 PKT
+
+The user explicitly authorized continued Trading-Nova bug fixing and development while away, with implementation choices made autonomously. Preserve the existing product: a professional TradingView-like terminal, source-backed live/near-live markets, realistic fake-money paper execution, Roman Urdu Gemini teaching, safe internet research, multi-role evidence/uncertainty/WAIT, journal/thesis/outcome learning, backtesting and server-authoritative risk. Merge bounded fixes only after exact-head CI is green and the diff has been reviewed. No repeated permission is needed for these authorized code tasks.
+
+An hourly background continuation task was created and confirmed enabled. This is scheduled work, not a nonstop worker or a guarantee of completion while the user sleeps. Prevent overlapping implementations; inspect open PRs and resume the existing task before starting another. Budget remains zero incremental spend; real-money execution stays OFF.
+
+### Current bounded bug: AI Council snapshot freshness
+
+After PR #83 merged, main was verified at `d7b55c5ce1e69f754ab5420e82aa815ae72e7d5f`, with all enabled CI and browser jobs green. Quality suite: 554 pass / 0 fail / 6 skip. Production feed soak remained skipped.
+
+The HTTP AI Council discarded ticker/candle envelope freshness and always returned `state: ok`, including when providers returned stale cached data or no usable inputs. The UI labelled cached analysis ANALYZED and retained old scores/roles after a later request failed.
+
+Acceptance and implementation:
+- Return 503 with no council when the quote is absent/invalid or candle history has fewer than 20 rows.
+- Expose quote/candle fetch-cache ages and the 10-second freshness threshold. These ages describe snapshot retrieval; they do not certify exchange event timestamps, candle continuity, source trust or a production feed soak.
+- Either stale envelope, a stale flag, unknown/negative age or an age over 10 seconds forces WAIT, high uncertainty and a null current opportunity score. Historical role details are clearly reference-only.
+- Display STALE SNAPSHOT and N/A in the browser; clear old scores, decisions and roles while loading or after unavailable/offline results. Ignore superseded council requests.
+- New API/HTTP regressions reproduced the old behavior: 0/15 passing before the fix. Focused freshness/legacy council/terminal suite: 24/24 passing after the fix. Real Chromium stale/unavailable/offline checks were added; final CI remains authoritative for the complete candidate.
+- An additional injected-clock regression reproduced a quote aging during the candle read (15/16 freshness cases passed before that adjustment). Snapshot ages now include elapsed work before analysis. Final local suite: 576 total, 570 pass, 0 fail, 6 skip; lint, sequential secret scan, browser-script/asset syntax and diff checks passed. Final remote CI/browser results and merge state must be read from the matching PR.
+
+Continue from the matching `fix/council-stale-inputs-20261030` PR, not a duplicate implementation. Record its final exact head, validation and merge result in the PR. Then re-verify the remaining gap audit before selecting the next bounded task. No unsupported feature or external certification claim is authorized by a green unit test.
+
 ## Recovered and verified state
 
 - Starting main: `0369a39dbde4ee4b68c1c185abf263af94a8a702`.

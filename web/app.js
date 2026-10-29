@@ -601,18 +601,32 @@
     }
   }
 
+  var aiCouncilRequestId = 0;
+
+  function clearAiCouncil(state, label, message) {
+    setBadge("ai-badge", state, label);
+    $("ai-score-val").textContent = "N/A";
+    setBadge("ai-decision-badge", "no-trade", "WAIT");
+    $("ai-uncertainty-val").textContent = "HIGH";
+    clear($("ai-roles-list"));
+    $("ai-explanation").textContent = message;
+  }
+
   function renderAiCouncil() {
-    setBadge("ai-badge", "loading");
+    var requestId = ++aiCouncilRequestId;
+    clearAiCouncil("loading", "LOADING", "Waiting for fresh analysis. WAIT/NO-TRADE.");
     var symbol = readSymbol();
     if (!symbol) return Promise.resolve();
 
     return api("/api/ai/council/" + encodeURIComponent(symbol)).then(function (result) {
+      if (requestId !== aiCouncilRequestId || symbol !== readSymbol()) return;
       var body = result.body;
       if (result.status === 200 && body && body.ok === true && body.data?.council) {
         var c = body.data.council;
-        setBadge("ai-badge", "ok", "ANALYZED");
+        var stale = body.data.state === "stale";
+        setBadge("ai-badge", stale ? "stale" : "ok", stale ? "STALE SNAPSHOT" : "ANALYZED");
 
-        $("ai-score-val").textContent = c.opportunityScore + " / 100";
+        $("ai-score-val").textContent = Number.isFinite(c.opportunityScore) ? c.opportunityScore + " / 100" : "N/A";
         setBadge("ai-decision-badge", c.decision === "WAIT" ? "no-trade" : "ok", c.decision);
         $("ai-uncertainty-val").textContent = String(c.uncertainty).toUpperCase();
 
@@ -637,10 +651,11 @@
           : "Company fundamentals, public news and social-sentiment feeds are not connected. Proxy inputs are not substitutes for those sources.";
         $("ai-explanation").textContent = c.explanation;
       } else {
-        setBadge("ai-badge", "unavailable", "UNAVAILABLE");
+        clearAiCouncil("unavailable", "UNAVAILABLE", "Current analysis unavailable. WAIT/NO-TRADE until fresh market data returns.");
       }
     }).catch(function () {
-      setBadge("ai-badge", "unavailable", "OFFLINE");
+      if (requestId !== aiCouncilRequestId || symbol !== readSymbol()) return;
+      clearAiCouncil("unavailable", "OFFLINE", "Connection unavailable. WAIT/NO-TRADE until fresh market data returns.");
     });
   }
 
