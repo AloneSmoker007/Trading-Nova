@@ -102,7 +102,10 @@ async function installApiFixtures(page) {
       await route.fulfill({status: unavailable ? 503 : 200, contentType: "application/json", body: JSON.stringify(unavailable ? {
         ok: false, state: "unavailable", error: {code: "tutor-sources-unavailable", message: "Web sources nahi mile; current answer unavailable."}
       } : {ok: true, data: {answer: "Source-backed fixture explanation.", research: "grounded", researchMode: "required-sources",
-        sources: [{title: "Fixture research", url: "https://example.com/research"}], note: "Returned fixture sources; no paper order submitted."}})});
+        sources: [{title: "Fixture research", url: "https://example.com/research"}],
+        evidence: {state: tutorReplyMode === "sources-only" ? "sources-only" : "claim-attributed",
+          sourceDetails: [{id: "S1", sourceIndex: 0, retrievedAt: 123, publishedAt: null}],
+          claims: tutorReplyMode === "sources-only" ? [] : [{text: "Source-backed fixture explanation.", start: 0, end: "Source-backed fixture explanation.".length, sourceIds: ["S1"]}]}, note: "Returned fixture sources; no paper order submitted."}})});
       return;
     }
 
@@ -429,6 +432,18 @@ async function main() {
         assert.equal(await source.getAttribute("rel"), "noopener noreferrer");
         assert.equal(tutorRequests.length, 2);
         assert.deepEqual(tutorRequests[1].history, [], "a failed research answer must not become model history");
+
+        const evidence = page.locator(".tutor-evidence").last();
+        await evidence.locator("summary").click();
+        await evidence.getByText(/Publication date\/freshness unknown/).waitFor();
+        assert.equal(await evidence.locator(".tutor-evidence-claim").count(), 1);
+        assert.equal(await evidence.locator("a").getAttribute("href"), "https://example.com/research");
+        assert.equal(await evidence.locator("a").getAttribute("rel"), "noopener noreferrer");
+        tutorReplyMode = "sources-only";
+        await page.locator("#tutor-input").fill("Research without claim mapping");
+        await page.locator("#tutor-send-btn").click();
+        await page.locator(".tutor-evidence").last().getByText("Claim evidence unavailable", {exact: true}).waitFor();
+        assert.equal(await page.locator(".tutor-evidence").last().locator(".tutor-evidence-claim").count(), 0);
 
         tutorSetupMode = "web-off";
         await page.locator("#tutor-check-status-btn").click();

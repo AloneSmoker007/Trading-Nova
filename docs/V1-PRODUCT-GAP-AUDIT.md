@@ -110,3 +110,7 @@ Priorities: **P0** = correctness/safety mismatch to block before representing th
 ## Paper cash currency contract — 30 October 2026 PKT
 
 The browser/API paper account uses a single USDT ledger. Order submission supports USDT-quoted symbols only; the read-only market parser and generic engine remain broader. Non-USDT order requests fail before quote work, legacy pending non-USDT orders are rejected without execution, and legacy non-USDT positions block further execution without silently converting balances. This fixes a reproduced currency-unit mismatch, not a full FX ledger or historical accounting repair. See tests/paper-quote-currency.test.js, tests/ws-d-orders.test.js and the matching PR for final CI/merge evidence.
+
+## Claim-attributed tutor research — 30 October 2026 PKT
+
+The tutor now projects provider groundingSupports into exact visible claim text and safe source IDs, including UTF-8 multipart offsets, deduplication/filtering and explicit sources-only/unavailable states. Browser evidence panels distinguish provider attribution from verification. Retrieval timestamps are recorded separately from unknown publication times; publication freshness, source trust, counter-evidence and structured Council news feeds remain unimplemented. Required-sources mode requires usable links and does not certify complete claim coverage. See server/research-evidence.js, tests/research-evidence.test.js and the matching PR for final validation.

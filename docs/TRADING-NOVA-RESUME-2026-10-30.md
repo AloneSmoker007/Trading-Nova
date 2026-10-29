@@ -2,7 +2,21 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
-## Current task — paper quote-currency boundary
+## Current task — claim-attributed tutor research
+
+Base main `6aaeef7781290bc99bf22ed5e2edc1f4145a5e06`: PR #87 merged; main CI 40955104571 and Chromium 40955104399 passed. No open PR or overlapping local changes at start. The user asked for a larger product increment.
+
+Build an explicit evidence projection from Gemini groundingSupports rather than treating a list of URLs as claim verification. server/research-evidence.js maps original chunk indices through URL validation/deduplication, maps UTF-8 byte ranges within the correct content part to exact displayed answer ranges, excludes thought parts, rejects invalid/mismatched ranges and missing references, bounds sources/claims/work and unions overlapping mapped ranges. Existing sources/researchMode contracts remain compatible; required-sources still requires links, not complete claim coverage.
+
+The API adds evidence with claim-attributed/sources-only/unavailable states, exact claim text and source IDs, retrieval timestamps, explicit null publication times and unknown publication freshness. Attribution is provider-reported, not independently verified. No source-trust score, publication age, full coverage or verified currentness is invented. The browser renders expandable text-only claim/source panels and explicitly distinguishes links without claim mappings. No provider HTML is rendered and no extra HTTP source-fetch/SSRF path is introduced.
+
+Official schema checked: https://ai.google.dev/api/generate-content — Segment indices are bytes within a part; groundingChunkIndices reference original chunks. Multi-part Urdu/emoji, malformed indices/text/hidden content, filtered/duplicate source mapping, bounded output, overlap coverage and tutor response behavior have behavioral coverage. Real Chromium checks exercise claim links, unknown freshness and sources-only presentation. Read the matching PR for exact candidate SHA and final CI/merge evidence. No live Gemini call, deployment or production feed certification is claimed.
+
+Local suite: 602 total, 595 pass, 0 fail, 7 expected external-DB skips. Lint, syntax, sequential secret scan and diff checks passed; remote exact-head CI and Chromium remain required.
+
+Remaining research work includes actual publication-date extraction/verification, source trust/counter-evidence, structured feeds connected to Council and durable thesis/order/outcome learning. Do not mistake attribution for fact checking or model retraining.
+
+## Completed task — paper quote-currency boundary
 
 Base main: `0103135d026ab95c6460f9269f1bcce74b89d981`; PR #86 is merged, all enabled main checks passed (CI 40952817734, Chromium 40952817672). No open PR existed at this task's start. No applicable AGENTS.md was found.
 

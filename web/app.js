@@ -1428,6 +1428,41 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
+  function addTutorEvidence(data) {
+    var evidence = data.evidence;
+    var messages = $("tutor-messages");
+    if (!messages || !evidence) return;
+    var panel = el("details", "tutor-evidence");
+    panel.appendChild(el("summary", null, evidence.state === "claim-attributed" ? "Claim evidence — provider attribution" : "Claim evidence unavailable"));
+    panel.appendChild(el("p", "panel-note", "Source milna correctness ka proof nahi. Publication date/freshness unknown; retrieval time publication time nahi. Unmapped text ke liye claim citation nahi mili."));
+    var list = el("ol");
+    (Array.isArray(evidence.claims) ? evidence.claims : []).slice(0, 32).forEach(function (claim) {
+      if (!claim || !Number.isSafeInteger(claim.start) || !Number.isSafeInteger(claim.end)
+          || claim.start < 0 || claim.end <= claim.start || claim.end > data.answer.length
+          || data.answer.slice(claim.start, claim.end) !== claim.text) return;
+      var item = el("li", "tutor-evidence-claim");
+      item.appendChild(el("p", null, claim.text));
+      (Array.isArray(claim.sourceIds) ? claim.sourceIds : []).slice(0, 8).forEach(function (id) {
+        var detail = (evidence.sourceDetails || []).find(function (entry) { return entry.id === id; });
+        var source = detail && Number.isSafeInteger(detail.sourceIndex) && data.sources && data.sources[detail.sourceIndex];
+        if (!source || typeof source.url !== "string") return;
+        try {
+          var url = new URL(source.url);
+          if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) return;
+          var link = el("a", "tutor-evidence-link", id + ": " + source.title);
+          link.href = url.toString(); link.target = "_blank"; link.rel = "noopener noreferrer";
+          item.appendChild(link);
+        } catch (_err) { /* Never render model HTML. */ }
+      });
+      if (item.querySelector("a")) list.appendChild(item);
+    });
+    if (list.children.length) panel.appendChild(list);
+    else panel.appendChild(el("p", null, "Links available ho sakte hain, lekin specific claims ke sath valid mapping nahi mili."));
+    messages.appendChild(panel);
+    while (messages.children.length > 30) messages.removeChild(messages.firstChild);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
   function submitTutorMessage(event) {
     event.preventDefault();
     if (tutorBusy || !tutorAvailable || tutorStatusBusy) return;
@@ -1453,6 +1488,7 @@
         var answer = result.body.data.answer;
         addTutorMessage("model", answer);
         addTutorSources(result.body.data.sources);
+        addTutorEvidence(result.body.data);
         tutorHistory.push({ role: "user", text: message }, { role: "model", text: answer });
         tutorHistory = tutorHistory.slice(-8);
         var research = result.body.data.research;
