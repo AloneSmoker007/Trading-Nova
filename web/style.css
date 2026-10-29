@@ -168,6 +168,11 @@ button:hover { filter: brightness(1.1); }
 .watchlist-change.down { color: var(--bearish); }
 .watchlist-price { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .watchlist-vol { font-size: 11px; color: var(--muted); }
+.watchlist-editor { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.watchlist-editor input { width: 18ch; text-transform: uppercase; }
+.watchlist-select { display: grid; gap: 6px; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; }
+.watchlist-controls { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.watchlist-control { font-size: 11px; padding: 3px 6px; }
 
 /* Main Terminal Layout Row */
 .terminal-row {

@@ -23,6 +23,7 @@ import {DEFAULT_PAPER_FEE_RATE, DEFAULT_PAPER_SLIPPAGE_BPS} from "../src/executi
 import {createStrategy, STRATEGY_DESCRIPTIONS} from "./strategies.js";
 import {computeAiCouncil} from "./ai.js";
 import {parseSymbol, parseInterval, parseLimit, parseStrategy} from "./validate.js";
+import {createWatchlistService} from "./watchlist.js";
 
 const FRESH_MAX_AGE_MS = 10000; // "fresh" for market payloads = data age <= 10s
 
@@ -62,6 +63,8 @@ export function createApi({
   paperSlippageBps = DEFAULT_PAPER_SLIPPAGE_BPS
 }) {
   const paperNote = "Paper/shadow only. Real money OFF. This API is read-only for GET endpoints.";
+  const watchlistService = createWatchlistService({store, now,
+    file: typeof stateFile === "string" ? stateFile + ".watchlist.json" : undefined});
   const paperOrderService = createPaperOrderService({
     market, stateFile, executionStateFile, store, now, tradingMode,
     feeRate: paperFeeRate,
@@ -355,28 +358,65 @@ export function createApi({
   }
 
   async function markets() {
-    const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"];
-    const results = [];
-    for (const sym of symbols) {
+    let saved;
+    try { saved = await watchlistService.read(); }
+    catch { return fail(503, "unavailable", "watchlist-unavailable", "Saved watchlist could not be read."); }
+    // At most 20 symbols; the market service independently caps/coalesces all
+    // upstream work. Keep order stable without serial quote-request delays.
+    const snapshots = await Promise.all(saved.symbols.map(async sym => {
+      let row = {symbol: sym, state: "unavailable", last: null, bid: null, ask: null,
+        volume24h: null, quoteVolume24h: null, changePct24h: null, stale: true, ageMs: null};
       try {
         const res = await market.getTicker(sym);
-        if (res.state === "ok" && res.data) {
+        if (["ok", "stale"].includes(res.state) && Number.isFinite(res.data?.last) && res.data.last > 0) {
           const t = res.data;
-          results.push({
-            symbol: sym,
+          const fresh = res.state === "ok" && res.stale !== true && Number.isFinite(res.ageMs)
+            && res.ageMs >= 0 && res.ageMs <= FRESH_MAX_AGE_MS;
+          row = {
+            symbol: sym, state: fresh ? "ok" : "stale",
             last: num(t.last),
             bid: num(t.bid),
             ask: num(t.ask),
             volume24h: num(t.volume24h),
+            quoteVolume24h: num(t.quoteVolume24h),
             changePct24h: num(t.changePct24h),
-            stale: res.stale
-          });
+            stale: !fresh, ageMs: Number.isFinite(res.ageMs) && res.ageMs >= 0 ? res.ageMs : null
+          };
         }
       } catch {
-        // skip unavailable
+        // Keep the saved symbol visible with an honest unavailable quote.
       }
+      return {row, receivedAt: now()};
+    }));
+    const assessedAt = now();
+    const results = snapshots.map(({row, receivedAt}) => {
+      if (row.state === "unavailable") return row;
+      const elapsed = assessedAt - receivedAt;
+      const ageMs = row.ageMs !== null && Number.isFinite(elapsed) && elapsed >= 0 ? row.ageMs + elapsed : null;
+      const stale = row.stale || ageMs === null || ageMs > FRESH_MAX_AGE_MS;
+      return {...row, ageMs, stale, state: stale ? "stale" : "ok"};
+    });
+    return ok({...saved, state: results.length === 0 ? "empty" : results.some(row => row.state !== "ok") ? "stale" : "ok",
+      count: results.length, markets: results, note: paperNote});
+  }
+
+  async function watchlist() {
+    try { const saved = await watchlistService.read(); return ok({...saved, state: saved.symbols.length ? "ok" : "empty"}); }
+    catch { return fail(503, "unavailable", "watchlist-unavailable", "Saved watchlist could not be read."); }
+  }
+
+  async function saveWatchlist(body) {
+    let input;
+    try { input = typeof body === "string" ? JSON.parse(body) : body; }
+    catch { return fail(400, "error", "invalid-json", "Send a JSON watchlist."); }
+    try {
+      const saved = await watchlistService.save(input);
+      return ok({...saved, state: saved.symbols.length ? "ok" : "empty"});
+    } catch (error) {
+      if (error?.code === "invalid-watchlist") return fail(400, "error", error.code, "Use up to 20 unique USDT market symbols and a valid watchlist revision.");
+      if (error?.code === "watchlist-conflict") return fail(409, "error", error.code, "Watchlist changed in another request. Reload it before editing.");
+      return fail(503, "unavailable", "watchlist-unavailable", "Watchlist could not be saved.");
     }
-    return ok({state: "ok", count: results.length, markets: results, note: paperNote});
   }
 
   async function aiCouncil(query, symbolRaw) {
@@ -558,7 +598,7 @@ export function createApi({
     }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, aiCouncil, orders, riskStatus, strategyLab, addJournalEntry};
+  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, watchlist, saveWatchlist, aiCouncil, orders, riskStatus, strategyLab, addJournalEntry};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};

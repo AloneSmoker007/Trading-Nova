@@ -6,6 +6,7 @@ import {tmpdir} from "node:os";
 import {createPostgresStore} from "../src/persistence/postgres.js";
 import {createApi} from "../server/api.js";
 import {createPaperOrderService} from "../server/orders.js";
+import {createWatchlistService} from "../server/watchlist.js";
 
 const enabled = process.env.TRADING_NOVA_REAL_DB_TEST === "1";
 const run = enabled ? test : test.skip;
@@ -49,6 +50,35 @@ run("PostgreSQL real integration: health, persistence and migration state", asyn
   assert.ok(migrations.rows.some((row)=>row.version==="001_initial.sql"));
   assert.ok(migrations.rows.some((row)=>row.version==="002_constraints.sql"));
 }));
+
+run("PostgreSQL real integration: watchlist survives reconnection and concurrent edits use revision fencing", async () => {
+  const id = "watchlist-test-" + randomUUID();
+  const first = await createPostgresStore({connectionString: process.env.POSTGRES_URL, max: 2, schema: process.env.TRADING_NOVA_DB_SCHEMA});
+  let second;
+  const scoped = store => ({
+    get: (namespace, _id, client) => store.get(namespace, id, client),
+    put: (namespace, _id, value, client) => store.put(namespace, id, value, client),
+    withTransaction: store.withTransaction.bind(store)
+  });
+  try {
+    const a = createWatchlistService({store: scoped(first)});
+    await a.save({symbols: ["ETHUSDT", "BTCUSDT"], revision: 0});
+    second = await createPostgresStore({connectionString: process.env.POSTGRES_URL, max: 2, schema: process.env.TRADING_NOVA_DB_SCHEMA});
+    const b = createWatchlistService({store: scoped(second)});
+    assert.deepEqual((await b.read()).symbols, ["ETHUSDT", "BTCUSDT"]);
+    const outcomes = await Promise.allSettled([
+      a.save({symbols: ["SOLUSDT"], revision: 1}), b.save({symbols: [], revision: 1})
+    ]);
+    assert.equal(outcomes.filter(result => result.status === "fulfilled").length, 1);
+    assert.equal(outcomes.find(result => result.status === "rejected").reason.code, "watchlist-conflict");
+    const winner = outcomes.find(result => result.status === "fulfilled").value;
+    assert.deepEqual((await b.read()).symbols, winner.symbols);
+    assert.equal((await b.read()).revision, 2);
+  } finally {
+    try { await first.pool.query(`DELETE FROM ${first.table("trading_state")} WHERE namespace=$1 AND state_id=$2`, ["paper-watchlist", id]); }
+    finally { await first.pool.end(); if (second) await second.pool.end(); }
+  }
+});
 
 run("PostgreSQL real integration: journal survives a fresh store connection", async () => {
   const firstStore = await createPostgresStore({

@@ -21,6 +21,10 @@ let councilMode = "unavailable";
 let tutorSetupMode = "unconfigured";
 let tutorReplyMode = "grounded";
 const tutorRequests = [];
+let fixtureWatchlist = ["BTCUSDT", "ETHUSDT"];
+let fixtureWatchlistRevision = 0;
+let watchlistWriteMode = "ok";
+const watchlistWrites = [];
 
 function fillsForPage(offset, limit = 10) {
   const total = 25;
@@ -50,6 +54,34 @@ async function installApiFixtures(page) {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
+
+    if (pathname === "/api/markets") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: {
+        state: fixtureWatchlist.length ? "ok" : "empty", symbols: fixtureWatchlist,
+        revision: fixtureWatchlistRevision, isDefault: false, count: fixtureWatchlist.length,
+        markets: fixtureWatchlist.map(symbol => ({symbol, state: "ok", last: 50000, volume24h: 100,
+          changePct24h: 1, stale: false, ageMs: 0}))
+      }})});
+      return;
+    }
+
+    if (pathname === "/api/watchlist" && request.method() === "PUT") {
+      const input = request.postDataJSON();
+      watchlistWrites.push(input);
+      if (watchlistWriteMode === "offline") {await route.abort("failed"); return;}
+      if (watchlistWriteMode === "conflict") {
+        fixtureWatchlist = ["SOLUSDT"];
+        fixtureWatchlistRevision++;
+        await route.fulfill({status: 409, contentType: "application/json", body: JSON.stringify({ok: false,
+          error: {code: "watchlist-conflict", message: "Fixture concurrent edit"}})});
+        return;
+      }
+      fixtureWatchlist = input.symbols;
+      fixtureWatchlistRevision++;
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true,
+        data: {symbols: fixtureWatchlist, revision: fixtureWatchlistRevision}})});
+      return;
+    }
 
     if (pathname === "/api/tutor/status") {
       if (tutorSetupMode === "offline") {
@@ -409,6 +441,60 @@ async function main() {
       } finally {
         tutorSetupMode = "unconfigured";
         tutorReplyMode = "grounded";
+        await page.close();
+      }
+    });
+
+    await run("watchlist adds, reorders, removes, reloads and handles conflicting or unconfirmed saves", async () => {
+      fixtureWatchlist = ["BTCUSDT", "ETHUSDT"];
+      fixtureWatchlistRevision = 0;
+      watchlistWriteMode = "ok";
+      watchlistWrites.length = 0;
+      const page = await openDashboard(browser, baseUrl);
+      const symbols = () => page.locator("#watchlist-grid .watchlist-symbol").allTextContents();
+      try {
+        await page.getByRole("button", {name: "Remove ETHUSDT", exact: true}).waitFor();
+        await page.locator("#watchlist-symbol-input").fill("BTCUSDT");
+        await page.locator("#watchlist-add-btn").click();
+        assert.equal(watchlistWrites.length, 0, "duplicate client edit is rejected before a write");
+        await page.locator("#watchlist-symbol-input").fill("xrpusdt");
+        await page.locator("#watchlist-add-btn").click();
+        await page.getByRole("button", {name: "Remove XRPUSDT", exact: true}).waitFor();
+        assert.deepEqual(await symbols(), ["BTCUSDT", "ETHUSDT", "XRPUSDT"]);
+        await page.reload({waitUntil: "domcontentloaded"});
+        await page.locator("#auto-input").uncheck();
+        await page.getByRole("button", {name: "Remove XRPUSDT", exact: true}).waitFor();
+        assert.deepEqual(await symbols(), ["BTCUSDT", "ETHUSDT", "XRPUSDT"]);
+        const up = page.getByRole("button", {name: "Move XRPUSDT up", exact: true});
+        await up.focus();
+        await up.press("Enter");
+        await page.getByText("Watchlist saved.", {exact: true}).waitFor();
+        assert.deepEqual(await symbols(), ["BTCUSDT", "XRPUSDT", "ETHUSDT"]);
+        await page.getByRole("button", {name: "Switch target symbol to XRPUSDT", exact: true}).click();
+        assert.equal(await page.locator("#symbol-input").inputValue(), "XRPUSDT");
+        assert.equal(await page.locator("#order-symbol").innerText(), "XRPUSDT");
+        await page.getByRole("button", {name: "Remove BTCUSDT", exact: true}).click();
+        await page.getByText("Watchlist saved.", {exact: true}).waitFor();
+        assert.deepEqual(await symbols(), ["XRPUSDT", "ETHUSDT"]);
+
+        watchlistWriteMode = "conflict";
+        await page.getByRole("button", {name: "Remove XRPUSDT", exact: true}).click();
+        await page.getByText(/List doosre tab mein change hui/).waitFor();
+        assert.deepEqual(await symbols(), ["SOLUSDT"]);
+        watchlistWriteMode = "offline";
+        await page.getByRole("button", {name: "Remove SOLUSDT", exact: true}).click();
+        await page.getByText("Save not confirmed. Check the refreshed saved list before retrying.", {exact: true}).waitFor();
+        assert.deepEqual(await symbols(), ["SOLUSDT"]);
+        watchlistWriteMode = "ok";
+        await page.getByRole("button", {name: "Remove SOLUSDT", exact: true}).click();
+        await page.getByText("Watchlist khali hai. Upar se market symbol add karein.", {exact: true}).waitFor();
+        assert.deepEqual(await symbols(), []);
+        await page.locator("#watchlist-symbol-input").fill("BTCUSDT");
+        await page.locator("#watchlist-add-btn").click();
+        await page.getByRole("button", {name: "Remove BTCUSDT", exact: true}).waitFor();
+        assert.equal(fixtureWatchlistRevision, watchlistWrites.length - 1, "offline request must not count as an acknowledged write");
+      } finally {
+        watchlistWriteMode = "ok";
         await page.close();
       }
     });

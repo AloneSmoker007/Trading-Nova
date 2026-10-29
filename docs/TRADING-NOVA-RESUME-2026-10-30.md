@@ -2,7 +2,23 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
-## Latest bounded task — Tutor setup and sources-required research
+## Latest active coding task — persisted editable watchlist
+
+Starting main: `863be3e37ad5eebd31a8d8c0d0b435bc311770df`; PR #85 tutor setup/research mode is merged with green main CI (`40949485921`) and Chromium (`40949486087`). The user explicitly asked to code immediately rather than wait for the hourly worker. Scheduled continuation is temporarily paused during this active implementation to prevent overlapping writers; restore the enabled background handoff once this task completes.
+
+Branch: `feat/persisted-watchlist-20261030`. Scope: add/remove/reorder up to 20 unique USDT market symbols, preserve an intentionally empty list, persist locally or in PostgreSQL, and keep unavailable/stale symbols visible without invented prices. Markets in other quote currencies are excluded from this watchlist slice; displayed price/quote-volume units are USDT, and base volume is not presented as dollar quote volume.
+
+Storage and conflict rules:
+- A dedicated local `.watchlist.json` snapshot is separate from paper portfolio/journal/execution files. Atomic same-directory replacement and a per-process queue prevent partial reads/lost concurrent edits in one Node process. This is not cross-process or power-loss certification; hosted production already requires PostgreSQL.
+- PostgreSQL uses the existing `trading_state` schema and a transaction advisory lock for revision-checked saves. A stale revision returns 409; neither corrupt file data nor a failed configured database silently resets to defaults/local storage.
+- GET/HEAD and bounded, rate-limited PUT share the existing private access guard. Edits do not submit orders or call Gemini/market providers. The market overview separately reads quotes, preserves list order and accounts for snapshot age while slower requests complete.
+- The browser edits the acknowledged saved list, supports native keyboard controls, refresh/reload, conflict recovery and unconfirmed network-save messages. Coin selection updates the active order-symbol label and clears the previous reference-price input.
+
+Acceptance coverage includes actual local server recreation, invalid/duplicate/over-limit symbols, maximum boundary, empty state, local concurrent revisions, corrupt storage, no database fallback, unavailable/stale prices, read/write authorization, body/rate limits, a real PostgreSQL reconnection/concurrent-edit test and Chromium add/remove/reorder/reload/conflict/offline flows. Read the matching PR for final test counts, exact head, CI and merge proof. Do not claim a live production deployment from fixtures or CI.
+
+Local suite for this slice: 592 total, 585 pass, 0 fail, 7 skip (including the new real-PostgreSQL case when no local database is configured). Lint, sequential secret scan, syntax and diff checks passed; actual PostgreSQL and browser results must come from CI.
+
+## Completed task — Tutor setup and sources-required research
 
 Starting main: `f1b4ab0a15c4c1df79f379e5aab596b7a3c782f3`. PR #84 is merged and its main CI/browser checks passed; do not duplicate the council-freshness fix recorded below.
 
@@ -16,7 +32,7 @@ Local validation for this increment: 583 total tests, 577 pass, 0 fail, 6 skip; 
 
 Source links are retrieval evidence, not proof that every statement is supported, timely or correct. Structured news/fundamental/sentiment feeds connected to council scoring, publication timestamps, source trust and a live configured Gemini/runtime check remain separate unfinished work. No live provider call, deployment, credentials change or spend is claimed by these tests.
 
-Continue the matching `feat/tutor-research-status-20261030` PR before a new implementation. After it passes and merges, select the next verified bug or missing paper-V1 slice from the current product gap audit. Keep the authorized hourly continuation task aligned with the latest checkpoint.
+Completed as PR #85, merged at `863be3e37ad5eebd31a8d8c0d0b435bc311770df`. Main CI `40949485921` and Chromium `40949486087` passed. Keep the authorized continuation task aligned with the latest checkpoint.
 
 ## Autonomous continuation authorized — 30 October 2026 PKT
 

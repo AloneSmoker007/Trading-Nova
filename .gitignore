@@ -9,3 +9,7 @@ dist/
 
 # Locally served asset generated from the exact, locked npm package.
 web/vendor/lightweight-charts.standalone.production.js
+
+# Private local watchlist snapshots; hosted production uses PostgreSQL.
+db/*.watchlist.json
+db/*.watchlist.json.tmp-*
