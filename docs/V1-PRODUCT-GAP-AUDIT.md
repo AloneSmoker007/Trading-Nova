@@ -15,6 +15,8 @@ Research coverage now has two clearly separated paths: the AI Council remains pr
 
 ## Status definitions
 
+Latest tutor increment (30 October 2026 PKT): the browser has a configuration-only setup check and an explicit sources-required question option. `/api/tutor/status` does not call Gemini or prove connectivity. Sources-required questions fail before outbound work if web research is disabled and withhold the provider answer if no usable grounding links are returned; ordinary educational chat remains available in automatic mode. This does not connect a structured news feed to the council, validate publication freshness or certify the truth of cited claims. Final test/CI and merge evidence is recorded in the matching tutor research-status PR.
+
 - **Implemented + tested:** code path and relevant regression/integration tests are present. This is not the same as external production evidence.
 - **Partial:** some code/UI exists, but the locked user-facing behavior or meaningful acceptance evidence is incomplete.
 - **Missing:** the required behavior was not found in the inspected runtime/UI flow.

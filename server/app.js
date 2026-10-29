@@ -6,7 +6,7 @@ import {createMarketService} from "./market.js";
 import {createApi} from "./api.js";
 import {readStatic} from "./static.js";
 import {getBoundedTokenBucket} from "../src/security/client-rate-limiters.js";
-import {createTradingTutor,validateInput} from "./tutor.js";
+import {createTradingTutor,validateInput,tutorConfigurationStatus} from "./tutor.js";
 import {createAccessGuard} from "./access-guard.js";
 import {paperExecutionCostConfigFromEnv, validatePaperExecutionCostConfig} from "../src/execution/costs.js";
 
@@ -26,6 +26,7 @@ function sendJson(res,status,body,extra={}){const {omitBody=false,...headers}=ex
 function matchApi(pathname){
   if(pathname==="/api/health")return{name:"health",params:{}};
   if(pathname==="/api/tutor/chat")return{name:"tutorChat",params:{}};
+  if(pathname==="/api/tutor/status")return{name:"tutorStatus",params:{}};
   if(pathname==="/api/markets")return{name:"markets",params:{}};
   let m=/^\/api\/market\/([^\/]+)$/.exec(pathname);if(m)return{name:"marketData",params:{symbol:m[1]}};
   m=/^\/api\/indicators\/([^\/]+)$/.exec(pathname);if(m)return{name:"indicators",params:{symbol:m[1]}};
@@ -62,6 +63,9 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
       const allowed=route.name==="paperOrders"?["GET","HEAD","POST"]
         :(["cancelPaperOrder","addJournalEntry","tutorChat"].includes(route.name)?["POST"]:["GET","HEAD"]);
       if(!allowed.includes(method)){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:allowed.join(", ")});return;}
+      if(route.name==="tutorStatus"){
+        sendJson(res,200,{ok:true,data:tutorConfigurationStatus()},{omitBody:method==="HEAD"});return;
+      }
       if(route.name==="tutorChat"){
         const clientKey=req.socket.remoteAddress||"unknown";const limiter=getBoundedTokenBucket(tutorLimiters,clientKey,{capacity:10,refillPerSecond:1/12,now});if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"AI Tutor requests are temporarily rate limited."}},{ "Retry-After":"12" });return;}
         const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
@@ -70,9 +74,8 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
         const validated=validateInput(input);if(!validated.ok){sendJson(res,400,{ok:false,state:"error",error:{code:validated.code,message:validated.message}});return;}
         // Fail closed on tutor configuration before spending any market-data quota.
         // Keep this guard aligned with createTradingTutor configuration validation.
-        const configuredKey=process.env.GEMINI_API_KEY;
-        const configuredModel=process.env.GEMINI_MODEL;
-        if(typeof configuredKey!=="string"||!configuredKey.trim()||(configuredModel!==undefined&&!/^[A-Za-z0-9._-]{1,80}$/.test(configuredModel))){
+        const configuration=tutorConfigurationStatus();
+        if(!configuration.configured||(validated.researchMode==="required-sources"&&!configuration.webResearchEnabled)){
           const out=await tutorChat({...input,message:validated.message,history:input.history??[]},null);sendJson(res,out.status,out.body);return;
         }
         let context=null;

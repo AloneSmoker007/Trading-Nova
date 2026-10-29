@@ -18,6 +18,9 @@ const requestBodies = [];
 const orderOffsets = [];
 let orderHistoryMode = "pages";
 let councilMode = "unavailable";
+let tutorSetupMode = "unconfigured";
+let tutorReplyMode = "grounded";
+const tutorRequests = [];
 
 function fillsForPage(offset, limit = 10) {
   const total = 25;
@@ -47,6 +50,29 @@ async function installApiFixtures(page) {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
+
+    if (pathname === "/api/tutor/status") {
+      if (tutorSetupMode === "offline") {
+        await route.abort("failed");
+        return;
+      }
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({
+        ok: true, data: {configured: tutorSetupMode !== "unconfigured",
+          configuration: tutorSetupMode === "unconfigured" ? "missing-credentials" : "configured",
+          connection: "not-checked", webResearchEnabled: tutorSetupMode !== "web-off", mode: "paper-only"}
+      })});
+      return;
+    }
+
+    if (pathname === "/api/tutor/chat" && request.method() === "POST") {
+      tutorRequests.push(request.postDataJSON());
+      const unavailable = tutorReplyMode === "uncited";
+      await route.fulfill({status: unavailable ? 503 : 200, contentType: "application/json", body: JSON.stringify(unavailable ? {
+        ok: false, state: "unavailable", error: {code: "tutor-sources-unavailable", message: "Web sources nahi mile; current answer unavailable."}
+      } : {ok: true, data: {answer: "Source-backed fixture explanation.", research: "grounded", researchMode: "required-sources",
+        sources: [{title: "Fixture research", url: "https://example.com/research"}], note: "Returned fixture sources; no paper order submitted."}})});
+      return;
+    }
 
     if (pathname.startsWith("/api/ai/council/")) {
       if (councilMode === "offline") {
@@ -337,6 +363,52 @@ async function main() {
         assert.equal(await page.locator("#ai-roles-list .ai-role-item").count(), 0);
       } finally {
         councilMode = "unavailable";
+        await page.close();
+      }
+    });
+
+    await run("tutor setup is honest and required-source questions handle uncited and grounded replies", async () => {
+      tutorSetupMode = "unconfigured";
+      tutorRequests.length = 0;
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.getByText("AI setup abhi mukammal nahi. Setup complete hone par dobara check karein.", {exact: true}).waitFor();
+        assert.equal(await page.locator("#tutor-send-btn").isDisabled(), true);
+        tutorSetupMode = "configured";
+        await page.locator("#tutor-check-status-btn").click();
+        await page.getByText(/AI setup ready\. Live jawab ki availability sawal bhejne par maloom hogi/).waitFor();
+        assert.equal(tutorRequests.length, 0, "setup checks must not submit an AI question");
+        assert.equal(await page.locator("#tutor-send-btn").isDisabled(), false);
+
+        await page.locator("#tutor-require-sources").check();
+        tutorReplyMode = "uncited";
+        await page.locator("#tutor-input").fill("Fixture current news with sources");
+        await page.locator("#tutor-send-btn").click();
+        await page.locator("#tutor-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
+        assert.equal(tutorRequests[0].researchMode, "required-sources");
+        assert.equal(await page.locator("#tutor-messages .tutor-source-link").count(), 0);
+
+        tutorReplyMode = "grounded";
+        await page.locator("#tutor-input").fill("Fixture source-backed research");
+        await page.locator("#tutor-send-btn").click();
+        await page.locator("#tutor-badge").getByText("WEB SOURCES", {exact: true}).waitFor();
+        const source = page.locator("#tutor-messages .tutor-source-link");
+        assert.equal(await source.getAttribute("href"), "https://example.com/research");
+        assert.equal(await source.getAttribute("rel"), "noopener noreferrer");
+        assert.equal(tutorRequests.length, 2);
+        assert.deepEqual(tutorRequests[1].history, [], "a failed research answer must not become model history");
+
+        tutorSetupMode = "web-off";
+        await page.locator("#tutor-check-status-btn").click();
+        await page.getByText(/Web research band hai; sources-required sawal available nahi/).waitFor();
+        tutorSetupMode = "offline";
+        await page.locator("#tutor-check-status-btn").click();
+        await page.getByText("AI setup check ke liye connection nahi mila. Dobara try karein.", {exact: true}).waitFor();
+        assert.equal(await page.locator("#tutor-send-btn").isDisabled(), true);
+        assert.equal(tutorRequests.length, 2);
+      } finally {
+        tutorSetupMode = "unconfigured";
+        tutorReplyMode = "grounded";
         await page.close();
       }
     });

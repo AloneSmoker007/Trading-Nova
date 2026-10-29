@@ -1288,6 +1288,33 @@
 
   var tutorHistory = [];
   var tutorBusy = false;
+  var tutorAvailable = false;
+  var tutorStatusBusy = false;
+
+  function renderTutorStatus() {
+    if (tutorStatusBusy) return Promise.resolve();
+    tutorStatusBusy = true;
+    $("tutor-check-status-btn").disabled = true;
+    $("tutor-send-btn").disabled = true;
+    note("tutor-connection-status", "AI setup check ho raha hai…");
+    return api("/api/tutor/status").then(function (result) {
+      var data = result.status === 200 && result.body?.ok === true ? result.body.data : null;
+      tutorAvailable = data?.configured === true;
+      if (tutorAvailable) {
+        note("tutor-connection-status", "AI setup ready. Live jawab ki availability sawal bhejne par maloom hogi. " +
+          (data.webResearchEnabled === true ? "Web sources sawal bhejne par request ho sakte hain." : "Web research band hai; sources-required sawal available nahi."));
+      } else {
+        note("tutor-connection-status", data ? "AI setup abhi mukammal nahi. Setup complete hone par dobara check karein." : "AI setup status available nahi. Dobara check karein.");
+      }
+    }).catch(function () {
+      tutorAvailable = false;
+      note("tutor-connection-status", "AI setup check ke liye connection nahi mila. Dobara try karein.");
+    }).finally(function () {
+      tutorStatusBusy = false;
+      $("tutor-check-status-btn").disabled = false;
+      $("tutor-send-btn").disabled = tutorBusy || !tutorAvailable;
+    });
+  }
 
   function addTutorMessage(role, text) {
     var messages = $("tutor-messages");
@@ -1309,7 +1336,7 @@
       if (!source || typeof source.url !== "string") return;
       try {
         var url = new URL(source.url);
-        if (url.protocol !== "https:" && url.protocol !== "http:") return;
+        if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) return;
         var link = el("a", "tutor-source-link", typeof source.title === "string" && source.title.trim() ? source.title.trim() : url.hostname);
         link.href = url.toString();
         link.target = "_blank";
@@ -1328,7 +1355,7 @@
 
   function submitTutorMessage(event) {
     event.preventDefault();
-    if (tutorBusy) return;
+    if (tutorBusy || !tutorAvailable || tutorStatusBusy) return;
     var input = $("tutor-input");
     var message = input.value.trim();
     if (!message || message.length > 2000) return;
@@ -1344,7 +1371,8 @@
     return api("/api/tutor/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: message, history: priorHistory, symbol: symbol })
+      body: JSON.stringify({ message: message, history: priorHistory, symbol: symbol,
+        researchMode: $("tutor-require-sources").checked ? "required-sources" : "auto" })
     }).then(function (result) {
       if (result.status === 200 && result.body && result.body.ok === true && result.body.data) {
         var answer = result.body.data.answer;
@@ -1374,7 +1402,7 @@
       note("tutor-note", "Network ya local server error. Koi order place nahi hua.");
     }).finally(function () {
       tutorBusy = false;
-      $("tutor-send-btn").disabled = false;
+      $("tutor-send-btn").disabled = !tutorAvailable || tutorStatusBusy;
       input.disabled = false;
       input.focus();
     });
@@ -1479,6 +1507,8 @@
 
     $("journal-form").addEventListener("submit", submitJournalEntry);
     $("tutor-form").addEventListener("submit", submitTutorMessage);
+    $("tutor-check-status-btn").addEventListener("click", renderTutorStatus);
+    renderTutorStatus();
     configureLogout();
 
     setInterval(function () {
