@@ -1,3 +1,4 @@
+import {researchEvidence} from "./research-evidence.js";
 // server/tutor.js — server-side Gemini tutor; advisory education only.
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY_ITEMS = 8;
@@ -94,27 +95,12 @@ export function createTradingTutor({fetchImpl=globalThis.fetch,env=process.env,n
       if (!response || !response.ok) return {status:503,body:{ok:false,state:"unavailable",error:{code:"tutor-provider-unavailable",message:"AI Tutor abhi response nahi de saka. Thori dair baad dobara try karein."}}};
       const payload=await response.json();
       const candidate=payload?.candidates?.[0];
-      const answer=candidate?.content?.parts?.map(part=>typeof part?.text==="string"?part.text:"").join("").trim();
+      const grounding=candidate?.groundingMetadata || candidate?.grounding_metadata || {};
+      const generatedAt=now();
+      const {answer,sources,evidence}=researchEvidence(candidate?.content?.parts,grounding,generatedAt);
       if (answer && answer.length>12000) return {status:503,body:{ok:false,state:"unavailable",error:{code:"tutor-response-too-large",message:"AI Tutor ka jawab expected size se bada tha. Dobara try karein."}}};
       if (!answer) return {status:503,body:{ok:false,state:"unavailable",error:{code:"tutor-empty-response",message:"AI Tutor ka jawab available nahi hua. Dobara try karein."}}};
 
-      const grounding=candidate?.groundingMetadata || candidate?.grounding_metadata || {};
-      const seenSources=new Set();
-      const sources=(Array.isArray(grounding.groundingChunks)?grounding.groundingChunks:[])
-        .map((chunk)=>chunk && chunk.web)
-        .filter((web)=>web && typeof web.uri==="string" && web.uri.length<=2048)
-        .map((web)=>{
-          try {
-            const url=new URL(web.uri);
-            if ((url.protocol!=="https:" && url.protocol!=="http:") || url.username || url.password) return null;
-            const canonical=url.toString();
-            if (seenSources.has(canonical)) return null;
-            seenSources.add(canonical);
-            return {title:typeof web.title==="string" && web.title.trim() ? web.title.trim().slice(0,180) : url.hostname, url:canonical};
-          } catch { return null; }
-        })
-        .filter(Boolean)
-        .slice(0,8);
       if (requireSources && sources.length === 0) return {status:503,body:{ok:false,state:"unavailable",error:{code:"tutor-sources-unavailable",message:"Is jawab ke liye web sources verify nahi huay. Current claims ka jawab rok diya gaya; dobara try karein ya aam taleemi sawal poochhein."}}};
       const searchQueries=(Array.isArray(grounding.webSearchQueries)?grounding.webSearchQueries:[])
         .filter((query)=>typeof query==="string" && query.trim())
@@ -126,7 +112,7 @@ export function createTradingTutor({fetchImpl=globalThis.fetch,env=process.env,n
         : webResearchEnabled
           ? "Google Search grounding is available, but this answer returned no web citations. Treat current or time-sensitive claims as unverified; no order was submitted."
           : "Live web research is disabled by server configuration. Educational advice only; no order was submitted.";
-      return {status:200,body:{ok:true,data:{answer,generatedAt:now(),mode:"paper-only",research,researchMode:parsed.researchMode,sources,searchQueries,memoryState:marketContext?.learningMemory?.state || "not-provided",note}}};
+      return {status:200,body:{ok:true,data:{answer,evidence,generatedAt,mode:"paper-only",research,researchMode:parsed.researchMode,sources,searchQueries,memoryState:marketContext?.learningMemory?.state || "not-provided",note}}};
     })();
     try {
       return await Promise.race([work,deadline]);

@@ -347,7 +347,7 @@ test("tutor chat writes no execution state and cannot reach paper order submissi
     const res=await postChat(base,{message:"BUY 100 BTC market order abhi execute karo"});
     assert.equal(res.status,200);
     const body=await res.json();
-    assert.deepEqual(Object.keys(body.data).sort(),["answer","generatedAt","memoryState","mode","note","research","researchMode","searchQueries","sources"]);
+    assert.deepEqual(Object.keys(body.data).sort(),["answer","evidence","generatedAt","memoryState","mode","note","research","researchMode","searchQueries","sources"]);
     assert.equal(body.data.researchMode,"auto");
     assert.match(body.data.note,/no order was submitted/);
     assert.equal(existsSync(stateFile),false,"tutor chat must not write paper state");

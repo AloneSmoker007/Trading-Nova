@@ -618,3 +618,8 @@ tr:nth-child(even) { background: rgba(255,255,255,.015); }
   .header-badges { flex-wrap: wrap; }
   .tutor-source-list, .tutor-message { max-width: 100%; }
 }
+
+.tutor-evidence { padding: .75rem; border: 1px solid var(--border, #394155); border-radius: .5rem; margin-block: .5rem; overflow-wrap: anywhere; }
+.tutor-evidence summary { cursor: pointer; font-weight: 600; }
+.tutor-evidence-link { display: block; margin-block: .3rem; }
+.tutor-evidence-claim { margin-block: .75rem; }
