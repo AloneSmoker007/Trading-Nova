@@ -120,6 +120,10 @@ jobs:
       - run: npm run db:migrate
       - run: node scripts/seed-recovery-drill.js
       - run: npm run recovery:drill
+      - name: Crash-recovery drill (committed writes survive, aborted writes roll back)
+        env:
+          PG_CRASH_CMD: ${{ secrets.PG_CRASH_CMD }}
+        run: npm run recovery:crash
 
   market-data-evidence:
     if: github.event_name == 'workflow_dispatch' && inputs.run_market_soak == true
