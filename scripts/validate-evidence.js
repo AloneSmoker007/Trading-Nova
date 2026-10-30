@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {readdir,readFile} from "node:fs/promises";
 import path from "node:path";
-import {validateEvidenceRecord,validateCertificationEvidence,REQUIRED_EVIDENCE} from "./evidence-schema.js";
+import {validateEvidenceRecord,validateEvidenceRequirement,validateCertificationEvidence,REQUIRED_EVIDENCE} from "./evidence-schema.js";
 
 const EXIT_CERTIFIED=0;
 const EXIT_NOT_CERTIFIED=1;
@@ -66,7 +66,10 @@ export function buildReport(loaded){
     .map(r=>({id:r.id??null,file:r.sourceFile,missing:validateEvidenceRecord(r).missing,invalidResult:validateEvidenceRecord(r).invalidResult}));
   const failed=records.filter(r=>r.result==="FAIL").map(r=>({id:r.id,file:r.sourceFile,detail:r.failureReason??null}));
   const blocked=records.filter(r=>r.result==="BLOCKED").map(r=>({id:r.id,file:r.sourceFile,reason:r.blockedReason??null}));
-  const certified=base.certified&&duplicates.length===0&&errors.length===0;
+  const unsupported=records
+    .map(r=>({id:r.id??null,file:r.sourceFile,...validateEvidenceRequirement(r)}))
+    .filter(item=>!item.valid);
+  const certified=base.certified&&duplicates.length===0&&errors.length===0&&unsupported.length===0;
   return Object.freeze({
     certified,
     recordCount:records.length,
@@ -75,6 +78,8 @@ export function buildReport(loaded){
     missing:base.missing,
     invalid:base.invalid,
     invalidDetail,
+    unsupported:unsupported.map(item=>item.id),
+    unsupportedDetail:unsupported,
     failed:base.failed,
     failedDetail:failed,
     blocked:base.blocked,
@@ -97,6 +102,7 @@ export function formatReport(report){
       lines.push(`invalid: ${item.id??"(no id)"} [${item.file}] ${why.join("; ")}`);
     }
   }
+  for(const item of report.unsupportedDetail) lines.push(`unsupported: ${item.id??"(no id)"} [${item.file}] ${item.reasons.join("; ")}`);
   for(const item of report.failedDetail) lines.push(`failed: ${item.id}${item.detail?` - ${item.detail}`:""}`);
   for(const item of report.blockedDetail) lines.push(`blocked: ${item.id}${item.reason?` - ${item.reason}`:""}`);
   for(const item of report.duplicates) lines.push(`duplicate id: ${item.id} [${item.file}]`);
