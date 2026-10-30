@@ -30,6 +30,19 @@ migrations before listening; startup fails closed and never falls back to local
 files. Without it, the existing local-file mode remains available.
 A real production deployment must also complete backup, restore and crash-recovery drills before live promotion.
 
+## Recovery drills
+
+- `npm run recovery:drill` — `pg_dump` (custom format) → manifest SHA-256 → `pg_restore`
+  into an isolated database → health, audit-chain, migration and sentinel verification.
+- `npm run recovery:crash` — committed-write durability, an in-flight transaction
+  killed with SIGKILL (must leave no partial state and no partial audit record), and an
+  optional hard server restart via `PG_CRASH_CMD` (e.g. `pg_ctlcluster 17 main restart -m immediate`)
+  with measured recovery time and post-crash audit/migration verification.
+- The store listens for pool `error` events and records `lastPoolError`; a database
+  restart or failover degrades the connection instead of terminating the server.
+
+Drill results: `docs/TASK-25-RECOVERY-DRILL-EVIDENCE.md`.
+
 ## Neon CI
 
 Configure a GitHub Actions repository secret named `POSTGRES_URL` with a Neon

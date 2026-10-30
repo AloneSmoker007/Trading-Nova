@@ -18,6 +18,7 @@
     "market:soak": "node scripts/market-soak.js",
     "observability:smoke": "node scripts/observability-smoke.js",
     "recovery:drill": "node scripts/backup-restore-drill.js",
+    "recovery:crash": "node scripts/crash-recovery-drill.js",
     "stress:test": "node scripts/stress-test.js",
     "postinstall": "node scripts/copy-chart-asset.js",
     "charts:vendor": "node scripts/copy-chart-asset.js"
