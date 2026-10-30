@@ -1,6 +1,39 @@
 import {runBacktestV2} from "../src/backtest/engine-v2.js";
 import {createStrategy} from "./strategies.js";
 
+// Fixed rules, rolling reference window, disjoint held-out execution windows.
+// Most-recent six folds bound CPU/output; no parameter selection uses OOS.
+export function rollingBacktest({candles, strategyName, startingCash, feeRate, slippageBps}) {
+  const policy = {referenceCandles: 70, testCandles: 35, maxFolds: 6, minimumFolds: 2,
+    alignment: "latest-candle", parametersFitted: false};
+  const empty = {state: "insufficient-data", policy, folds: [], summary: null,
+    note: "At least 140 ordered candles are needed for two rolling windows. Fixed rules, no fitting/optimization. Independent cash/position per fold; reference candles warm indicators. Descriptive historical results, not independent statistical samples, a continuous portfolio or a promotion certificate."};
+  if (!Array.isArray(candles) || candles.some((c, i) => !Number.isFinite(c?.openTime) || c.openTime < 0 || (i > 0 && c.openTime <= candles[i - 1].openTime))) {
+    return {...empty, state: "unavailable", reason: "ordered-source-timestamps-required"};
+  }
+  const count = Math.min(policy.maxFolds, Math.floor((candles.length - policy.referenceCandles) / policy.testCandles));
+  if (count < policy.minimumFolds) return empty;
+  const firstTest = candles.length - count * policy.testCandles;
+  const folds = [];
+  for (let i = 0; i < count; i++) {
+    const start = firstTest + i * policy.testCandles;
+    const referenceStart = start - policy.referenceCandles;
+    const end = start + policy.testCandles;
+    const strategy = createStrategy(strategyName);
+    if (!strategy) throw new TypeError("unknown rolling strategy");
+    const result = runBacktestV2({candles: candles.slice(referenceStart, end), strategy, startingCash,
+      feeRate, slippageBps, walkForward: policy.referenceCandles}).outOfSample;
+    folds.push({index: i + 1, reference: {start: referenceStart, end: start}, test: {start, end,
+      firstTimestamp: candles[start].openTime, lastTimestamp: candles[end - 1].openTime},
+    equity: result.equity, returnPct: result.returnPct, trades: result.trades, maxDrawdown: result.maxDrawdown});
+  }
+  const returns = folds.map(f => f.returnPct);
+  return {...empty, state: "ok", folds, excludedPrefixCandles: firstTest - policy.referenceCandles,
+    summary: {foldCount: count, testCandleCount: count * policy.testCandles,
+      meanReturn: returns.reduce((a, b) => a + b, 0) / count, minReturn: Math.min(...returns), maxReturn: Math.max(...returns),
+      positiveFolds: returns.filter(r => r > 0).length, zeroFillFolds: folds.filter(f => f.trades === 0).length}};
+}
+
 // Read-only comparisons on the EXACT candles/split of the primary run. No
 // optimization, extra provider calls, portfolio writes or promotion verdict.
 export function backtestComparison({candles, strategyName, startingCash, walkForward, base}) {

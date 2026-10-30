@@ -15,7 +15,7 @@
 
 import {healthSnapshot} from "../src/observability/health.js";
 import {runBacktestV2} from "../src/backtest/engine-v2.js";
-import {backtestComparison} from "./backtest-comparison.js";
+import {backtestComparison, rollingBacktest} from "./backtest-comparison.js";
 import {computeIndicators} from "./indicators.js";
 import {loadPaperState, appendJournalToFile, MAX_JOURNAL_ENTRIES} from "./state.js";
 import {appendJournalEntry, verifyJournal} from "../src/journal/journal.js";
@@ -322,12 +322,13 @@ export function createApi({
 
     const strategy = createStrategy(strat.strategy);
     const startingCash = 10000;
-    let result, comparison;
+    let result, comparison, rolling;
     try {
       // Candle-close signals fill at the next candle open; OOS metrics are
       // returned separately from the in-sample window.
       result = runBacktestV2({candles, strategy, startingCash, feeRate: 0.001, slippageBps: 5, walkForward});
       comparison = backtestComparison({candles, strategyName: strat.strategy, startingCash, walkForward, base: result});
+      rolling = rollingBacktest({candles, strategyName: strat.strategy, startingCash, feeRate: 0.001, slippageBps: 5});
     } catch {
       return fail(500, "error", "backtest-failed", "backtest could not be computed");
     }
@@ -349,6 +350,7 @@ export function createApi({
       inSample: result.inSample,
       outOfSample: result.outOfSample,
       comparison,
+      rolling,
       reproducible: result.reproducible,
       note: "Backtest uses a deterministic in-sample/out-of-sample split over historical candles. Candle-close signals fill at the next candle open. Paper/shadow only; past performance is not a prediction of future results. Real money OFF."
     });

@@ -351,6 +351,16 @@
             <tbody id="lab-comparison-body"></tbody>
           </table>
         </div>
+        <div class="table-wrap">
+          <table id="lab-rolling-table">
+            <caption>Rolling fixed-rule checks · 70 reference / 35 held-out candles · latest six folds maximum</caption>
+            <thead><tr><th scope="col">Strategy</th><th scope="col">Folds / test candles</th>
+              <th scope="col">Mean Return %</th><th scope="col">Worst / Best Return %</th>
+              <th scope="col">Positive / Zero-fill folds</th></tr></thead>
+            <tbody id="lab-rolling-body"></tbody>
+          </table>
+        </div>
+        <p class="panel-note">Rolling checks use fixed strategy rules, fresh cash/positions per fold and only earlier reference candles to warm indicators. Test windows do not overlap; reference windows can. Mean return is descriptive, not compounded portfolio performance or statistical confidence. At least 140 ordered candles are needed.</p>
         <p class="panel-note" id="lab-note" role="status" aria-live="polite">Blank split runs a historical ~70/30 evaluation; held-out results are not a prediction. Real money OFF.</p>
       </section>
 

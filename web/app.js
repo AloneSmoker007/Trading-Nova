@@ -995,9 +995,11 @@
     note("lab-note", "Running each strategy against historical OHLCV. Out-of-sample results are a separate held-out historical window, not a forecast.");
     var tbody = $("lab-body");
     var comparisons = $("lab-comparison-body");
+    var rollingBody = $("lab-rolling-body");
     var dl = $("backtest-values");
     clear(tbody);
     clear(comparisons);
+    clear(rollingBody);
     clear(dl);
 
     return Promise.all(specs.map(function (spec) {
@@ -1007,6 +1009,7 @@
     })).then(function (entries) {
       clear(tbody);
       clear(comparisons);
+      clear(rollingBody);
       clear(dl);
       var successful = [];
       var failures = [];
@@ -1055,6 +1058,20 @@
           compareRow.appendChild(el("td", null, scenario && Number.isFinite(scenario.outOfSample?.returnPct) ? fmtPct(scenario.outOfSample.returnPct * 100) : "UNAVAILABLE"));
         });
         comparisons.appendChild(compareRow);
+        var rollingRow = el("tr");
+        rollingRow.appendChild(el("td", null, entry.spec.label));
+        var rolling = valid && data.rolling;
+        var summary = rolling && rolling.state === "ok" && rolling.summary;
+        if (summary && Number.isFinite(summary.meanReturn) && Number.isFinite(summary.minReturn) && Number.isFinite(summary.maxReturn)) {
+          rollingRow.appendChild(el("td", null, summary.foldCount + " / " + summary.testCandleCount));
+          rollingRow.appendChild(el("td", null, fmtPct(summary.meanReturn * 100)));
+          rollingRow.appendChild(el("td", null, fmtPct(summary.minReturn * 100) + " / " + fmtPct(summary.maxReturn * 100)));
+          rollingRow.appendChild(el("td", null, summary.positiveFolds + " / " + summary.zeroFillFolds));
+        } else {
+          rollingRow.appendChild(el("td", null, rolling && rolling.state === "insufficient-data" ? "INSUFFICIENT DATA" : "UNAVAILABLE"));
+          for (var col = 0; col < 3; col++) rollingRow.appendChild(el("td", null, "—"));
+        }
+        rollingBody.appendChild(rollingRow);
       });
 
       if (successful.length === 0) {
