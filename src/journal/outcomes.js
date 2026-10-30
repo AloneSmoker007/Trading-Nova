@@ -72,9 +72,16 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
 
   const ordered = fills.map(validatedFill).sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
   const ids = new Set();
+  const timestampsBySymbol = new Map();
   for (const item of ordered) {
     if (ids.has(item.id)) throw new Error("duplicate paper fill in outcome history");
     ids.add(item.id);
+    // IDs are identity, not an authoritative execution sequence. A timestamp
+    // tie within one asset can reverse FIFO direction/thesis attribution.
+    const timestamps = timestampsBySymbol.get(item.symbol) || new Set();
+    if (timestamps.has(item.timestamp)) throw new Error("ambiguous paper fill chronology");
+    timestamps.add(item.timestamp);
+    timestampsBySymbol.set(item.symbol, timestamps);
   }
 
   const lotsBySymbol = new Map();

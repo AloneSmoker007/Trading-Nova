@@ -2,6 +2,16 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — ambiguous fill chronology must not invent learning provenance
+
+Starting refreshed main `aa3227951aecddafd31222c60670dc01f2fa6c63` is merged PR #101; main CI `41064190789`, Chromium `41064191094` and lockfile `41064190887` passed. No open PR/local edits or applicable AGENTS.md. Read §21/current audit before work; prior merged fixes remain completed.
+
+Reproduced before fix: a same-symbol BUY (z-open) and SELL (a-close) with the same millisecond timestamp were sorted by arbitrary IDs, producing a synthetic SHORT opening instead of the actual LONG opening thesis. Both direct derivation and HTTP learning returned available data despite missing authoritative ordering. Implementation `9307eb0cec1462d04aabe4284f4ce6c4e97de969` rejects any same-symbol timestamp tie before FIFO matching. Learning/autopsy use existing sanitized unavailable paths; no historical fill/journal mutation or provider work. Distinct source times preserve direction/thesis and different symbols may share a timestamp.
+
+Acceptance: direct ambiguous inputs in either order fail closed, valid chronology retains the original opening hash and fee-adjusted loss, independent-symbol control works, and real HTTP report/autopsy both fail without writes/requests. Focused learning suites 20/20. Full local suite 675 total, 668 pass, 0 fail, 7 expected external-PostgreSQL skips. An initial test used the read-only journal route; corrected to the actual /api/journal/entry write route and reran full checks. Lint, syntax, secrets, evidence schema and diff review passed. See matching PR for exact final remote head, enabled CI/Chromium, merge/main evidence.
+
+Limitation: legitimate same-millisecond fills for one symbol also make the whole learning report unavailable until a separately reviewed durable execution-sequence contract exists; this fix deliberately does not guess legacy ordering, rewrite timestamps or disable paper execution. Aggregation/calibration cannot safely rely on ambiguous outcomes. Remaining authoritative sequence/snapshot work, research verification, advanced risk/lifecycle/shadow and external provider/deployment/soak/DR/security evidence remain open. No live Gemini/paid call, credentials, deployment, production-data deletion or risk change; real money OFF and Risk Gate unchanged.
+
 ## Current task — bounded Gemini response envelope
 
 Refreshed main `33df857f2a14f6c4533ade70433a04047b42c2b1` is merged PR #100; main CI `41055357949`, Chromium `41055357947`, lockfile `41055357993` succeeded. Open PR/local edits empty, no applicable AGENTS.md; read §21 and current audit before work. Existing currency/research/backtest fixes remain merged.
