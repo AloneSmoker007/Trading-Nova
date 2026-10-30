@@ -958,6 +958,17 @@
   }
 
   var strategyLabBusy = false;
+  var strategyLabRequestId = 0;
+
+  function invalidateStrategyLab() {
+    strategyLabRequestId++;
+    strategyLabBusy = false;
+    ["lab-body", "lab-comparison-body", "lab-rolling-body", "backtest-values"].forEach(function (id) { clear($(id)); });
+    setBusy("backtest-values", false);
+    $("run-backtest-btn").disabled = false;
+    setBadge("lab-badge", "idle", "RUN REQUIRED");
+    note("lab-note", "Selection changed. Run backtest for the current coin and split; previous results cleared.");
+  }
 
   function renderStrategyLab() {
     if (strategyLabBusy) return Promise.resolve();
@@ -988,6 +999,11 @@
     if (walkForward !== null) basePath += "&walkForward=" + encodeURIComponent(String(walkForward));
 
     strategyLabBusy = true;
+    var requestId = ++strategyLabRequestId;
+    function isCurrent() {
+      return requestId === strategyLabRequestId && symbol === readSymbol()
+        && rawSplit === $("walk-forward-input").value.trim();
+    }
     setBadge("lab-badge", "loading", "RUNNING IS / OOS");
     setBusy("backtest-values", true);
     var button = $("run-backtest-btn");
@@ -1007,6 +1023,7 @@
         .then(function (result) { return {spec: spec, result: result}; })
         .catch(function () { return {spec: spec, result: null}; });
     })).then(function (entries) {
+      if (!isCurrent()) return;
       clear(tbody);
       clear(comparisons);
       clear(rollingBody);
@@ -1098,9 +1115,11 @@
         (failures.length ? "Some strategies were unavailable. " : "") +
         "Comparisons are descriptive; no statistical significance or profitability certificate. Indicator history warms from IS into OOS; cash/positions reset. Real money OFF.");
     }).catch(function () {
+      if (!isCurrent()) return;
       setBadge("lab-badge", "unavailable", "OFFLINE");
       note("lab-note", "Unable to reach the backtest endpoint. No order was placed.");
     }).finally(function () {
+      if (requestId !== strategyLabRequestId) return;
       strategyLabBusy = false;
       setBusy("backtest-values", false);
       if (button) button.disabled = false;
@@ -1872,6 +1891,7 @@
       refreshAll();
     });
     $("symbol-input").addEventListener("input", function () {
+      invalidateStrategyLab();
       structuredResearchRequestId++;
       clear($("structured-research-result"));
       $("order-symbol").textContent = this.value.trim().toUpperCase() || "—";
@@ -1899,6 +1919,7 @@
     $("chart-sma50").addEventListener("change", applyChartVisibility);
     $("chart-volume").addEventListener("change", applyChartVisibility);
     $("chart-fit-button").addEventListener("click", fitInteractiveChart);
+    $("walk-forward-input").addEventListener("input", invalidateStrategyLab);
     $("run-backtest-btn").addEventListener("click", renderStrategyLab);
 
     $("journal-form").addEventListener("submit", submitJournalEntry);

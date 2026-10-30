@@ -34,6 +34,7 @@ let publisherNewsStarted = null;
 let structuredResearchMode = "ok";
 let backtestMode = "ok";
 const backtestRequests = [];
+const delayedBacktests = [];
 function researchFixture() {
   return {symbol: "BTCUSDT", state: structuredResearchMode, sourceCoverage: {eligiblePublisherCount: structuredResearchMode === "ok" ? 2 : 1},
     counterEvidence: {state: "candidates-found", candidateIds: ["bitfinex-blog:1"]},
@@ -75,12 +76,14 @@ async function installApiFixtures(page) {
     if (pathname === "/api/backtest") {
       const strategy = url.searchParams.get("strategy");
       backtestRequests.push(strategy);
+      const delayed = backtestMode === "delayed";
+      if (delayed) await new Promise(resolve => delayedBacktests.push(resolve));
       if (backtestMode === "offline") {await route.abort("failed"); return;}
       if (backtestMode === "partial" && strategy === "momentum") {
         await route.fulfill({status: 503, contentType: "application/json", body: JSON.stringify({ok: false, error: {code: "fixture-unavailable"}})});
         return;
       }
-      const result = {returnPct: 0.01, equity: 10100, trades: 3, maxDrawdown: 0.02};
+      const result = {returnPct: delayed ? 0.9 : 0.01, equity: 10100, trades: 3, maxDrawdown: 0.02};
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: {
         strategy: {name: strategy}, startingCash: 10000, stale: backtestMode === "stale",
         parameters: {feeRate: 0.001, slippageBps: 5},
@@ -662,6 +665,36 @@ async function main() {
         assert.equal(await rollingRow.locator("td").nth(1).innerText(), "UNAVAILABLE");
         assert.equal(requestBodies.length, orderCount);
       } finally {backtestMode = "ok"; await page.close();}
+    });
+
+    await run("Strategy Lab clears selection changes and discards delayed results for the prior coin", async () => {
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#lab-body tr").nth(2).waitFor();
+        backtestMode = "delayed";
+        const started = page.waitForRequest(r => new URL(r.url()).pathname === "/api/backtest");
+        await page.locator("#run-backtest-btn").click();
+        await started;
+        // Request handlers are released only after all three have arrived.
+        for (let tries = 0; tries < 100 && delayedBacktests.length < 3; tries++) await new Promise(resolve => setTimeout(resolve, 10));
+        assert.equal(delayedBacktests.length, 3);
+        await page.locator("#symbol-input").fill("ETHUSDT");
+        await page.locator("#lab-badge").getByText("RUN REQUIRED", {exact: true}).waitFor();
+        assert.equal(await page.locator("#lab-body tr").count(), 0);
+        assert.equal(await page.locator("#lab-comparison-body tr").count(), 0);
+        assert.equal(await page.locator("#lab-rolling-body tr").count(), 0);
+        backtestMode = "ok";
+        await page.locator("#run-backtest-btn").click();
+        await page.locator("#lab-body tr").nth(2).waitFor();
+        const replies = [0, 1, 2].map(() => page.waitForResponse(r => new URL(r.url()).pathname === "/api/backtest"));
+        delayedBacktests.splice(0).forEach(resolve => resolve());
+        await Promise.all((await Promise.all(replies)).map(r => r.finished()));
+        await page.evaluate(() => new Promise(resolve => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))));
+        assert.equal(await page.locator("#lab-body tr").first().locator("td").nth(1).innerText(), "1%");
+        await page.locator("#walk-forward-input").fill("150");
+        assert.equal(await page.locator("#lab-body tr").count(), 0);
+        assert.equal(await page.locator("#run-backtest-btn").isEnabled(), true);
+      } finally {backtestMode = "ok"; delayedBacktests.splice(0).forEach(resolve => resolve()); await page.close();}
     });
 
     await run("tutor setup is honest and required-source questions handle uncited and grounded replies", async () => {

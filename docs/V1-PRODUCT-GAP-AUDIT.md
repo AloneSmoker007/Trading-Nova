@@ -5,6 +5,8 @@
 **Scope:** locked Product Contract in docs/TRADING-NOVA-MASTER-ROADMAP.md, section 21 (lines 242–283), actual browser UI, HTTP routes, API handlers, engines, persistence, tests, and the external-evidence runbook.  
 **Not a certification:** this document does not claim production deployment, profitability, or V1 release approval. Real-money execution must remain disabled.
 
+Strategy Lab selection-race update (30 October 2026 PKT): changing coin/split now clears primary, benchmark and rolling tables and invalidates pending responses. Superseded completions cannot publish under a new selection or unlock its active run. Actual-controller deferred-transport tests and a Chromium delayed-response regression cover this; see `tests/strategy-lab-race.test.js` and matching PR for exact-head evidence. Server-side consistent candle snapshots across requests remain separate work.
+
 ## Executive finding
 
 The repository has a substantial paper/shadow foundation: private access guard, bounded resource controls, public market-data integration, freshness/stale states, a deterministic Risk Gate, persistent idempotent paper fills, journal integrity, backtest primitives, an AI council, a Roman Urdu tutor, health surfaces, and CI integration checks.
