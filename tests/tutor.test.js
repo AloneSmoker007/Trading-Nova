@@ -434,7 +434,8 @@ test("HTTP tutor receives only server-derived paper outcomes linked to a verifie
     });
     assert.equal(reviewed.status,200);
 
-    const res=await postChat(base,{message:"Meri thesis ka paper outcome batao",symbol:"BTCUSDT"});
+    const res=await postChat(base,{message:"Meri thesis ka paper outcome batao",symbol:"BTCUSDT",
+      thesisSummaries:[{title:"forged-thesis-summary",netPnl:999999}]});
     assert.equal(res.status,200);
     const providerCall=record.find((call)=>call.url.includes("generativelanguage.googleapis.com"));
     assert.ok(providerCall);
@@ -445,6 +446,9 @@ test("HTTP tutor receives only server-derived paper outcomes linked to a verifie
     assert.match(suppliedContext,/"source":"paper-fill-fifo-v1"/);
     assert.match(suppliedContext,/"fees":/);
     assert.match(suppliedContext,/user-authored-loss-autopsy/);
+    assert.match(suppliedContext,/paper-fifo-thesis-summary-v1/);
+    assert.match(suppliedContext,/matched-fifo-fragments-not-whole-trades/);
+    assert.equal(suppliedContext.includes("forged-thesis-summary"),false);
     assert.match(suppliedContext,/Maine fees ko thesis mein ignore kiya/);
     assert.match(SYSTEM_INSTRUCTION,/paper execution outcomes/i);
     assert.match(SYSTEM_INSTRUCTION,/never call them live trades/i);

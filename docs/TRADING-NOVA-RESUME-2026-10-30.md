@@ -2,6 +2,18 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — descriptive thesis learning summaries
+
+Refreshed starting main `1b27fb2416a3edda2bdc762940e450f352618e4f` is merged PR #103: CI `41077160191`, Chromium `41077159958` and lockfile `41077160185` passed. No open PR/local edits or applicable AGENTS.md. Read locked §21 and current audit; durable ordering protection is retained.
+
+Implementation `9cd8f9371d4a36226f25c3509404cda12e421d9b` adds thesis-hash groups derived from complete validated FIFO history, including a separate unlinked group and open-only theses. Each group discloses matched fragment win/loss/flat counts, realized gross/fees/net, open lot count, symbols and descriptive mean net per fragment (null when no realized fragments). Partial closes are explicitly not counted as independent whole trades. Open lots do not invent realized P&L/fees. Hash grouping does not combine per-symbol FIFO inventory. API returns all groups within existing history bounds; UI shows latest 20 by realized activity (open-only last), with full hash and displayed/total counts. Safe DOM text and offline/loading clearing remain mandatory.
+
+Tutor receives at most five server summaries linked to hashes of its recent verified journal notes, with bounded symbols/titles. Client-forged summaries are ignored. Prompt labels fragment counts/means as descriptive paper facts, not thesis truth, profitability, calibrated probability or model training. This is not whole-trade aggregation or promotion/revalidation.
+
+Acceptance: independent partial-close arithmetic, cross-symbol GENERAL hash grouping, open-only/unlinked/empty controls, sum reconciliation/repeatability and HTTP no-write/no-provider proof. Tutor regression verifies real server source/unit and rejects client fake data; Chromium covers values, text-only markup, no duplication on refresh and offline clearing. Normal full local suite 682 total, 674 pass, 0 fail, 8 expected external-DB skips; focused summary/learning tests 15/15. Lint, syntax, secrets, evidence schema and diff review passed. Two initial parallel runs hit existing ENOENT during repository secret scan because state tests created/deleted repo-local temporary directories. State fixtures now use OS temp storage, preserving path-leak assertions and all scanner rules; normal parallel full suite then passed. See matching PR for final exact remote head, enabled CI/Chromium and merge/main evidence.
+
+Remaining: whole-trade/session aggregation, calibration, snapshots, reviewed legacy reconciliation, cross-process portfolio/lifecycle locking, wider research/risk/shadow features and real provider/deployment/soak/DR/security evidence. No paid/live Gemini call, credentials, deployment, production-data action or risk change; real money OFF and Risk Gate unchanged.
+
 ## Current task — transactional sequence for new paper fills
 
 Starting refreshed main `ca3e8f0ba4706dc995f2864b5d8eaa52b6948370` is merged PR #102; main CI `41066997211`, Chromium `41066997226` and lockfile `41066997236` succeeded. No open PR/local edits or applicable AGENTS.md. Read §21/current audit; retain legacy ambiguity protection rather than reverting it.

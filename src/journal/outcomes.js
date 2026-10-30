@@ -184,7 +184,36 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
     openLotCount: [...lotsBySymbol.values()].reduce((count, lots) => count + lots.length, 0)
   });
 
-  return {version: 1, accounting: "FIFO", currency: "USDT", outcomes, summary};
+  const groups = new Map();
+  const groupFor = ref => {
+    const hash = ref?.hash || null;
+    if (!groups.has(hash)) groups.set(hash, {thesisHash: hash, title: ref?.title || "Unlinked fills",
+      symbols: new Set(), matchedFragments: 0, wins: 0, losses: 0, breakeven: 0,
+      grossPnl: 0, fees: 0, netPnl: 0, openLotCount: 0, lastClosedAt: null});
+    return groups.get(hash);
+  };
+  for (const item of outcomes) {
+    const group = groupFor(item.thesisRef);
+    group.symbols.add(item.symbol);
+    group.matchedFragments++;
+    if (item.result === "WIN") group.wins++;
+    else if (item.result === "LOSS") group.losses++;
+    else group.breakeven++;
+    group.grossPnl = cleanNumber(group.grossPnl + item.grossPnl);
+    group.fees = cleanNumber(group.fees + item.fees);
+    group.netPnl = cleanNumber(group.netPnl + item.netPnl);
+    group.lastClosedAt = Math.max(group.lastClosedAt ?? 0, item.closedAt);
+  }
+  for (const [symbol, lots] of lotsBySymbol) for (const lot of lots) {
+    const group = groupFor(lot.thesisRef);
+    group.symbols.add(symbol);
+    group.openLotCount++;
+  }
+  const thesisSummaries = [...groups.values()].map(group => ({...group, symbols: [...group.symbols].sort(),
+    meanNetPnlPerFragment: group.matchedFragments ? cleanNumber(group.netPnl / group.matchedFragments) : null,
+    source: "paper-fifo-thesis-summary-v1", unit: "matched-fifo-fragments-not-whole-trades"}))
+    .sort((a, b) => (b.lastClosedAt ?? -1) - (a.lastClosedAt ?? -1) || (a.thesisHash || "").localeCompare(b.thesisHash || ""));
+  return {version: 1, accounting: "FIFO", currency: "USDT", outcomes, summary, thesisSummaries};
 }
 
 export {DEFAULT_MAX_FILLS};

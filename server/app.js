@@ -152,6 +152,9 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
                 ?learningSnapshot.body.data:null;
               if(learningData&&Array.isArray(learningData.outcomes)){
                 const recentHashes=new Set(entries.map((entry)=>entry.recordHash).filter(Boolean));
+                context.learningMemory.thesisSummaries=(Array.isArray(learningData.thesisSummaries)?learningData.thesisSummaries:[])
+                  .filter(summary=>recentHashes.has(summary.thesisHash)).slice(0,5)
+                  .map(summary=>({...summary,symbols:summary.symbols.slice(0,10),title:summary.title.slice(0,120)}));
                 const executionOutcomes=learningData.outcomes
                   .filter((outcome)=>recentHashes.has(outcome?.thesisRef?.hash))
                   .slice(-5)

@@ -435,6 +435,14 @@
         </div>
         <dl class="values" id="learning-values" aria-labelledby="learning-title" aria-live="polite" aria-busy="true"></dl>
         <ul class="journal-list" id="learning-outcomes" aria-label="Server-derived realized paper outcomes"></ul>
+        <div class="table-wrap">
+          <table><caption>Thesis learning summaries · latest 20 groups</caption>
+            <thead><tr><th scope="col">Thesis / hash</th><th scope="col">Matched fragments</th>
+              <th scope="col">Wins / losses / flat fragments</th><th scope="col">Realized fees / net (USDT)</th>
+              <th scope="col">Open lots</th></tr></thead><tbody id="learning-theses-body"></tbody>
+          </table>
+        </div>
+        <p class="panel-note">Counts are FIFO match fragments, not whole trades; partial closes can create several fragments. Open lots have no realized P&amp;L included. Summaries do not prove thesis correctness or strategy profitability.</p>
         <p class="panel-note" id="learning-note">Only reconciled paper fills can become realized outcomes.</p>
       </section>
 

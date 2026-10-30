@@ -1196,16 +1196,28 @@
   }
 
   function renderLearningOutcomes() {
+    clear($("learning-theses-body"));
     setBadge("learning-badge", "loading");
     setBusy("learning-values", true);
     return api("/api/learning/outcomes").then(function (result) {
       var dl = $("learning-values");
       var list = $("learning-outcomes");
+      clear($("learning-theses-body"));
       clear(dl);
       clear(list);
       var body = result.body;
       if (result.status === 200 && body && body.ok === true && body.data) {
         var data = body.data;
+        var groups = Array.isArray(data.thesisSummaries) ? data.thesisSummaries : [];
+        groups.slice(0, 20).forEach(function (group) {
+          var tr = el("tr");
+          tr.appendChild(el("td", null, group.title + " · " + (group.thesisHash || "UNLINKED") + " · " + group.symbols.join(", ")));
+          tr.appendChild(el("td", null, String(group.matchedFragments)));
+          tr.appendChild(el("td", null, group.wins + " / " + group.losses + " / " + group.breakeven));
+          tr.appendChild(el("td", null, fmtNum(group.fees, 4) + " / " + fmtNum(group.netPnl, 4)));
+          tr.appendChild(el("td", null, String(group.openLotCount)));
+          $("learning-theses-body").appendChild(tr);
+        });
         var summary = data.summary || {};
         verifiedLearningOutcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
         syncLossAutopsyControl();
@@ -1214,6 +1226,7 @@
         row(dl, "Accounting", String(data.accounting || "—") + " · " + String(data.currency || "—"));
         row(dl, "Realized outcomes", String(summary.outcomeCount || 0));
         row(dl, "Thesis-linked", String(summary.linkedOutcomeCount || 0));
+        row(dl, "Thesis groups shown", String(Math.min(groups.length, 20)) + " / " + groups.length + " · latest realized activity; open-only last, not performance ranking");
         row(dl, "Net paper P&L", "$" + fmtNum(summary.realizedNetPnl, 4));
         row(dl, "Open FIFO lots", String(summary.openLotCount || 0));
         row(dl, "Reviewed losses", data.reviewState === "verified"
@@ -1241,6 +1254,7 @@
       }
     }).catch(function (err) {
       verifiedLearningOutcomes = [];
+      clear($("learning-theses-body"));
       syncLossAutopsyControl();
       setBadge("learning-badge", "unavailable");
       note("learning-note", err.message + " No outcome was invented.");
