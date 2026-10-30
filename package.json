@@ -13,7 +13,7 @@
     "security:secrets": "node scripts/secret-scan.js",
     "serve": "node server/index.js",
     "db:migrate": "node scripts/migrate.js",
-    "evidence:validate": "node scripts/evidence-schema.js",
+    "evidence:validate": "node scripts/validate-evidence.js",
     "load:test": "node scripts/load-test.js",
     "market:soak": "node scripts/market-soak.js",
     "observability:smoke": "node scripts/observability-smoke.js",

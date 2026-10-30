@@ -100,6 +100,23 @@ Required before the V1 certificate:
 
 Never record API keys, passwords, private keys, exchange secrets or other credentials in evidence artifacts.
 
+## Checking the pack
+
+Every artifact dropped into `evidence/` (a single record object or an array of
+records, one file per run) is checked against the certification schema with:
+
+```
+npm run evidence:validate
+```
+
+`NOT CERTIFIED` and exit code 1 mean the pack is incomplete, a record is
+malformed, an id is duplicated, or something is `FAIL`/`BLOCKED` — the report
+lists exactly which. Exit 0 means all nine requirements are present, valid and
+`PASS`. Use `-- --dir <path>` to check a collected bundle outside `evidence/`,
+`-- --json` for machine-readable output, and `-- --allow-incomplete` for a
+read-only status check that always exits 0. Exit code 2 means the CLI could not
+read the pack (missing/unparseable artifact) — that is an error, not a pass.
+
 ## Certification rule
 
 **No artifact = no PASS.**
