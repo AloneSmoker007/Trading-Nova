@@ -2,6 +2,16 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — discard Strategy Lab results after selection changes
+
+Starting refreshed remote main `60f8dcf4614d5b4fad4d640948d9b22435a5d02d` is merged PR #98: main CI `41033842543`, Chromium `41033842787` and lockfile `41033842635` succeeded. Open PR/local edits empty; no applicable AGENTS.md. Read locked §21 and gap audit before work; prior quote-currency/research/benchmark/rolling fixes are already merged and not repeated.
+
+Reproduced before fix using the actual browser controller with deferred transport: start BTC backtest, change selected coin to ETH, then resolve BTC responses. All three old rows were published under the new selection (expected zero). Implementation `2e515f343d31678b583b1fc873b9cd0c273798dd` invalidates pending runs on coin or split input, clears primary/comparison/rolling results and assumptions, and displays RUN REQUIRED. Response/error writes require matching request generation, coin and split. Finally handlers from superseded requests cannot unlock a newer run or clear its loading state. This is client presentation isolation, not cancellation of server work or a cross-request candle snapshot certificate.
+
+Acceptance: actual-controller behavioral tests cover wrong-coin late responses, overlapping old/new completion and button/busy ownership, clearing all tables and same-coin split changes. Chromium regression delays all three old responses, changes coin, completes a new run, releases old responses and verifies no stale overwrite; split editing clears completed results. Local full suite: 665 total, 658 pass, 0 fail, 7 expected external-PostgreSQL skips; focused race tests 3/3. Lint, syntax, secrets, evidence schema and diff review passed. Read matching PR for final exact remote head, CI/Chromium and merge/main evidence.
+
+Remaining: server-side consistent snapshots, richer research/source verification, advanced risk, paper lifecycle, learning aggregation/calibration, challenger/shadow workflows and external provider/deployment/soak/DR/security evidence. No paid/live Gemini call, credential action, deployment, production mutation or risk increase. Real money OFF; Risk Gate unchanged. Continue authorized actionable paper-V1 work.
+
 ## Current task — bounded rolling fixed-rule backtest windows
 
 Starting refreshed main `0ce393552030202ceec1fea0a76c273842e445fa` is merged PR #97 (candidate `ca74f44c4bf0d0f8728335a7ef0830fd42f8bf2a`): all 14 enabled exact-head push/PR checks passed; merged-main CI `41032746727`, Chromium `41032746744` and lockfile `41032746963` succeeded. No open PR/local edits before this next increment. Section 21/gap audit and applicable-instruction search were retained; no AGENTS.md applies. Do not duplicate #97's whitelist/benchmark fix.
