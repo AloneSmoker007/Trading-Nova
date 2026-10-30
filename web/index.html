@@ -206,6 +206,19 @@
         <p class="panel-note muted">Advisory output only. AI cannot execute orders or modify risk gate parameters.</p>
       </section>
 
+      <!-- On-demand publisher research -->
+      <section class="card" aria-labelledby="publisher-news-title">
+        <div class="card-head">
+          <h2 id="publisher-news-title">Publisher Research</h2>
+          <span class="badge" id="publisher-news-badge" data-state="idle">NOT LOADED</span>
+        </div>
+        <p class="panel-note">Kraken Blog announcements · single publisher · may include promotions. Market-wide headlines; relevance to the selected coin and independent corroboration have not been checked. Council scores do not use this feed.</p>
+        <button type="button" id="publisher-news-load">Load publisher headlines</button>
+        <dl class="values" id="publisher-news-values" aria-live="polite" aria-busy="false"></dl>
+        <ul class="journal-list" id="publisher-news-items" aria-label="Publisher headlines and publication dates"></ul>
+        <p class="panel-note" id="publisher-news-note" role="status" aria-live="polite">Load on demand. Publication time and retrieval time are shown separately.</p>
+      </section>
+
       <!-- Paper Portfolio & Positions -->
       <section class="card" aria-labelledby="portfolio-title">
         <div class="card-head">

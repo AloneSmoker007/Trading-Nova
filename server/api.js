@@ -53,6 +53,7 @@ function unpackJournalSnapshot(value) {
 
 export function createApi({
   market,
+  publisherNews,
   stateFile,
   executionStateFile,
   store,
@@ -437,6 +438,21 @@ export function createApi({
     catch { return fail(503, "unavailable", "watchlist-unavailable", "Saved watchlist could not be read."); }
   }
 
+  async function researchNews(query) {
+    if (query && [...query.keys()].length) {
+      return fail(400, "error", "invalid-research-query", "Publisher research accepts no query parameters.");
+    }
+    try {
+      const snapshot = await publisherNews?.read();
+      if (!snapshot || snapshot.state === "unavailable") {
+        return fail(503, "unavailable", "publisher-research-unavailable", "Publisher research is unavailable. No current article evidence was inferred.");
+      }
+      return ok(snapshot);
+    } catch {
+      return fail(503, "unavailable", "publisher-research-unavailable", "Publisher research is unavailable. No current article evidence was inferred.");
+    }
+  }
+
   async function saveWatchlist(body) {
     let input;
     try { input = typeof body === "string" ? JSON.parse(body) : body; }
@@ -732,7 +748,7 @@ export function createApi({
     }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, watchlist, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
+  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, watchlist, researchNews, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};
