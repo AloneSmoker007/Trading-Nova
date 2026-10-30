@@ -2,6 +2,16 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — complete learning-history pages
+
+Starting main `d61c5fe9bf42312404990bf1bea7391f42f9b8ed`: PR #92 merged, main CI `41021158018`, Chromium `41021157963` and lockfile `41021157968` all succeeded. Open PRs/local edits were empty and no applicable AGENTS.md was found. Implementation commit `0e2da8e6ac44d994ee6bca434cc94bfa5c812563` fixes a reproduced history-completeness gap.
+
+The learning service checked stable page totals but did not require each page to contain the advertised number of rows. Fault-injected short/empty/oversized pages and a nonempty page claiming zero total all returned 200 before the fix; short final pages could silently omit opening fills and alter FIFO interpretation. The service now requires the first page length to equal min(200,total), every subsequent page length to equal its exact remaining request size, and every page to provide an array. Existing bounded totals, changed-total rejection and duplicate-fill validation remain active. An inconsistent page returns the existing sanitized unavailable response and blocks autopsy creation without writes or provider calls.
+
+Real HTTP behavioral tests reproduce all five page-contract violations, verify unchanged fill records/no journal write, compare the complete 202-fill report against all 101 FIFO losses, and retain honest empty-history behavior. Focused learning suites: 17/17. Full local suite: 625 total, 618 pass, 0 fail, 7 expected external-PostgreSQL skips. Lint, secrets, evidence schema and diff checks passed. Read the matching PR for exact remote head and CI/merge evidence.
+
+This validates page cardinality, not a cross-process snapshot certificate: same-count replacement between reads still requires a separate snapshot/revision design. Next prioritize source publication freshness/counter-evidence and structured Council research; trade aggregation/calibration/revalidation and external runtime/deployment/feed-soak/DR/security evidence remain open. Real-money execution remains OFF. No paid call, credential change, risk increase, deployment or production-data mutation occurred.
+
 ## Current task — learning quote-currency integrity
 
 Verified starting main `8eea82983bfebafad7b01bb7dfb543cfe23d082d`: PR #91 merged, main CI `41019547990`, Chromium `41019548040` and lockfile `41019547971` all succeeded; open PRs and local changes were empty. No applicable AGENTS.md was found. Implementation commit `a0bf1c8645ca36a33e1a3484720cd0528e667c70` fixes a newly reproduced learning-path regression rather than repeating the earlier order-path protection.

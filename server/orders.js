@@ -915,10 +915,17 @@ export function createPaperOrderService({
           if (!Number.isSafeInteger(first.total) || first.total < 0 || first.total > DEFAULT_MAX_FILLS) {
             return {state: "error", reason: "paper-learning-history-too-large"};
           }
+          if (!Array.isArray(first.items) || first.items.length !== Math.min(200, first.total)) {
+            return {state: "error", reason: "paper-learning-history-incomplete"};
+          }
           fills = [...first.items];
           for (let offset = fills.length; offset < first.total; offset += 200) {
-            const page = await store.listPage("paper-fills", {limit: Math.min(200, first.total - offset), offset});
+            const limit = Math.min(200, first.total - offset);
+            const page = await store.listPage("paper-fills", {limit, offset});
             if (page.total !== first.total) return {state: "error", reason: "paper-learning-history-changed"};
+            if (!Array.isArray(page.items) || page.items.length !== limit) {
+              return {state: "error", reason: "paper-learning-history-incomplete"};
+            }
             fills.push(...page.items);
           }
         } else {
