@@ -5,6 +5,36 @@ const MAX_HISTORY_ITEMS = 8;
 const MAX_HISTORY_TEXT = 1000;
 const MODEL_RE = /^[A-Za-z0-9._-]{1,80}$/;
 const DEFAULT_MODEL = "gemini-3.8-flash";
+const MAX_PROVIDER_BYTES = 256 * 1024;
+
+async function providerPayload(response, signal) {
+  // Native fetch streams are bounded before JSON parsing, including ignored
+  // metadata. Retain injected JSON-only transports for deterministic tests.
+  if (!response.body?.getReader) {
+    const payload = await response.json();
+    if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_PROVIDER_BYTES) throw new Error("provider body too large");
+    return payload;
+  }
+  const reader = response.body.getReader();
+  const cancel = () => {void reader.cancel().catch(() => {});};
+  signal.addEventListener("abort", cancel, {once: true});
+  try {
+    const declared = response.headers?.get("content-length");
+    if (declared != null && (!/^\d+$/.test(declared) || Number(declared) > MAX_PROVIDER_BYTES)) throw new Error("provider body too large");
+    if (signal.aborted) throw new Error("provider aborted");
+    const chunks = [];
+    let bytes = 0;
+    while (true) {
+      const {done, value} = await reader.read();
+      if (signal.aborted) throw new Error("provider aborted");
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_PROVIDER_BYTES) throw new Error("provider body too large");
+      chunks.push(value);
+    }
+    return JSON.parse(new globalThis.TextDecoder("utf-8", {fatal: true}).decode(Buffer.concat(chunks)));
+  } finally {signal.removeEventListener("abort", cancel); cancel();}
+}
 
 // Configuration is not a live connectivity test. This projection never includes
 // credentials, provider responses or the configured model value.
@@ -99,7 +129,7 @@ export function createTradingTutor({fetchImpl=globalThis.fetch,env=process.env,n
         }),signal:controller.signal
       });
       if (!response || !response.ok) return {status:503,body:{ok:false,state:"unavailable",error:{code:"tutor-provider-unavailable",message:"AI Tutor abhi response nahi de saka. Thori dair baad dobara try karein."}}};
-      const payload=await response.json();
+      const payload=await providerPayload(response,controller.signal);
       const candidate=payload?.candidates?.[0];
       const grounding=candidate?.groundingMetadata || candidate?.grounding_metadata || {};
       const generatedAt=now();

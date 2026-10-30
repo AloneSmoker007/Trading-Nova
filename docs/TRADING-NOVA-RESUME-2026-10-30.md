@@ -2,6 +2,14 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — bounded Gemini response envelope
+
+Refreshed main `33df857f2a14f6c4533ade70433a04047b42c2b1` is merged PR #100; main CI `41055357949`, Chromium `41055357947`, lockfile `41055357993` succeeded. Open PR/local edits empty, no applicable AGENTS.md; read §21 and current audit before work. Existing currency/research/backtest fixes remain merged.
+
+Reproduced before fix: a native provider response containing a small visible answer and 300,000 ignored padding characters returned 200. The 12,000-character answer limit ran only after unbounded response.json parsing. Implementation `360ad3ef55da417c8d5a16e804dbe3ae3768cccc` caps native response bodies at 256 KiB before JSON parsing, rejects oversized/invalid declared lengths, counts actual streamed bytes even with a false small length, cancels readers on overflow/abort/completion and rejects malformed UTF-8. Existing complete-operation deadline and sanitized provider-unavailable response remain active. Injected JSON-only test transports remain compatible with a post-parse serialized-byte check; that fallback is not a claim of pre-parse memory bounds for arbitrary custom transports.
+
+Acceptance: six behavioral tests cover oversized envelope with small answer, stream cancellation, exact limit/one-byte overflow, misleading/oversized lengths, native/injected valid responses, malformed UTF-8 and stalled body deadline cancellation. Full local suite 672 total, 665 pass, 0 fail, 7 expected external-PostgreSQL skips; focused size tests 6/6. Lint, syntax, secret scan, evidence schema and diff review passed. See matching PR for final exact remote candidate, enabled CI/Chromium and merge/main evidence. No new UI/dependencies/provider endpoint, live Gemini/paid call, credential/deployment/production mutation or risk change. This may make unusually large legitimate provider envelopes unavailable; failure is explicit, never truncated into a misleading answer. Real money OFF; Risk Gate unchanged. Remaining research verification, calibration, advanced risk/lifecycle/learning/shadow and external runtime/certification evidence are still open.
+
 ## Current task — token supply consistency with unknown total
 
 Refreshed main `c64bfb24a1334909da98d8c61aa1b40dc1b30e0e` is merged PR #99. Main CI `41040350821`, Chromium `41040350704` and lockfile `41040350692` passed; final evidence reconciled in #99 before this increment. Open PR/local edits empty; no applicable AGENTS.md. Read §21 and current audit; previous currency/research/backtest fixes remain merged, not repeated.
