@@ -14,6 +14,7 @@
   var pendingOrderKey = null;
   var orderSubmissionInProgress = false;
   var orderOutcomeUncertain = false;
+  var verifiedJournalRecords = [];
 
   // Keep the visible history page bounded and independent from order submission.
   var orderHistoryPageSize = 10;
@@ -1065,6 +1066,31 @@
     });
   }
 
+  function syncOrderThesisOptions() {
+    var select = $("order-thesis");
+    if (!select) return;
+    var selected = select.value;
+    var symbol = readSymbol();
+    clear(select);
+    select.appendChild(el("option", null, "No linked thesis"));
+    select.options[0].value = "";
+    verifiedJournalRecords.forEach(function (record) {
+      var entry = record && record.entry;
+      var thesisSymbol = typeof entry?.symbol === "string" ? entry.symbol.toUpperCase() : "GENERAL";
+      if (!record || typeof record.hash !== "string" || !entry
+          || String(entry.type).toLowerCase() !== "thesis"
+          || (thesisSymbol !== "GENERAL" && thesisSymbol !== symbol)) return;
+      var option = el("option", null,
+        "#" + String(record.index) + " · " + thesisSymbol + " · " + String(entry.title || "Untitled thesis"));
+      option.value = record.hash;
+      select.appendChild(option);
+    });
+    select.disabled = select.options.length <= 1;
+    if (Array.prototype.some.call(select.options, function (option) { return option.value === selected; })) {
+      select.value = selected;
+    }
+  }
+
   function renderJournal() {
     setBadge("journal-badge", "loading");
     setBusy("journal-values", true);
@@ -1077,6 +1103,8 @@
       if (result.status === 200 && body && body.ok === true && body.data) {
         var d = body.data;
         var broken = d.integrity === "broken";
+        verifiedJournalRecords = !broken && d.verified === true && Array.isArray(d.entries) ? d.entries : [];
+        syncOrderThesisOptions();
         setBadge("journal-badge", broken ? "error" : (d.state === "empty" ? "empty" : "ok"),
           broken ? "INTEGRITY BROKEN" : (d.state === "empty" ? "EMPTY" : "HASH CHAIN VERIFIED"));
         row(dl, "Total entries", String(d.total));
@@ -1091,11 +1119,15 @@
         });
         note("journal-note", d.note);
       } else {
+        verifiedJournalRecords = [];
+        syncOrderThesisOptions();
         var f = failureState(result);
         setBadge("journal-badge", f.state);
         note("journal-note", f.message);
       }
     }).catch(function (err) {
+      verifiedJournalRecords = [];
+      syncOrderThesisOptions();
       setBadge("journal-badge", "unavailable");
       note("journal-note", err.message);
     }).finally(function () {
@@ -1244,6 +1276,8 @@
       price: Number($("order-price").value),
       reduceOnly: $("order-reduce-only").checked
     };
+    var thesisHash = $("order-thesis").value;
+    if (thesisHash) order.thesisHash = thesisHash;
     if (type === "STOP_LOSS") {
       order.stopPrice = Number($("order-stop-price").value);
       order.price = order.stopPrice;
@@ -1259,7 +1293,7 @@
       return;
     }
 
-    var fingerprint = JSON.stringify([order.symbol, order.side, order.type, order.quantity, order.price, order.reduceOnly]);
+    var fingerprint = JSON.stringify([order.symbol, order.side, order.type, order.quantity, order.price, order.reduceOnly, order.thesisHash || null]);
     if (orderOutcomeUncertain && fingerprint !== pendingOrderFingerprint) {
       setBadge("order-badge", "unavailable", "NOT CONFIRMED");
       note("order-note", "The previous order outcome is unconfirmed. Check the portfolio, then retry the unchanged order in this tab to reuse its idempotency key.");
@@ -1591,6 +1625,7 @@
     });
     $("symbol-input").addEventListener("input", function () {
       $("order-symbol").textContent = this.value.trim().toUpperCase() || "—";
+      syncOrderThesisOptions();
       $("order-price").value = "";
       delete $("order-price").dataset.edited;
     });

@@ -2,6 +2,16 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — verified thesis to paper execution provenance
+
+Base main `05646724c709b897292c30710147e5d3920ba45c`; no open PR or overlapping work existed at start. Implementation commit `7aa62b6392271b0e89308fd497928306db22f4b9` fixes two reproduced gaps: a valid local journal-only snapshot incorrectly blocked paper orders as an invalid portfolio, and the tutor read hash-chain wrapper records at the wrong object level so saved note fields became blank.
+
+Paper orders can now optionally reference a recent verified journal thesis by its sha256 record hash. The server—not the browser—re-verifies journal integrity, exact record hash, thesis type and symbol compatibility before market/risk work. Malformed, missing, non-thesis, mismatched or unverifiable references fail closed without a fill. The verified bounded projection (hash, index, timestamp, symbol and title) persists on paper order and fill records, and the thesis hash is part of idempotency intent so a key cannot be replayed against a different thesis. The browser only offers compatible verified theses and its retry fingerprint includes the selection. Every accepted order still passes the unchanged deterministic Risk Gate; real money remains OFF.
+
+Tutor memory now unwraps verified journal records correctly and includes record hash/index provenance while keeping note text untrusted. Behavioral tests cover valid order/fill linkage, invalid-reference rejection, idempotency conflict, journal-only state, tutor projection and UI/browser request behavior. Local validation: 606 total, 599 pass, 0 fail, 7 expected external-PostgreSQL skips; lint, syntax, secret scan, evidence schema and diff checks passed. Local Playwright is not installed, so the changed deterministic Chromium flow requires the remote browser workflow. Read the matching PR for exact final head, CI, Chromium and merge evidence.
+
+This is not the complete learning loop. Realized outcome attribution, mistake/loss-autopsy records, outcome-aware recall/revalidation, live Gemini/runtime proof and external production evidence remain separate work. No provider call, deployment, paid resource or credential change occurred.
+
 ## Current task — claim-attributed tutor research
 
 Base main `6aaeef7781290bc99bf22ed5e2edc1f4145a5e06`: PR #87 merged; main CI 40955104571 and Chromium 40955104399 passed. No open PR or overlapping local changes at start. The user asked for a larger product increment.

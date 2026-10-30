@@ -67,9 +67,41 @@ export function createApi({
     file: typeof stateFile === "string" ? stateFile + ".watchlist.json" : undefined});
   const paperOrderService = createPaperOrderService({
     market, stateFile, executionStateFile, store, now, tradingMode,
+    resolveThesis: resolveThesisReference,
     feeRate: paperFeeRate,
     slippageBps: paperSlippageBps
   });
+
+  async function resolveThesisReference(order) {
+    const snapshot = await journal();
+    const data = snapshot?.status === 200 && snapshot.body?.ok === true ? snapshot.body.data : null;
+    if (!data || data.verified !== true || !Array.isArray(data.entries)) {
+      return {response: fail(503, "unavailable", "thesis-verification-unavailable",
+        "The journal hash chain could not be verified; the paper order was not accepted.")};
+    }
+    const record = data.entries.find((item) => item?.hash === order.thesisHash);
+    if (!record) {
+      return {response: fail(400, "error", "thesis-not-found",
+        "thesisHash must identify a recent verified journal record.")};
+    }
+    const entry = record.entry;
+    if (!entry || typeof entry.type !== "string" || entry.type.toLowerCase() !== "thesis") {
+      return {response: fail(400, "error", "journal-record-not-thesis",
+        "thesisHash must identify a journal record whose type is thesis.")};
+    }
+    const thesisSymbol = typeof entry.symbol === "string" ? entry.symbol.toUpperCase() : "GENERAL";
+    if (thesisSymbol !== "GENERAL" && thesisSymbol !== order.symbol) {
+      return {response: fail(400, "error", "thesis-symbol-mismatch",
+        "The verified thesis symbol does not match the paper order symbol.")};
+    }
+    return {thesisRef: Object.freeze({
+      hash: record.hash,
+      index: record.index,
+      timestamp: Number.isFinite(entry.timestamp) ? entry.timestamp : null,
+      symbol: thesisSymbol,
+      title: typeof entry.title === "string" ? entry.title.slice(0, 160) : "Untitled thesis"
+    })};
+  }
 
   async function health() {
     const t = now();

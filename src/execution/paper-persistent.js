@@ -63,6 +63,7 @@ export class PersistentPaperEngine {
         ...(order.stopPrice !== null && order.stopPrice !== undefined ? {stopPrice: order.stopPrice} : {}),
         ...(order.takeProfitPrice !== null && order.takeProfitPrice !== undefined ? {takeProfitPrice: order.takeProfitPrice} : {}),
         orderIntentHash: order.orderIntentHash || null,
+        ...(order.thesisRef ? {thesisRef: order.thesisRef} : {}),
         reduceOnly: order.reduceOnly === true,
         side,
         symbol,

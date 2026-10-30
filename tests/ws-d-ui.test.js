@@ -164,9 +164,14 @@ test("paper order ticket only targets the gated paper endpoint", () => {
   assert.match(html, /id="order-quantity"/);
   assert.match(html, /id="order-price"/);
   assert.match(html, /id="order-reduce-only"/);
+  assert.match(html, /id="order-thesis"/);
   assert.match(html, /PAPER \/ SHADOW ONLY/);
   assert.match(app, /fetch\("\/api\/paper\/orders"/);
   assert.match(app, /idempotencyKey/);
+  assert.match(app, /order\.thesisHash = thesisHash/);
+  assert.match(app, /function syncOrderThesisOptions/);
+  assert.match(app, /d\.verified === true/);
+  assert.match(app, /order\.thesisHash \|\| null/);
   assert.match(app, /NO TRADE/);
   assert.match(app, /Risk Gate/);
   assert.match(app, /if \(orderSubmissionInProgress\) return/);
