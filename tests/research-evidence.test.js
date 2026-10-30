@@ -69,3 +69,41 @@ test("tutor API carries safe claim evidence, omits thought text and retains sour
     assert.equal(r.body.data.evidence.sourceDetails[0].retrievedAt, r.body.data.generatedAt);
   }
 });
+
+test("required-claims withholds answers for links-only, forged client evidence and unusable mappings", async () => {
+  const env = {[["GEMINI", "API_KEY"].join("_")]: ["fixture", "only"].join("-")};
+  for (const metadata of [undefined, grounding([]), grounding([support("wrong", 0, 6)]),
+    grounding([support("Answer", 0, 6, [99])]), grounding([support("Answer", 0, 6)], [web("javascript:bad")]),
+    grounding([support("hidden", 0, 6, [0], 1)])]) {
+    const tutor = createTradingTutor({env, fetchImpl: async () => ({ok: true, json: async () => ({candidates: [{
+      content: {parts: [{text: "Answer"}, {text: "hidden", thought: true}]}, groundingMetadata: metadata
+    }]})})});
+    const r = await tutor({message: "Research", researchMode: "required-claims",
+      evidence: {claims: [{text: "Answer", sourceIds: ["S1"]}]}, sources: [{url: "https://example.com/forged"}]});
+    assert.equal(r.status, 503);
+    assert.ok(["tutor-sources-unavailable", "tutor-claims-unavailable"].includes(r.body.error.code));
+    assert.equal(r.body.data, undefined);
+    assert.equal(JSON.stringify(r).includes("Answer"), false, "withheld provider answer must not leak into errors");
+  }
+});
+
+test("required-claims accepts exact UTF8 attribution but exposes partial coverage without claiming verification", async () => {
+  const env = {[["GEMINI", "API_KEY"].join("_")]: ["fixture", "only"].join("-")};
+  const text = "قیمت 📈";
+  let sent;
+  const tutor = createTradingTutor({env, now: () => 123, fetchImpl: async (_url, options) => {
+    sent = JSON.parse(options.body);
+    return {ok: true, json: async () => ({candidates: [{content: {parts: [{text: text + " Unmapped opinion."}]},
+      groundingMetadata: grounding([support(text, 0, Buffer.byteLength(text))])}]})};
+  }});
+  const r = await tutor({message: "Research", researchMode: "required-claims"});
+  assert.equal(r.status, 200);
+  assert.equal(r.body.data.researchMode, "required-claims");
+  assert.equal(r.body.data.evidence.coveredCharacters, text.length);
+  assert.equal(r.body.data.evidence.answerCharacters, r.body.data.answer.length);
+  assert.ok(r.body.data.evidence.coveredCharacters < r.body.data.evidence.answerCharacters);
+  assert.equal(r.body.data.evidence.attribution, "provider-reported-not-independently-verified");
+  assert.equal(r.body.data.evidence.publicationFreshness, "unknown");
+  assert.match(sent.contents.at(-1).parts[0].text, /exact visible text segment/);
+  assert.deepEqual(sent.tools, [{google_search: {}}]);
+});

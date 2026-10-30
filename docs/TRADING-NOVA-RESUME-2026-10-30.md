@@ -2,6 +2,16 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — strict tutor text-attribution requirement
+
+Refreshed starting main `fba3f12d90098e3d69d9b52f91a0e26dac69a259` (PR #95 merged): main CI `41026643781`, Chromium `41026644073` and lockfile `41026643822` succeeded. No open PR, local changes or applicable AGENTS.md was found. Read the locked section 21 and current gap audit before continuing. Implementation commit `3124a93f697d96f32bec8b1f28e593ec7af376b5` adds a bounded missing research-quality slice; existing required-sources deliberately accepts safe links without claim mappings and is not relabelled a vulnerability.
+
+Acceptance: opt-in `researchMode: "required-claims"` requires returned safe grounding sources AND at least one valid exact visible text segment mapped to those sources. Links-only, mismatched/hidden/out-of-range/unsafe mappings and client-forged evidence cannot satisfy it. Failure returns sanitized 503 without the withheld answer. Web-disabled preflight rejects before optional quote, journal or structured-research work. Existing auto/required-sources behavior remains compatible. Browser control explicitly says at least one segment; it implies sources even when the older checkbox is clear. Evidence panels expose mapped/unmapped text counts rather than implying full-answer coverage or confidence. Counts use the existing JavaScript string-offset convention, not UTF-8 byte offsets or semantic claim counts.
+
+Local validation: 653 total, 646 pass, 0 fail, 7 expected external-PostgreSQL skips; focused evidence/status/structured-context tests 25/25. Lint, syntax, evidence schema and diff checks passed. Secret scan was initially run concurrently with temporary-directory tests and hit a removed test directory; re-running it after the suite passed without changing scanner controls. Chromium checks added for strict-mode request, links-only rejection, withheld-answer history isolation and partial-coverage display. Read the matching PR for exact remote candidate, Chromium/CI and merge/main evidence; local checks alone do not establish those outcomes.
+
+This is provider attribution, not independent claim verification, complete claim coverage, source independence or publication freshness. No live Gemini/paid call or deployment was performed. Real provider/runtime proof, semantic claim/counter-claim verification, independent editorial sources, calibration and external certification remain pending. No risk/order controls changed; real money OFF. Continue remaining paper-V1 work without duplicating this slice once its matching PR is merged.
+
 ## Current task — items 1/2: structured coin research and Council/tutor context
 
 Starting main `0fa5795bc02b8c39eb370ae0b94b4bed1f585e49`: PR #94 merged, main CI `41023946019`, Chromium `41023946021` and lockfile `41023946055` succeeded; no open PR/local changes or applicable AGENTS.md. User explicitly requested research quality and Council integration (items 1 and 2). Core implementation `de2a0977503e790bffb32c95545c6440ba14800b`, adjacent attribution improvement `62fe2fa5dc8abb711708bf57d766f2597875c0d8`.

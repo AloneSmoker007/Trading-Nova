@@ -141,15 +141,19 @@ async function installApiFixtures(page) {
     if (pathname === "/api/tutor/chat" && request.method() === "POST") {
       const tutorInput = request.postDataJSON();
       tutorRequests.push(tutorInput);
-      const unavailable = tutorReplyMode === "uncited";
+      const missingClaims = tutorInput.researchMode === "required-claims" && tutorReplyMode === "sources-only";
+      const unavailable = tutorReplyMode === "uncited" || missingClaims;
       await route.fulfill({status: unavailable ? 503 : 200, contentType: "application/json", body: JSON.stringify(unavailable ? {
-        ok: false, state: "unavailable", error: {code: "tutor-sources-unavailable", message: "Web sources nahi mile; current answer unavailable."}
-      } : {ok: true, data: {answer: "Source-backed fixture explanation.", research: "grounded", researchMode: "required-sources",
+        ok: false, state: "unavailable", error: {code: missingClaims ? "tutor-claims-unavailable" : "tutor-sources-unavailable",
+          message: missingClaims ? "Sources mile lekin valid text mapping nahi mili; jawab rok diya gaya." : "Web sources nahi mile; current answer unavailable."}
+      } : {ok: true, data: {answer: "Source-backed fixture explanation.", research: "grounded", researchMode: tutorInput.researchMode,
         ...(tutorInput.includeResearchContext ? {structuredResearch: researchFixture()} : {}),
         sources: [{title: "Fixture research", url: "https://example.com/research"}],
         evidence: {state: tutorReplyMode === "sources-only" ? "sources-only" : "claim-attributed",
+          coveredCharacters: tutorReplyMode === "sources-only" ? 0 : "Source-backed".length,
+          answerCharacters: "Source-backed fixture explanation.".length,
           sourceDetails: [{id: "S1", sourceIndex: 0, retrievedAt: 123, publishedAt: null}],
-          claims: tutorReplyMode === "sources-only" ? [] : [{text: "Source-backed fixture explanation.", start: 0, end: "Source-backed fixture explanation.".length, sourceIds: ["S1"]}]}, note: "Returned fixture sources; no paper order submitted."}})});
+          claims: tutorReplyMode === "sources-only" ? [] : [{text: "Source-backed", start: 0, end: "Source-backed".length, sourceIds: ["S1"]}]}, note: "Returned fixture sources; no paper order submitted."}})});
       return;
     }
 
@@ -628,6 +632,25 @@ async function main() {
         await page.locator(".tutor-evidence").last().getByText("Claim evidence unavailable", {exact: true}).waitFor();
         assert.equal(await page.locator(".tutor-evidence").last().locator(".tutor-evidence-claim").count(), 0);
 
+        await page.locator("#tutor-require-sources").uncheck();
+        await page.locator("#tutor-require-claims").check();
+        const answerCount = await page.locator(".tutor-evidence").count();
+        await page.locator("#tutor-input").fill("Strict research without mapping");
+        await page.locator("#tutor-send-btn").click();
+        await page.locator("#tutor-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
+        assert.equal(tutorRequests[3].researchMode, "required-claims", "strict mode implies sources even when sources checkbox is clear");
+        assert.equal(await page.locator(".tutor-evidence").count(), answerCount, "withheld answer adds no evidence or sources");
+        tutorReplyMode = "grounded";
+        await page.locator("#tutor-input").fill("Strict research with partial text mapping");
+        await page.locator("#tutor-send-btn").click();
+        await page.locator("#tutor-badge").getByText("WEB SOURCES", {exact: true}).waitFor();
+        assert.equal(tutorRequests[4].researchMode, "required-claims");
+        assert.deepEqual(tutorRequests[4].history, tutorRequests[3].history, "withheld strict answer does not enter recall history");
+        const strictEvidence = page.locator(".tutor-evidence").last();
+        await strictEvidence.locator("summary").click();
+        await strictEvidence.locator(".tutor-evidence-coverage").getByText(/Text mapping: 13 \/ 34 characters\. Baqi 21 characters unmapped\. Yeh confidence score nahi\./).waitFor();
+        assert.equal(await strictEvidence.locator(".tutor-evidence-claim").count(), 1);
+
         tutorSetupMode = "web-off";
         await page.locator("#tutor-check-status-btn").click();
         await page.getByText(/Web research band hai; sources-required sawal available nahi/).waitFor();
@@ -635,7 +658,7 @@ async function main() {
         await page.locator("#tutor-check-status-btn").click();
         await page.getByText("AI setup check ke liye connection nahi mila. Dobara try karein.", {exact: true}).waitFor();
         assert.equal(await page.locator("#tutor-send-btn").isDisabled(), true);
-        assert.equal(tutorRequests.length, 3);
+        assert.equal(tutorRequests.length, 5);
       } finally {
         tutorSetupMode = "unconfigured";
         tutorReplyMode = "grounded";

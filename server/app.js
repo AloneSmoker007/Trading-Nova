@@ -89,7 +89,7 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
         // Fail closed on tutor configuration before spending any market-data quota.
         // Keep this guard aligned with createTradingTutor configuration validation.
         const configuration=tutorConfigurationStatus();
-        if(!configuration.configured||(validated.researchMode==="required-sources"&&!configuration.webResearchEnabled)){
+        if(!configuration.configured||(validated.researchMode!=="auto"&&!configuration.webResearchEnabled)){
           const out=await tutorChat({...input,message:validated.message,history:input.history??[]},null);sendJson(res,out.status,out.body);return;
         }
         let context=null;

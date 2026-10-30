@@ -31,6 +31,7 @@ test("setup projection distinguishes configuration from live connection and neve
 test("sources-required input is explicit and unknown modes fail before provider calls", async () => {
   assert.equal(validateInput({message: "hello"}).researchMode, "auto");
   assert.equal(validateInput({message: "hello", researchMode: "required-sources"}).researchMode, "required-sources");
+  assert.equal(validateInput({message: "hello", researchMode: "required-claims"}).researchMode, "required-claims");
   let calls = 0;
   const tutor = createTradingTutor({env: configuredEnv(), fetchImpl: async () => {calls++; return response();}});
   for (const researchMode of [null, true, {}, "anything"]) {
@@ -46,9 +47,11 @@ test("sources-required mode fails without any egress when web research is disabl
   for (const flag of ["false", "0"]) {
     const tutor = createTradingTutor({env: configuredEnv({GEMINI_WEB_RESEARCH: flag}),
       fetchImpl: async () => {calls++; return response();}});
-    const result = await tutor({message: "Current research", researchMode: "required-sources"});
-    assert.equal(result.status, 503);
-    assert.equal(result.body.error.code, "tutor-research-disabled");
+    for (const researchMode of ["required-sources", "required-claims"]) {
+      const result = await tutor({message: "Current research", researchMode});
+      assert.equal(result.status, 503);
+      assert.equal(result.body.error.code, "tutor-research-disabled");
+    }
   }
   assert.equal(calls, 0);
 });
@@ -84,7 +87,7 @@ test("sources-required success returns actual grounding links and keeps ordinary
   assert.equal(ordinary.body.data.research, "enabled-no-sources");
 });
 
-async function withServer(operation, {web = "true", keyed = true} = {}) {
+async function withServer(operation, {web = "true", keyed = true, providerResponse = response} = {}) {
   const changes = {[keyName]: keyed ? credential : undefined, GEMINI_MODEL: undefined,
     GEMINI_WEB_RESEARCH: web, NODE_ENV: "development"};
   const previous = Object.fromEntries(Object.keys(changes).map(key => [key, process.env[key]]));
@@ -92,7 +95,7 @@ async function withServer(operation, {web = "true", keyed = true} = {}) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
   let calls = 0;
-  const server = createNovaServer({fetchImpl: async () => {calls++; return response();},
+  const server = createNovaServer({fetchImpl: async () => {calls++; return providerResponse();},
     stateFile: "/nonexistent/tutor-status-state.json", executionStateFile: "/nonexistent/tutor-status-orders.json"});
   try {
     await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -132,11 +135,32 @@ test("HTTP setup check supports GET/HEAD, rejects writes and performs no provide
 
 test("HTTP sources-required disabled preflight rejects before optional market lookup", async () => {
   await withServer(async (base, calls) => {
-    const result = await fetch(base + "/api/tutor/chat", {method: "POST",
-      headers: {"content-type": "application/json"},
-      body: JSON.stringify({message: "Current research", symbol: "BTCUSDT", researchMode: "required-sources"})});
-    assert.equal(result.status, 503);
-    assert.equal((await result.json()).error.code, "tutor-research-disabled");
+    for (const researchMode of ["required-sources", "required-claims"]) {
+      const result = await fetch(base + "/api/tutor/chat", {method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({message: "Current research", symbol: "BTCUSDT", includeResearchContext: true, researchMode})});
+      assert.equal(result.status, 503);
+      assert.equal((await result.json()).error.code, "tutor-research-disabled");
+    }
     assert.equal(calls(), 0);
   }, {web: "false"});
+});
+
+test("HTTP required-claims withholds links-only answers while required-sources remains compatible", async () => {
+  await withServer(async (base, calls) => {
+    for (const researchMode of ["required-claims", "required-sources"]) {
+      const result = await fetch(base + "/api/tutor/chat", {method: "POST", headers: {"content-type": "application/json"},
+        body: JSON.stringify({message: "Research", researchMode})});
+      const body = await result.json();
+      if (researchMode === "required-claims") {
+        assert.equal(result.status, 503);
+        assert.equal(body.error.code, "tutor-claims-unavailable");
+        assert.equal(body.data, undefined);
+      } else {
+        assert.equal(result.status, 200);
+        assert.equal(body.data.evidence.state, "sources-only");
+      }
+    }
+    assert.equal(calls(), 2);
+  }, {providerResponse: () => response(["https://example.com/research"])});
 });
