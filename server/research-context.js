@@ -70,6 +70,7 @@ function tokenMetrics(snapshot, asset, assessedAt) {
   if (!valid(row.market_cap) || !valid(row.circulating_supply)
       || !(row.total_supply === null || valid(row.total_supply)) || !(row.max_supply === null || valid(row.max_supply))
       || (row.total_supply !== null && row.circulating_supply > row.total_supply * (1 + 1e-9))
+      || (row.max_supply !== null && row.circulating_supply > row.max_supply * (1 + 1e-9))
       || (row.max_supply !== null && row.total_supply !== null && row.total_supply > row.max_supply * (1 + 1e-9))) return empty;
   return {...empty, ...observedState(snapshot, isoTime(row.last_updated), assessedAt, 1800000),
     data: {marketCapUsd: row.market_cap, circulatingSupply: row.circulating_supply, totalSupply: row.total_supply, maxSupply: row.max_supply},

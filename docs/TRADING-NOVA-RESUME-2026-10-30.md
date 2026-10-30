@@ -2,6 +2,14 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — token supply consistency with unknown total
+
+Refreshed main `c64bfb24a1334909da98d8c61aa1b40dc1b30e0e` is merged PR #99. Main CI `41040350821`, Chromium `41040350704` and lockfile `41040350692` passed; final evidence reconciled in #99 before this increment. Open PR/local edits empty; no applicable AGENTS.md. Read §21 and current audit; previous currency/research/backtest fixes remain merged, not repeated.
+
+Reproduced with an injected provider payload: circulating supply 21, known maximum 20, unknown total supply null returned tokenMetrics/state ok. Validation compared circulating against total and total against maximum, so null total bypassed the upper bound. Implementation `01bffd0f0292c609fb78249066ed6f6c3259f84f` independently compares circulating to a known maximum using the existing numeric tolerance. Inconsistent metrics become unavailable with data null; required-research Council returns WAIT/no opportunity score. Equal-to-maximum supply remains valid, unknown total stays null and unknown maximum is not invented as a zero cap.
+
+Behavioral regression covers invalid payload, equal-bound and unknown-max controls, and the real HTTP Council path. Local full suite 666 total, 659 pass, 0 fail, 7 expected external-PostgreSQL skips; focused structured research 10/10. Lint, syntax, secrets, evidence schema and diff review passed. Existing enabled Chromium/CI must be verified on the final remote candidate; see matching PR for exact head, merge/main results. No new browser flow, source call or dependencies. Remaining semantic/source freshness/independence/calibration and production provider evidence are not certified by numeric consistency. Wider risk/lifecycle/learning/shadow gaps remain. No paid/live Gemini, credential, deployment, production-data or risk action; real money OFF and Risk Gate unchanged.
+
 ## Current task — discard Strategy Lab results after selection changes
 
 Starting refreshed remote main `60f8dcf4614d5b4fad4d640948d9b22435a5d02d` is merged PR #98: main CI `41033842543`, Chromium `41033842787` and lockfile `41033842635` succeeded. Open PR/local edits empty; no applicable AGENTS.md. Read locked §21 and gap audit before work; prior quote-currency/research/benchmark/rolling fixes are already merged and not repeated.
