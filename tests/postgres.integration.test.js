@@ -37,6 +37,29 @@ async function withStore(work){
   finally{ await store.pool.end(); }
 }
 
+auditRun("PostgreSQL paper sequence serializes concurrent clients and rolls back with failed fills", async()=>withStore(async store=>{
+  const batch=randomUUID();
+  const before=await store.get("paper-sequence","global");
+  await assert.rejects(store.transactIdempotent(`sequence-rollback-${batch}`,async tx=>{
+    await tx.nextPaperSequence();
+    await tx.put("sequence-proof",batch,{partial:true});
+    throw new Error("injected sequence rollback");
+  }),/injected sequence rollback/);
+  assert.deepEqual(await store.get("paper-sequence","global"),before);
+  assert.equal(await store.get("sequence-proof",batch),null);
+  const values=await Promise.all(Array.from({length:8},(_,i)=>store.transactIdempotent(`sequence-${batch}-${i}`,async tx=>{
+    const sequence=await tx.nextPaperSequence();
+    await tx.put("sequence-proof",`${batch}-${i}`,{sequence});
+    return sequence;
+  })));
+  assert.equal(new Set(values).size,8);
+  assert.ok(values.every(n=>Number.isSafeInteger(n)&&n>0));
+  const sorted=[...values].sort((a,b)=>a-b);
+  assert.equal(sorted.at(-1)-sorted[0],7);
+  const replay=await store.transactIdempotent(`sequence-${batch}-0`,()=>{throw new Error("replay must not allocate");});
+  assert.equal(replay,values[0]);
+}));
+
 run("PostgreSQL real integration: health, persistence and migration state", async()=>withStore(async store=>{
   assert.equal(await store.health(),true);
   assert.equal(await store.assertReady(),true);
@@ -176,6 +199,7 @@ auditRun("PostgreSQL real integration: paper orders survive restart and replay i
     const first=await service.submit(order);
     assert.equal(first.status,200);
     assert.equal(first.body.data.fill.status,"RECONCILED");
+    assert.ok(Number.isSafeInteger(first.body.data.fill.executionSequence));
     await firstStore.pool.end();
 
     recoveryStore=await createPostgresStore({
@@ -188,6 +212,7 @@ auditRun("PostgreSQL real integration: paper orders survive restart and replay i
     assert.equal(replay.status,200);
     assert.equal(replay.body.data.state,"replayed");
     assert.equal(replay.body.data.fill.orderId,first.body.data.fill.orderId);
+    assert.equal(replay.body.data.fill.executionSequence,first.body.data.fill.executionSequence);
     assert.equal((await recoveryStore.list("paper-fills")).length,1);
 
     const portfolio=await recovered.getPortfolio();

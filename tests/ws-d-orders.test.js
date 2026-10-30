@@ -42,7 +42,8 @@ function asyncStore({healthy = true} = {}) {
       .map(([, value]) => value),
     transactIdempotent: (key, operation) => durable.transactIdempotent(key, (tx) => operation({
       get: async (...args) => tx.get(...args),
-      put: async (...args) => tx.put(...args)
+      put: async (...args) => tx.put(...args),
+      nextPaperSequence: async () => tx.nextPaperSequence()
     }))
   };
 }

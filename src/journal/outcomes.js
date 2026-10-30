@@ -43,8 +43,13 @@ function validatedFill(fill) {
       || !Number.isFinite(fill.timestamp) || fill.timestamp < 0) {
     throw new Error("invalid paper fill in outcome history");
   }
+  const sequenced = fill.executionSequence !== undefined || fill.sequenceVersion !== undefined;
+  if (sequenced && (fill.sequenceVersion !== 1 || !Number.isSafeInteger(fill.executionSequence) || fill.executionSequence < 1)) {
+    throw new Error("invalid paper fill execution sequence");
+  }
   return {
     id,
+    ...(sequenced ? {executionSequence: fill.executionSequence} : {}),
     orderId: fill.orderId,
     symbol: fill.symbol,
     side: fill.side,
@@ -70,17 +75,29 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
   }
   if (fills.length > maxFills) throw new Error("paper fill history exceeds the outcome limit");
 
-  const ordered = fills.map(validatedFill).sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
+  const ordered = fills.map(validatedFill).sort((a, b) => a.timestamp - b.timestamp
+    || (a.executionSequence ?? Infinity) - (b.executionSequence ?? Infinity) || a.id.localeCompare(b.id));
   const ids = new Set();
+  const sequences = new Set();
+  const lastSequenceBySymbol = new Map();
   const timestampsBySymbol = new Map();
   for (const item of ordered) {
     if (ids.has(item.id)) throw new Error("duplicate paper fill in outcome history");
     ids.add(item.id);
     // IDs are identity, not an authoritative execution sequence. A timestamp
     // tie within one asset can reverse FIFO direction/thesis attribution.
-    const timestamps = timestampsBySymbol.get(item.symbol) || new Set();
-    if (timestamps.has(item.timestamp)) throw new Error("ambiguous paper fill chronology");
-    timestamps.add(item.timestamp);
+    const timestamps = timestampsBySymbol.get(item.symbol) || new Map();
+    if (timestamps.has(item.timestamp) && (timestamps.get(item.timestamp) === undefined || item.executionSequence === undefined)) {
+      throw new Error("ambiguous paper fill chronology");
+    }
+    if (item.executionSequence !== undefined) {
+      if (sequences.has(item.executionSequence) || item.executionSequence <= (lastSequenceBySymbol.get(item.symbol) || 0)) {
+        throw new Error("inconsistent paper fill execution sequence");
+      }
+      sequences.add(item.executionSequence);
+      lastSequenceBySymbol.set(item.symbol, item.executionSequence);
+    }
+    timestamps.set(item.timestamp, item.executionSequence);
     timestampsBySymbol.set(item.symbol, timestamps);
   }
 
