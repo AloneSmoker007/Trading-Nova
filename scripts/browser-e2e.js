@@ -26,6 +26,7 @@ let fixtureWatchlistRevision = 0;
 let watchlistWriteMode = "ok";
 const watchlistWrites = [];
 const fixtureThesisHash = "a".repeat(64);
+const fixtureLossAutopsies = [];
 
 function fillsForPage(offset, limit = 10) {
   const total = 25;
@@ -125,13 +126,32 @@ async function installApiFixtures(page) {
       return;
     }
 
+    if (pathname === "/api/journal/entry" && request.method() === "POST") {
+      const input = request.postDataJSON();
+      if (input.type === "loss-autopsy" && input.outcomeId === "fixture-outcome") {
+        fixtureLossAutopsies.push({
+          recordHash: "b".repeat(64), recordIndex: 1, timestamp: 456,
+          outcomeId: input.outcomeId, thesisHash: fixtureThesisHash, symbol: "BTCUSDT",
+          title: input.title, text: input.text, tags: [], source: "user-authored-loss-autopsy"
+        });
+      }
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: {
+        state: "ok", record: {index: 1, hash: "b".repeat(64), entry: input}
+      }})});
+      return;
+    }
+
     if (pathname === "/api/learning/outcomes" && request.method() === "GET") {
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({
         ok: true,
         data: {
           state: "ok", version: 1, accounting: "FIFO", currency: "USDT", fillCount: 2,
           summary: {outcomeCount: 1, linkedOutcomeCount: 1, unlinkedOutcomeCount: 0,
-            wins: 0, losses: 1, breakeven: 0, realizedNetPnl: -2, openLotCount: 0},
+            wins: 0, losses: 1, breakeven: 0, realizedNetPnl: -2, openLotCount: 0,
+            lossAutopsyCount: fixtureLossAutopsies.length,
+            reviewedLossCount: fixtureLossAutopsies.length ? 1 : 0,
+            unreviewedLossCount: fixtureLossAutopsies.length ? 0 : 1},
+          reviewState: "verified", lossAutopsies: fixtureLossAutopsies,
           outcomes: [{
             outcomeId: "fixture-outcome", status: "REALIZED", source: "paper-fill-fifo-v1",
             symbol: "BTCUSDT", direction: "LONG", quantity: 0.01, openedAt: 1, closedAt: 2,
@@ -410,6 +430,27 @@ async function main() {
         assert.match(outcome, /Browser verified thesis/);
         assert.match(outcome, /LOSS/);
         assert.match(outcome, /after \$2 fees/);
+      } finally {
+        await page.close();
+      }
+    });
+
+    await run("loss autopsy binds the user review to a server-derived loss", async () => {
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#learning-badge").getByText("SERVER-DERIVED", {exact: true}).waitFor();
+        await page.locator("#journal-type-select").selectOption("loss-autopsy");
+        await page.locator("#journal-outcome-select option", {hasText: "BTCUSDT · LONG"}).waitFor({state: "attached"});
+        assert.equal(await page.locator("#journal-outcome-select").isDisabled(), false);
+        await page.locator("#journal-outcome-select").selectOption("fixture-outcome");
+        await page.locator("#journal-title-input").fill("Fee discipline review");
+        await page.locator("#journal-text-input").fill("I ignored simulated fees.");
+        await page.getByRole("button", {name: "Save Entry"}).click();
+        await page.getByText(/USER-REVIEWED/).waitFor();
+        const learning = await page.locator("#learning-outcomes").innerText();
+        assert.match(learning, /User loss autopsy/);
+        assert.match(learning, /Fee discipline review/);
+        assert.match(learning, /I ignored simulated fees/);
       } finally {
         await page.close();
       }

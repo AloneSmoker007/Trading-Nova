@@ -2,6 +2,18 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — verified user loss autopsy
+
+Base main `97ce9c83013244626cfe7dd03e67510e1d9bfd5a`; PR #90 and merged-main CI/Chromium/lockfile were green, and no open PR or overlapping work existed at start. Implementation commit `f7c1d21a9872bcbd6b928ac958f066ff5ad90d59` closes the reproduced gap that “Mistake Review” accepted free text without binding it to any server-derived paper loss, so it could not safely support outcome learning.
+
+A `loss-autopsy` journal entry now requires the exact sha256 ID of an existing realized FIFO `LOSS`. Before appending anything, the server rebuilds the complete bounded fill report, rejects malformed/fake/open/WIN references, and copies the immutable outcome ID, thesis hash, symbol, result, net P&L, close time and derivation source into the hash-chained review record. User-supplied symbol or P&L cannot override those facts. The learning report joins reviews back only when the journal chain verifies and every copied field still exactly matches the current server-derived outcome; a hash-valid but semantically forged or stale review makes the review projection unavailable without hiding the independent execution outcomes.
+
+The dashboard offers only actual realized losses in the autopsy selector, shows reviewed-loss coverage, labels linked notes `USER-REVIEWED`, and keeps unlinked mistake/outcome notes explicitly separate. Gemini receives at most five loss autopsies only when their outcome is in the already bounded verified execution context. Its system instruction treats the review text/tags as user claims—not execution facts, verified causes, autonomous training or proof of strategy quality. Real-money execution and the deterministic Risk Gate are unchanged.
+
+Behavioral coverage includes a persisted thesis → losing round trip → autopsy, fake-ID and realized-WIN rejection, server-authoritative symbol/fact projection, verified journal persistence, reviewed/unreviewed counts, semantic-forgery fail-closed behavior, tutor context/source labelling, static UI contracts and a deterministic Chromium form flow. Local validation: 615 total, 608 pass, 0 fail, 7 expected external-PostgreSQL skips; focused learning/tutor/UI coverage, lint, secret scan, evidence schema, syntax and diff checks passed. The Playwright package is unavailable to the local ESM runtime, so final Chromium behavior requires the remote workflow. Read the matching PR for exact remote head, CI, merge and merged-main evidence.
+
+This slice records user-reviewed reflection; it does not infer causality, mistakes or lessons automatically and does not aggregate repeated partial-close reviews into calibration statistics. Trade-level aggregation, calibration/revalidation feedback, production reconciliation and live Gemini/runtime proof remain separate work. No deployment, paid call, credential change or external certification occurred.
+
 ## Current task — server-derived thesis outcome learning
 
 Base main `d4a551f36173068545c078f4b932dd5bda9aa511`; PR #89 and merged-main CI/Chromium/lockfile were green, and no open PR or overlapping work existed at start. Implementation commit `eabd5a5d5c39a93ebe2ea497965147c91ecedcff` closes the next bounded learning gap without accepting user-authored P&L as an execution fact.

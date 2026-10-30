@@ -120,7 +120,8 @@ export async function appendJournalToFile(stateFile, entryData, now = Date.now()
     symbol: entryData.symbol || "GENERAL",
     title: entryData.title || "User Entry",
     text: entryData.text || "",
-    tags: Array.isArray(entryData.tags) ? entryData.tags : []
+    tags: Array.isArray(entryData.tags) ? entryData.tags : [],
+    ...(entryData.reviewOf ? {reviewOf: entryData.reviewOf} : {})
   });
 
   raw.journal = journal;

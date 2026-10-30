@@ -518,11 +518,63 @@ export function createApi({
       return fail(503, "unavailable", "paper-learning-unavailable",
         "Paper execution history could not be converted into a complete learning report.");
     }
+    let reviewState = "unavailable";
+    let lossAutopsies = [];
+    const journalSnapshot = await journal();
+    const journalData = journalSnapshot?.status === 200 && journalSnapshot.body?.ok === true
+      ? journalSnapshot.body.data : null;
+    if (journalData?.verified === true && Array.isArray(journalData.entries)
+        && Number.isSafeInteger(journalData.total) && journalData.total === journalData.entries.length) {
+      const outcomes = new Map(report.outcomes.map((outcome) => [outcome.outcomeId, outcome]));
+      let reviewsValid = true;
+      const reviews = [];
+      for (const record of journalData.entries) {
+        const entry = record?.entry;
+        if (!entry || String(entry.type).toLowerCase() !== "loss-autopsy") continue;
+        const ref = entry.reviewOf;
+        const outcome = ref && outcomes.get(ref.outcomeId);
+        if (!outcome || outcome.result !== "LOSS"
+            || ref.thesisHash !== (outcome.thesisRef?.hash || null)
+            || ref.symbol !== outcome.symbol || ref.result !== outcome.result
+            || ref.netPnl !== outcome.netPnl || ref.closedAt !== outcome.closedAt
+            || ref.source !== outcome.source) {
+          reviewsValid = false;
+          break;
+        }
+        reviews.push({
+          recordHash: record.hash,
+          recordIndex: record.index,
+          timestamp: entry.timestamp,
+          outcomeId: ref.outcomeId,
+          thesisHash: ref.thesisHash,
+          symbol: ref.symbol,
+          title: typeof entry.title === "string" ? entry.title.slice(0, 160) : "Loss autopsy",
+          text: typeof entry.text === "string" ? entry.text.slice(0, 2000) : "",
+          tags: Array.isArray(entry.tags) ? entry.tags.slice(0, 20) : [],
+          source: "user-authored-loss-autopsy"
+        });
+      }
+      if (reviewsValid) {
+        reviewState = "verified";
+        lossAutopsies = reviews;
+      }
+    }
+    const reviewedLosses = new Set(lossAutopsies.map((review) => review.outcomeId));
+    const losses = report.outcomes.filter((outcome) => outcome.result === "LOSS");
     return ok({
       ...report,
+      reviewState,
+      lossAutopsies,
+      summary: {
+        ...report.summary,
+        lossAutopsyCount: reviewState === "verified" ? lossAutopsies.length : null,
+        reviewedLossCount: reviewState === "verified" ? reviewedLosses.size : null,
+        unreviewedLossCount: reviewState === "verified"
+          ? losses.filter((outcome) => !reviewedLosses.has(outcome.outcomeId)).length : null
+      },
       note: report.state === "empty"
         ? "No realized paper outcomes yet. Open positions and unmatched fills are not invented as outcomes. Real money OFF."
-        : "Server-derived FIFO outcomes from reconciled paper fills, including simulated fees. These are paper results, not live trading or profitability evidence."
+        : "Server-derived FIFO outcomes from reconciled paper fills, including simulated fees. Loss autopsies are hash-chained user reviews, not execution facts or profitability evidence."
     });
   }
 
@@ -607,16 +659,52 @@ export function createApi({
     if (!parsed || typeof parsed !== "object" || typeof parsed.text !== "string" || !parsed.text.trim()) {
       return fail(400, "error", "invalid-entry", "journal entry text is required");
     }
+    const type = typeof parsed.type === "string" ? parsed.type.trim().toLowerCase().slice(0, 40) : "thesis";
+    let reviewOf;
+    if (type === "loss-autopsy") {
+      if (parsed.text.trim().length > 2000) {
+        return fail(400, "error", "loss-autopsy-too-long",
+          "loss-autopsy text must contain at most 2000 characters");
+      }
+      if (typeof parsed.outcomeId !== "string" || !/^[a-f0-9]{64}$/.test(parsed.outcomeId)) {
+        return fail(400, "error", "invalid-learning-outcome-id",
+          "loss-autopsy entries require a lowercase sha256 outcomeId");
+      }
+      const report = await paperOrderService.getLearningReport();
+      if (report.state === "error") {
+        return fail(503, "unavailable", "paper-learning-unavailable",
+          "Paper execution history could not be verified; the loss autopsy was not saved.");
+      }
+      const outcome = report.outcomes.find((item) => item.outcomeId === parsed.outcomeId);
+      if (!outcome) {
+        return fail(400, "error", "learning-outcome-not-found",
+          "outcomeId must identify an existing server-derived realized paper outcome");
+      }
+      if (outcome.result !== "LOSS") {
+        return fail(400, "error", "loss-autopsy-requires-loss",
+          "loss-autopsy entries can only review a server-derived realized LOSS");
+      }
+      reviewOf = {
+        outcomeId: outcome.outcomeId,
+        thesisHash: outcome.thesisRef?.hash || null,
+        symbol: outcome.symbol,
+        result: outcome.result,
+        netPnl: outcome.netPnl,
+        closedAt: outcome.closedAt,
+        source: outcome.source
+      };
+    }
     try {
       const entryData = {
         timestamp: now(),
-        type: typeof parsed.type === "string" ? parsed.type.slice(0, 40) : "thesis",
-        symbol: typeof parsed.symbol === "string" ? parsed.symbol.toUpperCase().slice(0, 24) : "GENERAL",
+        type,
+        symbol: reviewOf?.symbol || (typeof parsed.symbol === "string" ? parsed.symbol.toUpperCase().slice(0, 24) : "GENERAL"),
         title: typeof parsed.title === "string" ? parsed.title.slice(0, 160) : "User Entry",
         text: parsed.text.trim(),
         tags: Array.isArray(parsed.tags)
           ? parsed.tags.filter((tag) => typeof tag === "string").slice(0, 20).map((tag) => tag.slice(0, 40))
-          : []
+          : [],
+        ...(reviewOf ? {reviewOf} : {})
       };
       let record;
       if (store) {
