@@ -1661,6 +1661,11 @@
     var panel = el("details", "tutor-evidence");
     panel.appendChild(el("summary", null, evidence.state === "claim-attributed" ? "Claim evidence — provider attribution" : "Claim evidence unavailable"));
     panel.appendChild(el("p", "panel-note", "Source milna correctness ka proof nahi. Publication date/freshness unknown; retrieval time publication time nahi. Unmapped text ke liye claim citation nahi mili."));
+    if (Number.isSafeInteger(evidence.coveredCharacters) && evidence.coveredCharacters >= 0
+        && evidence.answerCharacters === data.answer.length && evidence.coveredCharacters <= evidence.answerCharacters) {
+      panel.appendChild(el("p", "tutor-evidence-coverage", "Text mapping: " + evidence.coveredCharacters + " / " + evidence.answerCharacters +
+        " characters. Baqi " + (evidence.answerCharacters - evidence.coveredCharacters) + " characters unmapped. Yeh confidence score nahi."));
+    }
     var list = el("ol");
     (Array.isArray(evidence.claims) ? evidence.claims : []).slice(0, 32).forEach(function (claim) {
       if (!claim || !Number.isSafeInteger(claim.start) || !Number.isSafeInteger(claim.end)
@@ -1708,7 +1713,7 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: message, history: priorHistory, symbol: symbol,
-        researchMode: $("tutor-require-sources").checked ? "required-sources" : "auto",
+        researchMode: $("tutor-require-claims").checked ? "required-claims" : $("tutor-require-sources").checked ? "required-sources" : "auto",
         includeResearchContext: $("tutor-include-research").checked })
     }).then(function (result) {
       if (result.status === 200 && result.body && result.body.ok === true && result.body.data) {
