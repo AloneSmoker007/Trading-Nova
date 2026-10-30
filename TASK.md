@@ -16,8 +16,12 @@ Completed and merged. CI is green. Paper/shadow foundation certified only; live-
 - [x] Checksum-verified migration runner
 - [x] PostgreSQL driver dependency/factory
 - [x] CI-safe injected-pool regression tests
-- [ ] Real deployment backup/restore drill
-- [ ] Crash-recovery drill against a real PostgreSQL service
+- [x] Backup/restore drill against a real PostgreSQL 17.11 service (local drill host only; production rerun with measured RTO/RPO still open)
+- [x] Crash-recovery drill against a real PostgreSQL service (`npm run recovery:crash`, incl. `-m immediate` restart)
+- [ ] Real production deployment backup/restore drill with measured RTO/RPO
+
+Evidence: `docs/TASK-25-RECOVERY-DRILL-EVIDENCE.md`. A production deployment
+rerun is still required before V1; local drill results are not production evidence.
 
 ## Tasks 26–34 — Production Completion Layer
 Implemented and merged. External operational evidence remains required before live-money promotion.
