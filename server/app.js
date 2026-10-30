@@ -118,13 +118,18 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
           const journalData=journalSnapshot?.status===200&&journalSnapshot.body?.ok===true
             ?journalSnapshot.body.data:null;
           if(journalData?.verified===true&&Array.isArray(journalData.entries)){
-            const entries=journalData.entries.slice(-5).map((entry)=>({
-              timestamp:Number.isFinite(entry?.timestamp)?entry.timestamp:null,
-              type:typeof entry?.type==="string"?entry.type.slice(0,40):"note",
-              symbol:typeof entry?.symbol==="string"?entry.symbol.slice(0,24):"GENERAL",
-              title:typeof entry?.title==="string"?entry.title.slice(0,120):"Saved note",
-              text:typeof entry?.text==="string"?entry.text.slice(0,350):""
-            }));
+            const entries=journalData.entries.slice(-5).map((record)=>{
+              const entry=record?.entry&&typeof record.entry==="object"?record.entry:record;
+              return {
+                recordHash:typeof record?.hash==="string"?record.hash:null,
+                recordIndex:Number.isSafeInteger(record?.index)?record.index:null,
+                timestamp:Number.isFinite(entry?.timestamp)?entry.timestamp:null,
+                type:typeof entry?.type==="string"?entry.type.slice(0,40):"note",
+                symbol:typeof entry?.symbol==="string"?entry.symbol.slice(0,24):"GENERAL",
+                title:typeof entry?.title==="string"?entry.title.slice(0,120):"Saved note",
+                text:typeof entry?.text==="string"?entry.text.slice(0,350):""
+              };
+            });
             context={...(context||{}),learningMemory:{
               state:entries.length?"verified-recent-notes":"verified-but-empty",
               journalIntegrity:"verified",

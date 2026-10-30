@@ -25,6 +25,7 @@ let fixtureWatchlist = ["BTCUSDT", "ETHUSDT"];
 let fixtureWatchlistRevision = 0;
 let watchlistWriteMode = "ok";
 const watchlistWrites = [];
+const fixtureThesisHash = "a".repeat(64);
 
 function fillsForPage(offset, limit = 10) {
   const total = 25;
@@ -106,6 +107,21 @@ async function installApiFixtures(page) {
         evidence: {state: tutorReplyMode === "sources-only" ? "sources-only" : "claim-attributed",
           sourceDetails: [{id: "S1", sourceIndex: 0, retrievedAt: 123, publishedAt: null}],
           claims: tutorReplyMode === "sources-only" ? [] : [{text: "Source-backed fixture explanation.", start: 0, end: "Source-backed fixture explanation.".length, sourceIds: ["S1"]}]}, note: "Returned fixture sources; no paper order submitted."}})});
+      return;
+    }
+
+    if (pathname === "/api/journal" && request.method() === "GET") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({
+        ok: true,
+        data: {
+          state: "ok", verified: true, integrity: "verified", total: 1, returned: 1,
+          entries: [{
+            index: 0, previousHash: "GENESIS", hash: fixtureThesisHash,
+            entry: {timestamp: 123, type: "thesis", symbol: "BTCUSDT", title: "Browser verified thesis", text: "Fixture only"}
+          }],
+          note: "Verified browser fixture journal."
+        }
+      })});
       return;
     }
 
@@ -345,11 +361,15 @@ async function main() {
 
         await page.locator("#order-quantity").fill("0.001");
         await page.locator("#order-price").fill("42000.5");
+        await page.locator("#order-thesis option", {hasText: "Browser verified thesis"}).waitFor({state: "attached"});
+        assert.equal(await page.locator("#order-thesis").isDisabled(), false);
+        await page.locator("#order-thesis").selectOption(fixtureThesisHash);
         await page.getByRole("button", {name: "Submit Paper Order"}).click();
         await page.getByText("NO TRADE", {exact: true}).waitFor();
 
         assert.equal(requestBodies.length, 1);
         assert.equal(requestBodies[0].type, "MARKET");
+        assert.equal(requestBodies[0].thesisHash, fixtureThesisHash);
         assert.equal(typeof requestBodies[0].idempotencyKey, "string");
         assert.ok(requestBodies[0].idempotencyKey.length > 0);
         assert.match(await page.locator("#order-note").innerText(), /MAX_POSITION/);

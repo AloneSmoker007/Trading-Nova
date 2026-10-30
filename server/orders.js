@@ -24,7 +24,7 @@ const DEFAULT_RISK_CONFIG = Object.freeze({
 const {config: RISK_CONFIG, hash: RISK_CONFIG_HASH} = createRiskConfig(DEFAULT_RISK_CONFIG);
 // This terminal has one USDT cash ledger; no FX conversion ledger exists.
 const supportsPaperQuote = (symbol) => typeof symbol === "string" && /^[A-Z0-9]{1,20}USDT$/.test(symbol);
-const ALLOWED_FIELDS = new Set(["symbol", "side", "quantity", "price", "idempotencyKey", "reduceOnly", "type", "stopPrice", "takeProfitPrice"]);
+const ALLOWED_FIELDS = new Set(["symbol", "side", "quantity", "price", "idempotencyKey", "reduceOnly", "type", "stopPrice", "takeProfitPrice", "thesisHash"]);
 const fail = (status, code, message, reason) => ({
   status,
   body: {ok: false, state: "error", error: {code, message, ...(reason ? {reason} : {})}}
@@ -63,6 +63,10 @@ function parseOrderRequest(body) {
   }
   if (body.reduceOnly !== undefined && typeof body.reduceOnly !== "boolean") {
     return {error: {code: "invalid-reduce-only", message: "reduceOnly must be a boolean"}};
+  }
+  if (body.thesisHash !== undefined
+      && (typeof body.thesisHash !== "string" || !/^[a-f0-9]{64}$/.test(body.thesisHash))) {
+    return {error: {code: "invalid-thesis-hash", message: "thesisHash must be a lowercase sha256 journal record hash"}};
   }
   const type = typeof body.type === "string" ? body.type.toUpperCase() : "MARKET";
   if (!["MARKET", "LIMIT", "STOP_LOSS", "TAKE_PROFIT"].includes(type)) {
@@ -105,6 +109,7 @@ function parseOrderRequest(body) {
     limitPrice: type === "LIMIT" ? price : null,
     stopPrice,
     takeProfitPrice,
+    thesisHash: body.thesisHash ?? null,
     idempotencyKey: body.idempotencyKey.trim(),
     reduceOnly: body.reduceOnly === true
   }};
@@ -117,7 +122,8 @@ function orderIntentHash(order) {
     quantity: order.quantity,
     type: order.type || "MARKET",
     price: order.type === "MARKET" ? null : order.price,
-    reduceOnly: order.reduceOnly === true
+    reduceOnly: order.reduceOnly === true,
+    thesisHash: order.thesisHash || null
   };
   return createHash("sha256").update(JSON.stringify(intent)).digest("hex");
 }
@@ -219,7 +225,8 @@ export function createPaperOrderService({
   tradingMode = "paper",
   maxMarketAgeMs = 10000,
   feeRate = DEFAULT_PAPER_FEE_RATE,
-  slippageBps = DEFAULT_PAPER_SLIPPAGE_BPS
+  slippageBps = DEFAULT_PAPER_SLIPPAGE_BPS,
+  resolveThesis
 }) {
   const executionCostConfig = validatePaperExecutionCostConfig({feeRate, slippageBps});
   const store = configuredStore ?? new DurableStore();
@@ -280,7 +287,11 @@ export function createPaperOrderService({
     const snapshot = await loadPaperState(stateFile, now());
     if (snapshot.state === "error") return {error: "paper-state-error", reason: snapshot.reason};
     if (snapshot.journal?.integrity === "broken") return {error: "paper-journal-integrity-broken"};
-    if (snapshot.state === "empty") {
+    // A journal-only snapshot is valid: the state schema deliberately makes
+    // portfolio optional. Start from the same default paper portfolio used
+    // when no snapshot exists; malformed supplied portfolios already fail in
+    // loadPaperState and never reach this branch.
+    if (snapshot.state === "empty" || snapshot.portfolio === null) {
       return {
         state: "empty",
         portfolio: buildPortfolioState({cash: 10000, startingEquity: 10000, positions: []}),
@@ -411,6 +422,7 @@ export function createPaperOrderService({
         takeProfitPrice: fill.takeProfitPrice ?? null,
         reduceOnly: fill.reduceOnly === true,
         orderIntentHash: fill.orderIntentHash || null,
+        ...(fill.thesisRef ? {thesisRef: fill.thesisRef} : {}),
         status: "FILLED",
         createdAt: fill.timestamp || now(),
         updatedAt: fill.timestamp || now(),
@@ -443,6 +455,7 @@ export function createPaperOrderService({
       takeProfitPrice: order.takeProfitPrice,
       reduceOnly: order.reduceOnly === true,
       orderIntentHash: orderIntentHash(order),
+      ...(order.thesisRef ? {thesisRef: order.thesisRef} : {}),
       status,
       createdAt: t,
       updatedAt: t,
@@ -552,6 +565,22 @@ export function createPaperOrderService({
       const parsed = parseOrderRequest(body);
       if (parsed.error) return {status: 400, body: {ok: false, state: "error", error: parsed.error}};
       const order = parsed.order;
+      if (order.thesisHash) {
+        if (typeof resolveThesis !== "function") {
+          return unavailable("thesis-verification-unavailable", "the journal thesis verifier is unavailable");
+        }
+        let resolution;
+        try {
+          resolution = await resolveThesis(order);
+        } catch {
+          return unavailable("thesis-verification-unavailable", "the journal thesis verifier is unavailable");
+        }
+        if (resolution?.response) return resolution.response;
+        if (!resolution?.thesisRef || resolution.thesisRef.hash !== order.thesisHash) {
+          return unavailable("thesis-verification-unavailable", "the journal thesis verifier returned no matching provenance");
+        }
+        order.thesisRef = resolution.thesisRef;
+      }
       const intentHash = orderIntentHash(order);
       const prior = await store.get("paper-fills", order.idempotencyKey);
       if (prior) {
@@ -657,7 +686,8 @@ export function createPaperOrderService({
             ...gatedOrder, id: orderRecord.orderId, orderId: orderRecord.orderId,
             idempotencyKey: order.idempotencyKey, type: order.type,
             limitPrice: order.limitPrice, stopPrice: order.stopPrice,
-            takeProfitPrice: order.takeProfitPrice, orderIntentHash: intentHash
+            takeProfitPrice: order.takeProfitPrice, orderIntentHash: intentHash,
+            thesisRef: order.thesisRef
           },
           {
             markPrice: gatedOrder.price,
@@ -763,7 +793,8 @@ export function createPaperOrderService({
             ...gatedOrder, id: order.orderId, orderId: order.orderId,
             idempotencyKey: order.idempotencyKey, type: order.type,
             limitPrice: order.limitPrice, stopPrice: order.stopPrice,
-            takeProfitPrice: order.takeProfitPrice, orderIntentHash: order.orderIntentHash
+            takeProfitPrice: order.takeProfitPrice, orderIntentHash: order.orderIntentHash,
+            thesisRef: order.thesisRef
           },
           {
             markPrice: execution.executionPrice,

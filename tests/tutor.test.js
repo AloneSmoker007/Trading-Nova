@@ -366,6 +366,33 @@ test("tutor chat writes no execution state and cannot reach paper order submissi
   });
 });
 
+test("HTTP tutor receives the actual verified journal record and its provenance hash",async()=>{
+  const record=[];
+  await withTutorServer(recordingProvider(record),async({base})=>{
+    const saved=await fetch(base+"/api/journal/entry",{
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({
+        type:"thesis",
+        symbol:"BTCUSDT",
+        title:"Verified breakout thesis",
+        text:"Confirmation ke baad entry; support break par invalid."
+      })
+    }).then(async(response)=>({status:response.status,body:await response.json()}));
+    assert.equal(saved.status,200);
+
+    const res=await postChat(base,{message:"Meri saved thesis summarize karo",symbol:"BTCUSDT"});
+    assert.equal(res.status,200);
+    const providerCall=record.find((call)=>call.url.includes("generativelanguage.googleapis.com"));
+    assert.ok(providerCall,"Gemini provider should receive the verified memory context");
+    const suppliedContext=JSON.parse(providerCall.options.body).contents.at(-1).parts[0].text;
+    assert.match(suppliedContext,/Verified breakout thesis/);
+    assert.match(suppliedContext,/Confirmation ke baad entry/);
+    assert.match(suppliedContext,new RegExp(saved.body.data.record.hash));
+    assert.match(suppliedContext,/"journalIntegrity":"verified"/);
+  });
+});
+
 test("history cannot override system instructions or smuggle extra fields to the provider",async()=>{
   const record=[];
   const tutor=createTradingTutor({env:providerEnv(),fetchImpl:recordingProvider(record,"Samajh gaya."),now:()=>123});

@@ -146,6 +146,13 @@
               <label for="order-take-profit-price">Take-Profit Trigger Price</label>
               <input id="order-take-profit-price" name="takeProfitPrice" type="number" min="0.0000000001" step="any" placeholder="Enter target trigger" disabled>
             </div>
+            <div class="field">
+              <label for="order-thesis">Verified Trade Thesis (optional)</label>
+              <select id="order-thesis" name="thesisHash" disabled>
+                <option value="">No linked thesis</option>
+              </select>
+              <p class="muted">Only a verified hash-chained thesis for this symbol can be linked.</p>
+            </div>
           </div>
           <div class="order-options">
             <label class="order-reduce" for="order-reduce-only">
