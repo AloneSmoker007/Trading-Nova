@@ -31,6 +31,16 @@ let publisherNewsMode = "ok";
 let publisherNewsRequests = 0;
 let releasePublisherNews = null;
 let publisherNewsStarted = null;
+let structuredResearchMode = "ok";
+function researchFixture() {
+  return {symbol: "BTCUSDT", state: structuredResearchMode, sourceCoverage: {eligiblePublisherCount: structuredResearchMode === "ok" ? 2 : 1},
+    counterEvidence: {state: "candidates-found", candidateIds: ["bitfinex-blog:1"]},
+    tokenMetrics: {state: "ok", sourceId: "coingecko", sourceUrl: "https://www.coingecko.com/en/coins/bitcoin", data: {marketCapUsd: 1000000, circulatingSupply: 10}},
+    bitcoinSentiment: {state: "ok", attribution: "Alternative.me", sourceUrl: "https://alternative.me/crypto/fear-and-greed-index/", data: {value: 30, classification: "Fear"}},
+    headlines: [{id: "kraken-blog:1", title: "Bitcoin upgrade launches", url: "https://blog.kraken.com/fixture", eligible: true, publishedAt: 1793361600000},
+      {id: "bitfinex-blog:1", title: "Bitcoin hack risk", url: "https://blog.bitfinex.com/fixture", eligible: true, publishedAt: 1793361600000}],
+    limitations: ["Headline cues are candidates, not verified contradictions. No directional score weight."]};
+}
 
 function fillsForPage(offset, limit = 10) {
   const total = 25;
@@ -60,6 +70,11 @@ async function installApiFixtures(page) {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
+    if (pathname.startsWith("/api/research/context/")) {
+      if (structuredResearchMode === "offline") {await route.abort("failed"); return;}
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: researchFixture()})});
+      return;
+    }
 
     if (pathname === "/api/research/news") {
       publisherNewsRequests++;
@@ -124,11 +139,13 @@ async function installApiFixtures(page) {
     }
 
     if (pathname === "/api/tutor/chat" && request.method() === "POST") {
-      tutorRequests.push(request.postDataJSON());
+      const tutorInput = request.postDataJSON();
+      tutorRequests.push(tutorInput);
       const unavailable = tutorReplyMode === "uncited";
       await route.fulfill({status: unavailable ? 503 : 200, contentType: "application/json", body: JSON.stringify(unavailable ? {
         ok: false, state: "unavailable", error: {code: "tutor-sources-unavailable", message: "Web sources nahi mile; current answer unavailable."}
       } : {ok: true, data: {answer: "Source-backed fixture explanation.", research: "grounded", researchMode: "required-sources",
+        ...(tutorInput.includeResearchContext ? {structuredResearch: researchFixture()} : {}),
         sources: [{title: "Fixture research", url: "https://example.com/research"}],
         evidence: {state: tutorReplyMode === "sources-only" ? "sources-only" : "claim-attributed",
           sourceDetails: [{id: "S1", sourceIndex: 0, retrievedAt: 123, publishedAt: null}],
@@ -197,6 +214,8 @@ async function installApiFixtures(page) {
       }
       const unavailable = councilMode === "unavailable";
       const stale = councilMode === "stale";
+      const useResearch = url.searchParams.get("research") === "required";
+      const researchBlocked = useResearch && structuredResearchMode !== "ok";
       await route.fulfill({
         status: unavailable ? 503 : 200,
         contentType: "application/json",
@@ -206,13 +225,14 @@ async function installApiFixtures(page) {
         } : {
           ok: true,
           data: {state: stale ? "stale" : "ok", council: {
-            opportunityScore: stale ? null : 78,
-            decision: stale ? "WAIT" : "RESEARCH_READY",
+            opportunityScore: stale || researchBlocked ? null : 78,
+            decision: stale || researchBlocked ? "WAIT" : "RESEARCH_READY",
             uncertainty: stale ? "High" : "low",
             roles: [{displayName: "Technical indicators", displayStatus: "FIXTURE", score: 78,
               reason: "Deterministic browser fixture", basis: "Synthetic test input only"}],
             explanation: stale ? "WAIT/NO-TRADE: stale market snapshot." : "Fresh fixture research.",
             dataCoverage: {note: "Fixture: no live news feed connected."}
+            ,...(useResearch ? {structuredResearch: researchFixture()} : {})
           }}
         })
       });
@@ -619,6 +639,38 @@ async function main() {
       } finally {
         tutorSetupMode = "unconfigured";
         tutorReplyMode = "grounded";
+        await page.close();
+      }
+    });
+
+    await run("coin research context reaches Council and tutor with counter-evidence candidate labels", async () => {
+      councilMode = "fresh"; tutorSetupMode = "configured"; structuredResearchMode = "partial";
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#council-require-research").check();
+        await page.locator("#ai-badge").getByText("RESEARCH INCOMPLETE", {exact: true}).waitFor();
+        assert.equal(await page.locator("#ai-score-val").innerText(), "N/A");
+        assert.equal(await page.locator("#ai-decision-badge").innerText(), "WAIT");
+        structuredResearchMode = "ok";
+        await page.locator("#structured-research-load").click();
+        await page.locator("#structured-research-result").getByText(/BTCUSDT · OK/).waitFor();
+        assert.match(await page.locator("#structured-research-result").innerText(), /COUNTER-EVIDENCE CANDIDATE/);
+        assert.match(await page.locator("#structured-research-result").innerText(), /Alternative.me/);
+        assert.equal(await page.locator("#structured-research-result a[href='https://blog.bitfinex.com/fixture']").count(), 1);
+        await page.locator("#tutor-include-research").check();
+        await page.locator("#tutor-input").fill("Review the BTC source context");
+        await page.locator("#tutor-send-btn").click();
+        const panel = page.locator("#tutor-messages details").last();
+        await panel.getByText("Server research context — source IDs, not Google claim citations", {exact: true}).waitFor();
+        await panel.locator("summary").click();
+        assert.match(await panel.innerText(), /bitfinex-blog:1/);
+        assert.equal(tutorRequests.at(-1).includeResearchContext, true);
+        structuredResearchMode = "offline";
+        await page.locator("#structured-research-load").click();
+        await page.locator("#structured-research-result").getByText(/No current conclusion was inferred/).waitFor();
+        assert.equal(await page.locator("#structured-research-result a").count(), 0);
+      } finally {
+        structuredResearchMode = "ok"; tutorSetupMode = "unconfigured"; councilMode = "unavailable";
         await page.close();
       }
     });

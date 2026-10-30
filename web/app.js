@@ -695,13 +695,15 @@
     var symbol = readSymbol();
     if (!symbol) return Promise.resolve();
 
-    return api("/api/ai/council/" + encodeURIComponent(symbol)).then(function (result) {
+    var requireResearch = $("council-require-research").checked;
+    return api("/api/ai/council/" + encodeURIComponent(symbol) + (requireResearch ? "?research=required" : "")).then(function (result) {
       if (requestId !== aiCouncilRequestId || symbol !== readSymbol()) return;
       var body = result.body;
       if (result.status === 200 && body && body.ok === true && body.data?.council) {
         var c = body.data.council;
         var stale = body.data.state === "stale";
-        setBadge("ai-badge", stale ? "stale" : "ok", stale ? "STALE SNAPSHOT" : "ANALYZED");
+        var incompleteResearch = c.structuredResearch && c.structuredResearch.state !== "ok";
+        setBadge("ai-badge", stale || incompleteResearch ? "stale" : "ok", stale ? "STALE SNAPSHOT" : incompleteResearch ? "RESEARCH INCOMPLETE" : "ANALYZED");
 
         $("ai-score-val").textContent = Number.isFinite(c.opportunityScore) ? c.opportunityScore + " / 100" : "N/A";
         setBadge("ai-decision-badge", c.decision === "WAIT" ? "no-trade" : "ok", c.decision);
@@ -727,6 +729,7 @@
           ? c.dataCoverage.note
           : "Company fundamentals, public news and social-sentiment feeds are not connected. Proxy inputs are not substitutes for those sources.";
         $("ai-explanation").textContent = c.explanation;
+        if (c.structuredResearch) showStructuredResearch($("structured-research-result"), c.structuredResearch);
       } else {
         clearAiCouncil("unavailable", "UNAVAILABLE", "Current analysis unavailable. WAIT/NO-TRADE until fresh market data returns.");
       }
@@ -1191,6 +1194,67 @@
   }
 
   var publisherNewsBusy = false;
+  var structuredResearchRequestId = 0;
+  function showStructuredResearch(container, data) {
+    clear(container);
+    container.appendChild(el("p", null, data.symbol + " · " + String(data.state).toUpperCase() + " · limited confidence"));
+    var values = el("dl", "values");
+    row(values, "Eligible publishers", String(data.sourceCoverage?.eligiblePublisherCount || 0) + " / 2 (commercial, not independently corroborated)");
+    row(values, "Counter-evidence candidates", data.counterEvidence?.state || "unavailable");
+    row(values, "Token metrics (CoinGecko)", data.tokenMetrics?.state || "unavailable");
+    row(values, "Token metrics observed (UTC)", Number.isFinite(data.tokenMetrics?.observedAt) ? new Date(data.tokenMetrics.observedAt).toISOString() : "unknown");
+    if (data.tokenMetrics?.data) {
+      row(values, "Market cap (USD)", "$" + fmtNum(data.tokenMetrics.data.marketCapUsd));
+      row(values, "Circulating supply", fmtNum(data.tokenMetrics.data.circulatingSupply));
+    }
+    row(values, "Bitcoin sentiment (Alternative.me)", data.bitcoinSentiment?.state === "not-applicable" ? "Bitcoin only — not applicable to selected coin"
+      : data.bitcoinSentiment?.data ? String(data.bitcoinSentiment.data.value) + " · " + data.bitcoinSentiment.data.classification + " · " + data.bitcoinSentiment.state
+        : data.bitcoinSentiment?.state || "unavailable");
+    row(values, "Bitcoin index observed (UTC)", Number.isFinite(data.bitcoinSentiment?.observedAt) ? new Date(data.bitcoinSentiment.observedAt).toISOString() : "unknown");
+    container.appendChild(values);
+    var links = el("ul", "journal-list");
+    var candidates = new Set(data.counterEvidence?.candidateIds || []);
+    (data.headlines || []).slice(0, 20).forEach(function (item) {
+      try {
+        var url = new URL(item.url);
+        if (url.protocol !== "https:" || !["blog.kraken.com", "blog.bitfinex.com"].includes(url.hostname) || url.port || url.username || url.password) return;
+        var li = el("li");
+        var link = el("a", null, item.id + " · " + item.title);
+        link.href = url.href; link.target = "_blank"; link.rel = "noopener noreferrer";
+        li.appendChild(link);
+        li.appendChild(el("p", "muted", (item.eligible ? "Eligible dated headline" : "Stale / undated / unavailable-source headline")
+          + (candidates.has(item.id) ? " · COUNTER-EVIDENCE CANDIDATE (headline cue only)" : "")
+          + " · Published UTC: " + (Number.isFinite(item.publishedAt) ? new Date(item.publishedAt).toISOString() : "unknown")));
+        links.appendChild(li);
+      } catch (_err) { /* No unsafe source links. */ }
+    });
+    container.appendChild(links);
+    [data.tokenMetrics, data.bitcoinSentiment].forEach(function (source) {
+      if (!source?.sourceUrl) return;
+      try {
+        var url = new URL(source.sourceUrl);
+        if (url.protocol !== "https:" || !["www.coingecko.com", "alternative.me"].includes(url.hostname) || url.username || url.password || url.port) return;
+        var link = el("a", null, (source.attribution || source.sourceId) + " · source metrics/index");
+        link.href = url.href; link.target = "_blank"; link.rel = "noopener noreferrer";
+        container.appendChild(link);
+      } catch (_err) { /* No unsafe source links. */ }
+    });
+    (data.limitations || []).forEach(function (text) {container.appendChild(el("p", "panel-note", text));});
+  }
+  function renderStructuredResearch() {
+    var symbol = readSymbol();
+    var requestId = ++structuredResearchRequestId;
+    var result = $("structured-research-result");
+    clear(result); result.appendChild(el("p", null, "Research loading…"));
+    return api("/api/research/context/" + encodeURIComponent(symbol)).then(function (response) {
+      if (requestId !== structuredResearchRequestId || symbol !== readSymbol()) return;
+      if (response.status !== 200 || !response.body?.ok) throw new Error("Structured research unavailable for this coin.");
+      showStructuredResearch(result, response.body.data);
+    }).catch(function (error) {
+      if (requestId !== structuredResearchRequestId || symbol !== readSymbol()) return;
+      clear(result); result.appendChild(el("p", null, error.message + " No current conclusion was inferred."));
+    });
+  }
   function renderPublisherNews() {
     if (publisherNewsBusy) return Promise.resolve();
     publisherNewsBusy = true;
@@ -1644,13 +1708,21 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: message, history: priorHistory, symbol: symbol,
-        researchMode: $("tutor-require-sources").checked ? "required-sources" : "auto" })
+        researchMode: $("tutor-require-sources").checked ? "required-sources" : "auto",
+        includeResearchContext: $("tutor-include-research").checked })
     }).then(function (result) {
       if (result.status === 200 && result.body && result.body.ok === true && result.body.data) {
         var answer = result.body.data.answer;
         addTutorMessage("model", answer);
         addTutorSources(result.body.data.sources);
         addTutorEvidence(result.body.data);
+        if (result.body.data.structuredResearch) {
+          var researchPanel = el("details", "tutor-evidence");
+          researchPanel.appendChild(el("summary", null, "Server research context — source IDs, not Google claim citations"));
+          var researchContent = el("div");
+          showStructuredResearch(researchContent, result.body.data.structuredResearch);
+          researchPanel.appendChild(researchContent); $("tutor-messages").appendChild(researchPanel);
+        }
         tutorHistory.push({ role: "user", text: message }, { role: "model", text: answer });
         tutorHistory = tutorHistory.slice(-8);
         var research = result.body.data.research;
@@ -1758,6 +1830,8 @@
       refreshAll();
     });
     $("symbol-input").addEventListener("input", function () {
+      structuredResearchRequestId++;
+      clear($("structured-research-result"));
       $("order-symbol").textContent = this.value.trim().toUpperCase() || "—";
       syncOrderThesisOptions();
       $("order-price").value = "";
@@ -1791,6 +1865,8 @@
     $("tutor-form").addEventListener("submit", submitTutorMessage);
     $("tutor-check-status-btn").addEventListener("click", renderTutorStatus);
     $("publisher-news-load").addEventListener("click", renderPublisherNews);
+    $("structured-research-load").addEventListener("click", renderStructuredResearch);
+    $("council-require-research").addEventListener("change", renderAiCouncil);
     renderTutorStatus();
     configureLogout();
 
