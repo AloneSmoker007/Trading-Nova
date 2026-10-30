@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { appendJournalEntry, verifyJournal } from "../journal/journal.js";
+import {nextPaperSequence} from "./paper-sequence.js";
 
 // Canonical (key-order stable) serialization used for checkpoint integrity.
 function stable(value) {
@@ -79,6 +80,7 @@ export class DurableStore {
         put: (namespace, id, value) => this.put(namespace, id, value),
         get: (namespace, id) => this.get(namespace, id)
       };
+      tx.nextPaperSequence = () => nextPaperSequence(tx);
       this._activeTx = tx;
       let result;
       try {

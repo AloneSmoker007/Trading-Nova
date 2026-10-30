@@ -1,4 +1,5 @@
 import {createHash} from "node:crypto";
+import {nextPaperSequence} from "./paper-sequence.js";
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -61,6 +62,10 @@ export class PostgresStore {
       // The operation must write through `tx` so its writes join THIS
       // transaction (H3): store.put on a pooled connection would escape it.
       const tx={client,put:(ns,id,value)=>this.put(ns,id,value,client),get:(ns,id)=>this.get(ns,id,client)};
+      tx.nextPaperSequence=async()=>{
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",["trading_nova:paper-sequence:"+(this.schema??"public")]);
+        return nextPaperSequence(tx);
+      };
       const result=await operation(tx);
       if(result===undefined) throw new Error("idempotent operation must return a result");
       const cached=structuredClone(result);

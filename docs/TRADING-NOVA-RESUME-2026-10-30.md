@@ -2,6 +2,18 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — transactional sequence for new paper fills
+
+Starting refreshed main `ca3e8f0ba4706dc995f2864b5d8eaa52b6948370` is merged PR #102; main CI `41066997211`, Chromium `41066997226` and lockfile `41066997236` succeeded. No open PR/local edits or applicable AGENTS.md. Read §21/current audit; retain legacy ambiguity protection rather than reverting it.
+
+Implementation `5ad249044b26ae9cc65f5b35a099885889feb103` assigns each new Risk-Gate-authorized persistent fill sequenceVersion 1 and a positive safe executionSequence. A counter in paper-sequence/global commits atomically with fill, portfolio/order writes and idempotency result. Local store transaction serialization protects it; PostgreSQL uses a schema-scoped transaction advisory lock before reading/incrementing the counter. Failed callbacks roll back allocation; replay returns original sequence without increment; snapshot/restart preserves counter. No migration or historical backfill. Malformed/exhausted counters fail before fill commit. Client-provided sequence fields are ignored.
+
+FIFO may resolve same-symbol timestamp ties only when every tied fill has valid distinct new sequence metadata. Legacy/mixed ties, duplicate/invalid sequences and timestamp/sequence reversals remain unavailable. Existing distinct-time outcomes retain their accounting/identity. Wall-clock regression is not silently repaired. This is ordering evidence within trusted persistent fill state, not independent attestation or a cross-request snapshot certificate. Cross-process portfolio transition locking remains separate work.
+
+Local validation: 679 total, 671 pass, 0 fail, 8 expected external-PostgreSQL skips (one new real concurrency/rollback proof). Focused sequence/durable tests 11/11. Gate, rollback, 8 concurrent allocations, replay, snapshot restore, same-time FIFO, legacy/invalid controls covered. Existing test adapters now expose the transaction sequence contract; exact snapshot assertions require the counter plus fill, preserving no-extra-write checks. Lint, syntax, secrets, evidence schema and diff review passed. Real PostgreSQL integration adds concurrent-client uniqueness/rollback/replay proof and extends reconnect fill replay assertions; do not claim it passed until matching remote CI confirms. Read matching PR for exact final head, CI/Chromium and merge/main evidence.
+
+Remaining: authoritative legacy reconciliation, consistent snapshots, cross-process portfolio/lifecycle correctness, learning aggregation/calibration and research/risk/shadow features; external live provider/deployment/soak/DR/security evidence stays pending. No live Gemini/paid call, credentials, deployment, production-data mutation or risk increase. Real money OFF and every new fill still requires server Risk Gate authority.
+
 ## Current task — ambiguous fill chronology must not invent learning provenance
 
 Starting refreshed main `aa3227951aecddafd31222c60670dc01f2fa6c63` is merged PR #101; main CI `41064190789`, Chromium `41064191094` and lockfile `41064190887` passed. No open PR/local edits or applicable AGENTS.md. Read §21/current audit before work; prior merged fixes remain completed.

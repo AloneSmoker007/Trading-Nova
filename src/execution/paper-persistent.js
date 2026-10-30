@@ -55,7 +55,10 @@ export class PersistentPaperEngine {
       }
       // No order executes without a genuine ALLOW artifact bound to this payload.
       assertGateArtifact(gateArtifact, gatedOrder);
+      const executionSequence = await writer.nextPaperSequence();
       const fill = {
+        sequenceVersion: 1,
+        executionSequence,
         orderId: order.orderId || order.idempotencyKey,
         idempotencyKey: order.idempotencyKey,
         type: order.type || "MARKET",
