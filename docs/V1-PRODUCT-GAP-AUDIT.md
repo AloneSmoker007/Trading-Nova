@@ -5,6 +5,8 @@
 **Scope:** locked Product Contract in docs/TRADING-NOVA-MASTER-ROADMAP.md, section 21 (lines 242–283), actual browser UI, HTTP routes, API handlers, engines, persistence, tests, and the external-evidence runbook.  
 **Not a certification:** this document does not claim production deployment, profitability, or V1 release approval. Real-money execution must remain disabled.
 
+Research supply-consistency update (30 October 2026 PKT): circulating token supply above a reported known maximum is rejected even when total supply is unknown. The required-research Council abstains on these unavailable metrics; equal-bound/unknown-maximum controls remain supported. See `tests/structured-research.test.js` and matching PR for exact-head evidence. Numeric consistency does not prove source correctness, independent verification or investment value.
+
 Strategy Lab selection-race update (30 October 2026 PKT): changing coin/split now clears primary, benchmark and rolling tables and invalidates pending responses. Superseded completions cannot publish under a new selection or unlock its active run. Actual-controller deferred-transport tests and a Chromium delayed-response regression cover this; see `tests/strategy-lab-race.test.js` and matching PR for exact-head evidence. Server-side consistent candle snapshots across requests remain separate work.
 
 ## Executive finding

@@ -89,6 +89,33 @@ test("null token data, missing publishers and stale/future sentiment cannot beco
   }
 });
 
+test("unknown total supply cannot hide circulating supply above the reported maximum", async () => {
+  const upstream = provider();
+  const transport = (circulating, maximum = 20) => async (url, options) => url === TOKEN_METRICS_URL
+    ? json([{...metrics(), total_supply: null, circulating_supply: circulating, max_supply: maximum}])
+    : upstream(url, options);
+  const invalid = await createStructuredResearchService({now: () => AT, fetchImpl: transport(21)}).read("BTCUSDT");
+  assert.equal(invalid.tokenMetrics.state, "unavailable");
+  assert.equal(invalid.tokenMetrics.data, null);
+  assert.equal(invalid.state, "partial");
+  const valid = await createStructuredResearchService({now: () => AT, fetchImpl: transport(20)}).read("BTCUSDT");
+  assert.equal(valid.tokenMetrics.state, "ok");
+  assert.equal(valid.tokenMetrics.data.totalSupply, null, "unknown total is not invented");
+  assert.equal(valid.state, "ok");
+  const unknown = await createStructuredResearchService({now: () => AT, fetchImpl: transport(21, null)}).read("BTCUSDT");
+  assert.equal(unknown.tokenMetrics.state, "ok");
+  assert.equal(unknown.tokenMetrics.data.maxSupply, null, "missing maximum is not treated as a zero cap");
+  const srv = await startTestServer({now: () => AT, fetchImpl: transport(21)});
+  try {
+    const response = await fetch(srv.base + "/api/ai/council/BTCUSDT?research=required");
+    assert.equal(response.status, 200);
+    const council = (await response.json()).data.council;
+    assert.equal(council.structuredResearch.tokenMetrics.state, "unavailable");
+    assert.equal(council.decision, "WAIT");
+    assert.equal(council.opportunityScore, null);
+  } finally {await srv.close();}
+});
+
 test("research-enabled Council consumes source context and missing data forces WAIT without changing order state", async () => {
   const store = new DurableStore();
   const srv = await startTestServer({store, now: () => AT, fetchImpl: provider({badMetrics: true})});
