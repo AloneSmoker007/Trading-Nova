@@ -59,6 +59,7 @@ Code-layer V1 is merged. The next work is evidence collection, not live-money en
 
 - [x] External-evidence runbook added: `docs/V1-EXTERNAL-EVIDENCE-RUNBOOK.md`
 - [x] Capability/research traceability framework added: `docs/V1-CAPABILITY-TRACEABILITY.md`
+- [x] Evidence pack validator: `npm run evidence:validate` fails closed on missing/invalid/duplicate/FAIL/BLOCKED records (previously pointed at a module with no CLI, so it printed nothing and exited 0)
 - [ ] Real PostgreSQL deployment and recovery evidence
 - [ ] Backup/restore + measured RTO/RPO
 - [ ] Production market-data soak/reconnect/gap evidence
