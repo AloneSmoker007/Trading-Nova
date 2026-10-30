@@ -13,3 +13,7 @@ web/vendor/lightweight-charts.standalone.production.js
 # Private local watchlist snapshots; hosted production uses PostgreSQL.
 db/*.watchlist.json
 db/*.watchlist.json.tmp-*
+
+# Drill output — evidence artifacts are produced per run, never committed.
+evidence/
+.tmp/

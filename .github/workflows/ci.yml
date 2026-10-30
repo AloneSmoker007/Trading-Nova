@@ -120,6 +120,13 @@ jobs:
       - run: npm run db:migrate
       - run: node scripts/seed-recovery-drill.js
       - run: npm run recovery:drill
+      - name: Upload backup/restore RTO-RPO evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-restore-rto-rpo
+          path: evidence/
+          if-no-files-found: warn
       - name: Crash-recovery drill (committed writes survive, aborted writes roll back)
         env:
           PG_CRASH_CMD: ${{ secrets.PG_CRASH_CMD }}
