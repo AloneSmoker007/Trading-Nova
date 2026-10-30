@@ -28,6 +28,7 @@ const watchlistWrites = [];
 const fixtureThesisHash = "a".repeat(64);
 const fixtureLossAutopsies = [];
 let learningMode = "ok";
+const delayedLearning = [];
 let publisherNewsMode = "ok";
 let publisherNewsRequests = 0;
 let releasePublisherNews = null;
@@ -221,6 +222,7 @@ async function installApiFixtures(page) {
 
     if (pathname === "/api/learning/outcomes" && request.method() === "GET") {
       if (learningMode === "offline") {await route.abort("failed"); return;}
+      if (learningMode === "delayed") await new Promise(resolve => delayedLearning.push(resolve));
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({
         ok: true,
         data: {
@@ -548,6 +550,40 @@ async function main() {
         assert.equal(await page.locator("#learning-theses-body tr").count(), 0);
       } finally {
         learningMode = "ok";
+        await page.close();
+      }
+    });
+
+    await run("superseded learning report cannot revive unavailable data or loss-review options", async () => {
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#learning-badge").getByText("SERVER-DERIVED", {exact: true}).waitFor();
+        await page.locator("#journal-type-select").selectOption("loss-autopsy");
+        assert.equal(await page.locator("#journal-outcome-select").isDisabled(), false);
+        learningMode = "delayed";
+        await page.locator("#refresh-btn").click();
+        for (let tries = 0; tries < 100 && delayedLearning.length < 1; tries++) await new Promise(resolve => setTimeout(resolve, 10));
+        assert.equal(delayedLearning.length, 1);
+        assert.equal(await page.locator("#learning-theses-body tr").count(), 0);
+        assert.equal(await page.locator("#learning-outcomes li").count(), 0);
+        assert.equal(await page.locator("#learning-values").innerText(), "");
+        assert.equal(await page.locator("#learning-values").getAttribute("aria-busy"), "true");
+        assert.equal(await page.locator("#journal-outcome-select").isDisabled(), true);
+        learningMode = "offline";
+        await page.locator("#refresh-btn").click();
+        await page.locator("#learning-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
+        const oldResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/learning/outcomes");
+        delayedLearning.splice(0).forEach(resolve => resolve());
+        await (await oldResponse).finished();
+        await page.evaluate(() => new Promise(resolve => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))));
+        assert.equal(await page.locator("#learning-badge").innerText(), "UNAVAILABLE");
+        assert.equal(await page.locator("#learning-theses-body tr").count(), 0);
+        assert.equal(await page.locator("#learning-outcomes li").count(), 0);
+        assert.equal(await page.locator("#learning-values").innerText(), "");
+        assert.equal(await page.locator("#journal-outcome-select").isDisabled(), true);
+      } finally {
+        learningMode = "ok";
+        delayedLearning.splice(0).forEach(resolve => resolve());
         await page.close();
       }
     });

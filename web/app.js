@@ -1195,11 +1195,19 @@
     });
   }
 
+  var learningOutcomesRequestId = 0;
   function renderLearningOutcomes() {
+    var requestId = ++learningOutcomesRequestId;
+    verifiedLearningOutcomes = [];
+    syncLossAutopsyControl();
+    clear($("learning-values"));
+    clear($("learning-outcomes"));
     clear($("learning-theses-body"));
+    note("learning-note", "Refreshing server-derived paper outcomes…");
     setBadge("learning-badge", "loading");
     setBusy("learning-values", true);
     return api("/api/learning/outcomes").then(function (result) {
+      if (requestId !== learningOutcomesRequestId) return;
       var dl = $("learning-values");
       var list = $("learning-outcomes");
       clear($("learning-theses-body"));
@@ -1253,12 +1261,16 @@
         note("learning-note", failure.message + " No outcome was invented.");
       }
     }).catch(function (err) {
+      if (requestId !== learningOutcomesRequestId) return;
       verifiedLearningOutcomes = [];
+      clear($("learning-values"));
+      clear($("learning-outcomes"));
       clear($("learning-theses-body"));
       syncLossAutopsyControl();
       setBadge("learning-badge", "unavailable");
       note("learning-note", err.message + " No outcome was invented.");
     }).finally(function () {
+      if (requestId !== learningOutcomesRequestId) return;
       setBusy("learning-values", false);
     });
   }
