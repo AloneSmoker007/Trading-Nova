@@ -2,6 +2,16 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — isolate overlapping learning refreshes
+
+Refreshed remote main `d18c71f4793f3c22df7028170dcf3ad653093f47` is merged PR #104; merged-main CI `41085388689`, Chromium `41085388705` and lockfile `41085388808` all succeeded. No open PR/local edits or applicable AGENTS.md. Read locked §21/current audit; quote-currency and prior learning/research fixes remain merged. Recurring continuation remains enabled.
+
+Reproduced against the actual browser controller before changing it: all four new deferred-transport tests failed. An earlier success overwrote a later report, an earlier rejection marked newer data unavailable, a late success revived data after the current request failed, and loading retained old totals/outcomes/loss-review options. Implementation `4f3565c5c02d3dcb5b5f2c3523a3a6228af49de9` gives each learning refresh a generation; response, catch and finally mutate UI only for the latest generation. Refresh clears all three report surfaces, verified outcome memory and selectable loss options before requesting data. Current failures clear all surfaces too, including a partially rendered report. Backend learning, journal verification, FIFO arithmetic and every execution/Risk Gate path are unchanged.
+
+Acceptance: old success/error cannot overwrite a newer report or revive an unavailable report; old finally cannot clear the latest loading indicator; loading/current failure remove stale report and loss choices. Four actual-controller regressions pass. Full local suite 686 total, 678 pass, 0 fail, 8 expected external-DB skips. Lint, syntax, secrets, evidence schema and diff review passed; initial browser-test lint error for browser globals was corrected without disabling rules. Chromium adds a delayed old report/current network failure scenario with loading/empty/disabled-loss-option checks. See matching PR for exact remote candidate, enabled CI/Chromium and merge/main evidence; local browser runtime is not installed and no local browser success is claimed.
+
+This is browser response ownership, not request cancellation or an atomic cross-request database snapshot. Independent journal refresh ownership, consistent learning snapshots, whole-trade/session aggregation/calibration, cross-process portfolio/lifecycle locking, broader source verification/risk/shadow features and external live-provider/deployment/soak/DR/security evidence remain open. No paid/live Gemini call, credentials, deployment, production-data action or risk increase. Real money OFF; server Risk Gate remains mandatory.
+
 ## Current task — descriptive thesis learning summaries
 
 Refreshed starting main `1b27fb2416a3edda2bdc762940e450f352618e4f` is merged PR #103: CI `41077160191`, Chromium `41077159958` and lockfile `41077160185` passed. No open PR/local edits or applicable AGENTS.md. Read locked §21 and current audit; durable ordering protection is retained.
