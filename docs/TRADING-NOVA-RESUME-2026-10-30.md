@@ -2,6 +2,18 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — server-derived thesis outcome learning
+
+Base main `d4a551f36173068545c078f4b932dd5bda9aa511`; PR #89 and merged-main CI/Chromium/lockfile were green, and no open PR or overlapping work existed at start. Implementation commit `eabd5a5d5c39a93ebe2ea497965147c91ecedcff` closes the next bounded learning gap without accepting user-authored P&L as an execution fact.
+
+`GET /api/learning/outcomes` now derives deterministic FIFO outcomes from complete reconciled paper-fill history (bounded to 5,000 fills). It supports long/short lots and partial closes, assigns each realized match to the actual opening fill's verified thesis provenance, and reports gross P&L, simulated opening/closing fees, net P&L, WIN/LOSS/BREAKEVEN, unmatched open-lot count and linked/unlinked totals in USDT. Open positions never become realized outcomes. Duplicate, malformed, changing or oversized history makes the complete report unavailable rather than silently skipping evidence.
+
+The Human Brain panel renders the latest server-derived outcomes and explicitly labels manually entered outcome journal rows as user notes. After journal integrity verifies, Gemini receives at most five recent server-derived paper outcomes only when their thesis hashes match the recent verified journal records. System instructions distinguish these paper-simulator facts from live trades, independent verification or proof that a thesis was correct. The deterministic Risk Gate and all order paths are unchanged; real money remains OFF.
+
+Behavioral coverage includes fee-adjusted long/short FIFO math, multi-thesis partial closes, deterministic replay, invalid/duplicate/bounded history, an actual persisted thesis → open fill → close fill → outcome HTTP round trip, no invented open-position outcome, fail-closed malformed persistence, tutor provenance filtering, static UI contracts and deterministic Chromium rendering. Local validation: 613 total, 606 pass, 0 fail, 7 expected external-PostgreSQL skips; lint, syntax, secret scan, evidence schema and diff checks passed. Local Playwright is not installed, so final Chromium behavior requires the remote workflow. Read the matching PR for exact remote head, CI, merge and merged-main evidence.
+
+This slice does not infer user mistakes, lessons, causality, strategy quality or profitability. User-reviewed mistake/loss-autopsy annotations, aggregation without double-counting partial closes, calibration/revalidation feedback, production reconciliation and live Gemini/runtime proof remain separate work. No deployment, paid call, credential change or external certification occurred.
+
 ## Current task — verified thesis to paper execution provenance
 
 Base main `05646724c709b897292c30710147e5d3920ba45c`; no open PR or overlapping work existed at start. Implementation commit `7aa62b6392271b0e89308fd497928306db22f4b9` fixes two reproduced gaps: a valid local journal-only snapshot incorrectly blocked paper orders as an invalid portfolio, and the tutor read hash-chain wrapper records at the wrong object level so saved note fields became blank.

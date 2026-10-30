@@ -37,6 +37,7 @@ function matchApi(pathname){
   if(pathname==="/api/journal/entry")return{name:"addJournalEntry",params:{}};
   if(pathname==="/api/backtest")return{name:"backtest",params:{}};
   if(pathname==="/api/orders")return{name:"orders",params:{}};
+  if(pathname==="/api/learning/outcomes")return{name:"learningOutcomes",params:{}};
   if(pathname==="/api/paper/orders")return{name:"paperOrders",params:{}};
   let mCancel=/^\/api\/paper\/orders\/([^/]+)\/cancel$/.exec(pathname);if(mCancel)return{name:"cancelPaperOrder",params:{orderId:decodeURIComponent(mCancel[1])}};
   if(pathname==="/api/risk/status")return{name:"riskStatus",params:{}};
@@ -133,8 +134,39 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
             context={...(context||{}),learningMemory:{
               state:entries.length?"verified-recent-notes":"verified-but-empty",
               journalIntegrity:"verified",
-              entries
+              entries,
+              outcomeState:"unavailable",
+              executionOutcomes:[]
             }};
+            try{
+              const learningSnapshot=await api.learningOutcomes();
+              const learningData=learningSnapshot?.status===200&&learningSnapshot.body?.ok===true
+                ?learningSnapshot.body.data:null;
+              if(learningData&&Array.isArray(learningData.outcomes)){
+                const recentHashes=new Set(entries.map((entry)=>entry.recordHash).filter(Boolean));
+                const executionOutcomes=learningData.outcomes
+                  .filter((outcome)=>recentHashes.has(outcome?.thesisRef?.hash))
+                  .slice(-5)
+                  .map((outcome)=>({
+                    outcomeId:typeof outcome.outcomeId==="string"?outcome.outcomeId:null,
+                    thesisHash:outcome.thesisRef.hash,
+                    symbol:outcome.symbol,
+                    direction:outcome.direction,
+                    quantity:outcome.quantity,
+                    openedAt:outcome.openedAt,
+                    closedAt:outcome.closedAt,
+                    grossPnl:outcome.grossPnl,
+                    fees:outcome.fees,
+                    netPnl:outcome.netPnl,
+                    result:outcome.result,
+                    source:outcome.source
+                  }));
+                context.learningMemory.outcomeState=executionOutcomes.length?"server-derived-paper-outcomes":"no-realized-linked-outcomes";
+                context.learningMemory.executionOutcomes=executionOutcomes;
+              }
+            }catch{
+              // Keep verified notes available while marking execution outcomes unavailable.
+            }
           }else{
             context={...(context||{}),learningMemory:{
               state:"unavailable-or-unverified",

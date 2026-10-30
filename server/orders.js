@@ -11,6 +11,7 @@ import {createRiskConfig, evaluateRiskGate, hashOrderPayload, normalizeSide} fro
 import {quantitiesMatch} from "../src/reconciliation/reconcile.js";
 import {loadPaperState} from "./state.js";
 import {parseSymbol} from "./validate.js";
+import {derivePaperOutcomes, DEFAULT_MAX_FILLS} from "../src/journal/outcomes.js";
 
 const DEFAULT_RISK_CONFIG = Object.freeze({
   version: "1",
@@ -904,7 +905,35 @@ export function createPaperOrderService({
     });
   }
 
-  return {submit, getPortfolio, getOrders, getPaperOrders, cancelOrder, processPendingOrders};
+  async function getLearningReport() {
+    return serialize(async () => {
+      if (!(await initialize())) return {state: "error", reason: storeError};
+      try {
+        let fills;
+        if (typeof store.listPage === "function") {
+          const first = await store.listPage("paper-fills", {limit: 200, offset: 0});
+          if (!Number.isSafeInteger(first.total) || first.total < 0 || first.total > DEFAULT_MAX_FILLS) {
+            return {state: "error", reason: "paper-learning-history-too-large"};
+          }
+          fills = [...first.items];
+          for (let offset = fills.length; offset < first.total; offset += 200) {
+            const page = await store.listPage("paper-fills", {limit: Math.min(200, first.total - offset), offset});
+            if (page.total !== first.total) return {state: "error", reason: "paper-learning-history-changed"};
+            fills.push(...page.items);
+          }
+        } else {
+          fills = await stateValues("paper-fills");
+          if (fills.length > DEFAULT_MAX_FILLS) return {state: "error", reason: "paper-learning-history-too-large"};
+        }
+        const report = derivePaperOutcomes(fills);
+        return {state: report.outcomes.length ? "ok" : "empty", fillCount: fills.length, ...report};
+      } catch {
+        return {state: "error", reason: "paper-learning-history-invalid"};
+      }
+    });
+  }
+
+  return {submit, getPortfolio, getOrders, getLearningReport, getPaperOrders, cancelOrder, processPendingOrders};
 }
 
 

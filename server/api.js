@@ -512,6 +512,20 @@ export function createApi({
       offset: res.offset, hasMore: res.hasMore, note: paperNote});
   }
 
+  async function learningOutcomes() {
+    const report = await paperOrderService.getLearningReport();
+    if (report.state === "error") {
+      return fail(503, "unavailable", "paper-learning-unavailable",
+        "Paper execution history could not be converted into a complete learning report.");
+    }
+    return ok({
+      ...report,
+      note: report.state === "empty"
+        ? "No realized paper outcomes yet. Open positions and unmatched fills are not invented as outcomes. Real money OFF."
+        : "Server-derived FIFO outcomes from reconciled paper fills, including simulated fees. These are paper results, not live trading or profitability evidence."
+    });
+  }
+
   async function riskStatus() {
     const pState = await paperOrderService.getPortfolio();
     const limits = pState.limits;
@@ -630,7 +644,7 @@ export function createApi({
     }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, watchlist, saveWatchlist, aiCouncil, orders, riskStatus, strategyLab, addJournalEntry};
+  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, watchlist, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};

@@ -125,6 +125,26 @@ async function installApiFixtures(page) {
       return;
     }
 
+    if (pathname === "/api/learning/outcomes" && request.method() === "GET") {
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({
+        ok: true,
+        data: {
+          state: "ok", version: 1, accounting: "FIFO", currency: "USDT", fillCount: 2,
+          summary: {outcomeCount: 1, linkedOutcomeCount: 1, unlinkedOutcomeCount: 0,
+            wins: 0, losses: 1, breakeven: 0, realizedNetPnl: -2, openLotCount: 0},
+          outcomes: [{
+            outcomeId: "fixture-outcome", status: "REALIZED", source: "paper-fill-fifo-v1",
+            symbol: "BTCUSDT", direction: "LONG", quantity: 0.01, openedAt: 1, closedAt: 2,
+            openingOrderId: "open", closingOrderId: "close", openPrice: 42000, closePrice: 42000,
+            grossPnl: 0, fees: 2, netPnl: -2, result: "LOSS",
+            thesisRef: {hash: fixtureThesisHash, index: 0, timestamp: 123, symbol: "BTCUSDT", title: "Browser verified thesis"}
+          }],
+          note: "Server-derived FIFO outcomes from reconciled paper fills."
+        }
+      })});
+      return;
+    }
+
     if (pathname.startsWith("/api/ai/council/")) {
       if (councilMode === "offline") {
         await route.abort("failed");
@@ -375,6 +395,21 @@ async function main() {
         assert.match(await page.locator("#order-note").innerText(), /MAX_POSITION/);
         assert.match(await page.locator("#order-note").innerText(), /No order was placed\./);
         assert.match(await page.locator("#paper-banner").innerText(), /real money OFF/i);
+      } finally {
+        await page.close();
+      }
+    });
+
+    await run("verified paper outcomes render with fees and thesis attribution", async () => {
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#learning-badge").getByText("SERVER-DERIVED", {exact: true}).waitFor();
+        assert.match(await page.locator("#learning-values").innerText(), /FIFO · USDT/);
+        assert.match(await page.locator("#learning-values").innerText(), /Net paper P&L\s+\$-2/);
+        const outcome = await page.locator("#learning-outcomes").innerText();
+        assert.match(outcome, /Browser verified thesis/);
+        assert.match(outcome, /LOSS/);
+        assert.match(outcome, /after \$2 fees/);
       } finally {
         await page.close();
       }
