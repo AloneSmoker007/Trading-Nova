@@ -17,12 +17,46 @@
 
 ```
 node scripts/seed-recovery-drill.js      # writes sentinel state + audit entry
-node scripts/backup-restore-drill.js     # pg_dump -> manifest hash -> pg_restore -> verify
-{"passed":true,"artifactSha256":"b3090ec645873b22c65186f4ed86ae1b5558fa740c80fc1f04d38054569d259c","restoreVerified":true}
+node scripts/backup-restore-drill.js     # pg_dump -> manifest hash -> pg_restore -> verify -> measure RTO/RPO -> emit evidence
+{"passed":false,"result":"BLOCKED","artifactSha256":"15e5e3ce…","restoreVerified":true,"rtoMs":78,"rpoMs":89,"environment":"local","evidence":"evidence/backup-restore-rto-rpo.json"}
 ```
 
 Verified after restore into the isolated database: health probe, hash-chained
 audit verification, migration state present, sentinel state row present.
+
+### Measured RTO / RPO
+
+The drill now measures both numbers itself instead of leaving them to hand
+timing, and writes them to `evidence/backup-restore-rto-rpo.json`
+(`EVIDENCE_OUT` overrides the path) in the `evidence-schema.js` record shape.
+
+- **RTO** — `restore` phase (create target DB + `pg_restore`) plus `verify`
+  phase (health, audit chain, migration state, sentinel), measured from the
+  first restore step to service-ready. Per-phase durations are recorded.
+- **RPO** — a heartbeat row is committed to `trading_state` before `pg_dump`
+  takes its snapshot and kept current during the dump. The newest heartbeat
+  present in the *restored* copy is the last committed write the backup
+  captured; `rpoMs` is the gap from that write to backup completion, i.e. the
+  confirmed data-loss window a real restore would suffer.
+- **Fail closed** — if no heartbeat survives into the backup, or the recovery
+  point precedes the last durable write, the drill throws instead of reporting
+  a number. It will not invent a measurement.
+
+### Environment labelling
+
+`productionEligible` is derived from the connection string's host, never from an
+env var: `localhost`, loopback and `*.local` hosts are `local`. A local or CI run
+completes normally and prints `result: BLOCKED` with
+`blockedReason: "drill ran against a non-production PostgreSQL host"`, so the
+artifact can never be miscounted as V1 certification evidence. Setting
+`EVIDENCE_REQUIRE_PRODUCTION=1` turns an ineligible host into a hard failure:
+the run still writes its evidence artifact, but marked `BLOCKED` with
+`blockedReason: "production evidence requested but the drill host is local"`
+and exits 2 — use that in the production run.
+
+Local run above is a mechanics check only. It is **not** production evidence:
+the production rerun must supply `EVIDENCE_OPERATOR`, the real deployment's
+`POSTGRES_URL`/`POSTGRES_RESTORE_URL`, and `EVIDENCE_REQUIRE_PRODUCTION=1`.
 
 ## 2. Crash-recovery drill — `npm run recovery:crash`
 
@@ -73,7 +107,7 @@ crashing".
 
 ## Full suite after the change
 
-`NODE_ENV=test npm test` → 683 tests, 675 pass, 0 fail, 8 skipped (52.6s). `npm run lint` clean.
+`NODE_ENV=test npm test` → 690 tests, 682 pass, 0 fail, 8 skipped (53s). `npm run lint` clean.
 
 ## Still open (not satisfiable from this environment)
 
