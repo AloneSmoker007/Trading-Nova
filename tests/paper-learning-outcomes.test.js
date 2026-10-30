@@ -93,6 +93,44 @@ test("outcome derivation fails closed on malformed, duplicate or excessive fill 
   assert.throws(() => derivePaperOutcomes([valid, {...valid, orderId: "two", idempotencyKey: "two"}], {maxFills: 1}), /history exceeds/i);
 });
 
+test("USDT learning accounting rejects every legacy non-USDT fill without filtering history", () => {
+  const supported = fill({id: "supported", side: "BUY", quantity: 1, price: 100, fee: 1, timestamp: 1});
+  for (const symbol of ["ETHBTC", "BTCUSDC", "BTCUSD", "USDT", "BTCUSDTX"]) {
+    const legacy = {...supported, orderId: "legacy", idempotencyKey: "legacy", symbol};
+    assert.throws(() => derivePaperOutcomes([supported, legacy]), /invalid paper fill/i, symbol);
+  }
+  assert.equal(derivePaperOutcomes([supported]).summary.openLotCount, 1);
+});
+
+test("legacy quote-currency history cannot become USDT learning results or loss-autopsy facts", async () => {
+  const store = new DurableStore();
+  const legacyFills = [
+    {...fill({id: "legacy-open", side: "BUY", quantity: 1, price: 0.05, fee: 0.001, timestamp: 1}), symbol: "ETHBTC"},
+    {...fill({id: "legacy-close", side: "SELL", quantity: 1, price: 0.04, fee: 0.001, timestamp: 2}), symbol: "ETHBTC"},
+    fill({id: "valid-usdt", side: "BUY", quantity: 1, price: 100, fee: 1, timestamp: 3})
+  ];
+  for (const item of legacyFills) store.put("paper-fills", item.idempotencyKey, item);
+  let providerCalls = 0;
+  const srv = await startTestServer({store, fetchImpl: async () => {providerCalls++; throw new Error("no provider call expected");}});
+  try {
+    const response = await fetch(srv.base + "/api/learning/outcomes");
+    assert.equal(response.status, 503, "BTC-denominated P&L must not be labelled USDT");
+    const body = await response.json();
+    assert.equal(body.error.code, "paper-learning-unavailable");
+    assert.equal(body.data, undefined, "do not publish a filtered partial USDT report");
+    const review = await post(srv.base, "/api/journal/entry", {
+      type: "loss-autopsy", outcomeId: "a".repeat(64), title: "Legacy loss", text: "Must stay unverified"
+    });
+    assert.equal(review.status, 503);
+    assert.equal(review.body.error.code, "paper-learning-unavailable");
+    assert.equal(store.get("paper-journal", "main"), null);
+    for (const item of legacyFills) assert.deepEqual(store.get("paper-fills", item.idempotencyKey), item);
+    assert.equal(providerCalls, 0);
+  } finally {
+    await srv.close();
+  }
+});
+
 function tickerFetchAt(last, bid, ask) {
   return fakeFetch([["/ticker/24hr", jsonResponse(200, {
     ...ticker24hPayload(), lastPrice: String(last), bidPrice: String(bid), askPrice: String(ask)

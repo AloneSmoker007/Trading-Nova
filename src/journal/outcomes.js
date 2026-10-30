@@ -33,7 +33,9 @@ function validatedFill(fill) {
     ? fill.idempotencyKey : fill?.orderId;
   if (!fill || fill.status !== "RECONCILED" || typeof id !== "string" || !id
       || typeof fill.orderId !== "string" || !fill.orderId
-      || typeof fill.symbol !== "string" || !/^[A-Z0-9]{2,24}$/.test(fill.symbol)
+      // This report uses the terminal's single USDT ledger. Legacy fills in
+      // another quote currency need reviewed reconciliation, not an FX guess.
+      || typeof fill.symbol !== "string" || !/^[A-Z0-9]{1,20}USDT$/.test(fill.symbol)
       || !["BUY", "SELL"].includes(fill.side)
       || !Number.isFinite(fill.quantity) || fill.quantity <= 0
       || !Number.isFinite(fill.price) || fill.price <= 0
