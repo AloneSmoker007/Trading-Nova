@@ -13,6 +13,23 @@ V1 code-layer gates are merged. V1 certification still requires real operational
 - [ ] Evidence artifact stored with database version, migration versions and result.
 
 ## 2. Backup / restore / RTO / RPO
+Run `scripts/backup-restore-drill.js` against the real deployment, which now
+measures both numbers itself and writes the evidence record:
+
+```
+EVIDENCE_REQUIRE_PRODUCTION=1 \
+EVIDENCE_OPERATOR="<your name>" \
+POSTGRES_URL="<production>" \
+POSTGRES_RESTORE_URL="<isolated restore target>" \
+npm run recovery:drill
+```
+
+`EVIDENCE_REQUIRE_PRODUCTION=1` fails the run on a non-production host, so a
+local rehearsal can never be attached as certification evidence. The artifact is
+`evidence/backup-restore-rto-rpo.json` (id `backup-restore-rto-rpo`, validated by
+`scripts/evidence-schema.js`) and records RTO, RPO, per-phase durations, both
+hosts, server version, migration count and the backup artifact SHA-256.
+
 - [ ] Production backup created.
 - [ ] Backup integrity verified.
 - [ ] Restore performed into an isolated environment.
