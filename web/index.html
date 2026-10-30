@@ -202,6 +202,7 @@
         </div>
         <div id="ai-roles-list" class="ai-roles-list"></div>
         <p class="panel-note ai-proxy-disclosure" id="ai-coverage-note" role="status" aria-live="polite">Company fundamentals, public news and social-sentiment feeds are not connected. Liquidity, momentum and volatility roles use explicit data proxies.</p>
+        <label><input type="checkbox" id="council-require-research"> Require fresh structured research (BTC / ETH / SOL)</label>
         <p class="panel-note" id="ai-explanation"></p>
         <p class="panel-note muted">Advisory output only. AI cannot execute orders or modify risk gate parameters.</p>
       </section>
@@ -217,6 +218,10 @@
         <dl class="values" id="publisher-news-values" aria-live="polite" aria-busy="false"></dl>
         <ul class="journal-list" id="publisher-news-items" aria-label="Publisher headlines and publication dates"></ul>
         <p class="panel-note" id="publisher-news-note" role="status" aria-live="polite">Load on demand. Publication time and retrieval time are shown separately.</p>
+        <h3>Coin Research Brief</h3>
+        <button type="button" id="structured-research-load">Research selected coin</button>
+        <div id="structured-research-result" role="status" aria-live="polite"></div>
+        <p class="panel-note">BTCUSDT / ETHUSDT / SOLUSDT. Headline cues are candidates to investigate; corroboration and verified contradictions are not established. Token metrics are not company financial statements. Bitcoin sentiment is not altcoin sentiment.</p>
       </section>
 
       <!-- Paper Portfolio & Positions -->
@@ -354,6 +359,7 @@
           <label for="tutor-input">Tumhara sawal</label>
           <textarea id="tutor-input" rows="3" maxlength="2000" placeholder="Misal: RSI 70 ka kya matlab hai aur trade fail kab ho sakti hai?" required></textarea>
           <label><input type="checkbox" id="tutor-require-sources"> Is sawal ke liye web sources zaroori hain</label>
+          <label><input type="checkbox" id="tutor-include-research"> Selected coin ka structured research context bhi bhejo</label>
           <div class="tutor-actions">
             <span class="muted">Max 2000 characters · AI advice only</span>
             <button id="tutor-send-btn" type="submit" disabled>Ask Tutor</button>

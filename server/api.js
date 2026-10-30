@@ -24,6 +24,7 @@ import {createStrategy, STRATEGY_DESCRIPTIONS} from "./strategies.js";
 import {computeAiCouncil} from "./ai.js";
 import {parseSymbol, parseInterval, parseLimit, parseStrategy} from "./validate.js";
 import {createWatchlistService} from "./watchlist.js";
+import {supportsResearchSymbol} from "./research-context.js";
 
 const FRESH_MAX_AGE_MS = 10000; // "fresh" for market payloads = data age <= 10s
 
@@ -54,6 +55,7 @@ function unpackJournalSnapshot(value) {
 export function createApi({
   market,
   publisherNews,
+  structuredResearch,
   stateFile,
   executionStateFile,
   store,
@@ -453,6 +455,19 @@ export function createApi({
     }
   }
 
+  async function loadResearchContext(symbol) {
+    try { return await structuredResearch?.read(symbol) || {state: "unavailable", symbol}; }
+    catch { return {state: "unavailable", symbol}; }
+  }
+  async function researchContext(query, symbolRaw) {
+    const sym = parseSymbol(symbolRaw);
+    if (!sym.ok) return fail(400, "error", sym.code, sym.message);
+    if (!supportsResearchSymbol(sym.symbol)) return fail(400, "error", "research-symbol-unsupported", "Structured research supports BTCUSDT, ETHUSDT and SOLUSDT.");
+    if (query && [...query.keys()].length) return fail(400, "error", "invalid-research-query", "Structured research accepts no query parameters.");
+    const snapshot = await loadResearchContext(sym.symbol);
+    return snapshot.state === "unavailable" ? fail(503, "unavailable", "structured-research-unavailable", "Source context is unavailable; no current research conclusion was inferred.") : ok(snapshot);
+  }
+
   async function saveWatchlist(body) {
     let input;
     try { input = typeof body === "string" ? JSON.parse(body) : body; }
@@ -470,6 +485,11 @@ export function createApi({
   async function aiCouncil(query, symbolRaw) {
     const sym = parseSymbol(symbolRaw);
     if (!sym.ok) return fail(400, "error", sym.code, sym.message);
+    const researchMode = query?.get("research");
+    if (researchMode !== undefined && researchMode !== null && researchMode !== "required") {
+      return fail(400, "error", "invalid-council-research", "research must be required when supplied.");
+    }
+    let research = researchMode === "required" ? await loadResearchContext(sym.symbol) : null;
     const tickerRes = await market.getTicker(sym.symbol);
     const tickerReadAt = now();
     const candlesRes = await market.getCandles(sym.symbol, {interval: "1h", limit: 100});
@@ -483,6 +503,9 @@ export function createApi({
     // Fetch/cache recency is part of the evidence. A successful HTTP response
     // carrying an old snapshot must never become a fresh research signal.
     const pState = await paperOrderService.getPortfolio();
+    // Reassess cached publication/observation ages after market work. If a
+    // research refresh is needed here, its elapsed time also ages market data.
+    if (research) research = await loadResearchContext(sym.symbol);
     const assessedAt = now();
     const snapshotFreshness = (result, readAt) => {
       const elapsedMs = assessedAt - readAt;
@@ -501,6 +524,26 @@ export function createApi({
       portfolio: pState.portfolio,
       limits: pState.limits
     });
+    if (research) {
+      council.structuredResearch = research;
+      council.dataCoverage.publicNews = research.state === "ok" ? "fresh-headline-context" : "incomplete-research-context";
+      council.dataCoverage.tokenMetrics = research.tokenMetrics?.state || "unavailable";
+      council.dataCoverage.bitcoinSentiment = research.bitcoinSentiment?.state || "unavailable";
+      council.dataCoverage.note = "Source context is attached without directional score weight. Company financial statements and independent social-sentiment feeds remain disconnected.";
+      council.roles.push(...[
+        ["Public news context", research.sourceCoverage?.eligiblePublisherCount >= 2 ? "TWO PUBLISHERS" : "INSUFFICIENT SOURCES", "Lexically matched dated headlines; commercial publishers, no independent claim corroboration."],
+        ["Token metrics", research.tokenMetrics?.state === "ok" ? "SOURCE METRICS" : "UNAVAILABLE / STALE", "CoinGecko market cap/supply in USD; no company financial statements or valuation score."],
+        ["Bitcoin sentiment index", research.bitcoinSentiment?.state === "ok" ? "PROVIDER INDEX" : research.bitcoinSentiment?.state === "not-applicable" ? "BITCOIN ONLY" : "UNAVAILABLE / STALE", "Alternative.me Bitcoin Fear & Greed index. Overlaps price/volume inputs; not counted as another independent vote."]
+      ].map(([displayName, displayStatus, basis]) => ({role: displayName, displayName, displayStatus, basis, score: null, status: "CONTEXT_ONLY", reason: basis})));
+      council.uncertainty = "High";
+      if (research.state !== "ok") {
+        council.decision = "WAIT";
+        council.opportunityScore = null;
+        council.explanation = "WAIT: requested source research is incomplete, stale or unavailable. Obtain fresh relevant sources before drawing a research conclusion.";
+      } else {
+        council.explanation += " Source context is available with limited confidence; headline cues are not verified claims and add no directional score weight.";
+      }
+    }
     if (stale) {
       council.decision = "WAIT";
       council.opportunityScore = null;
@@ -748,7 +791,7 @@ export function createApi({
     }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, watchlist, researchNews, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
+  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, watchlist, researchNews, researchContext, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};

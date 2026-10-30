@@ -10,6 +10,13 @@ const POLICY = Object.freeze({
   independence: "not-independent", coverage: "latest-10-publisher-posts",
   note: "Publisher announcements may include promotions. No independent corroboration, sentiment score or asset-specific relevance is inferred."
 });
+const SECOND_POLICY = Object.freeze({...POLICY, id: "bitfinex-blog", name: "Bitfinex Blog"});
+export const BITFINEX_NEWS_URL = "https://blog.bitfinex.com/wp-json/wp/v2/posts?per_page=10&_fields=id,date_gmt,modified_gmt,link,title";
+function publisherConfig(id) {
+  if (id === "kraken-blog") return {url: PUBLISHER_NEWS_URL, host: "blog.kraken.com", policy: POLICY};
+  if (id === "bitfinex-blog") return {url: BITFINEX_NEWS_URL, host: "blog.bitfinex.com", policy: SECOND_POLICY};
+  throw new Error("unsupported publisher");
+}
 
 function publicationTime(value) {
   // WordPress date_gmt is UTC without an offset. Reject normalization of invalid
@@ -19,7 +26,8 @@ function publicationTime(value) {
   return Number.isFinite(time) && time >= 0 && new Date(time).toISOString().slice(0, 19) === value ? time : null;
 }
 
-export function normalizePublisherPosts(payload) {
+export function normalizePublisherPosts(payload, publisherId = "kraken-blog") {
+  const config = publisherConfig(publisherId);
   if (!Array.isArray(payload) || payload.length > 10) throw new Error("invalid publisher response");
   const items = [];
   const urls = new Set();
@@ -30,13 +38,13 @@ export function normalizePublisherPosts(payload) {
       if (!Number.isSafeInteger(row?.id) || row.id < 1 || typeof row.link !== "string" || row.link.length > 2048
           || typeof row.title?.rendered !== "string" || row.title.rendered.length > 2000) throw new Error("invalid post");
       const url = new URL(row.link);
-      if (url.protocol !== "https:" || url.hostname !== "blog.kraken.com" || url.port || url.username || url.password) throw new Error("invalid link");
+      if (url.protocol !== "https:" || url.hostname !== config.host || url.port || url.username || url.password) throw new Error("invalid link");
       url.hash = "";
       const title = row.title.rendered.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().slice(0, 240);
       if (!title) throw new Error("empty title");
       if (urls.has(url.href) || ids.has(row.id)) throw new Error("duplicate post");
       urls.add(url.href); ids.add(row.id);
-      items.push({id: "kraken-blog:" + row.id, title, url: url.href,
+      items.push({id: publisherId + ":" + row.id, title, url: url.href,
         publishedAt: publicationTime(row.date_gmt), modifiedAt: publicationTime(row.modified_gmt),
         dateAttribution: "publisher-reported", corroboration: "not-checked"});
     } catch { rejectedCount++; }
@@ -45,7 +53,7 @@ export function normalizePublisherPosts(payload) {
   return {items, rejectedCount};
 }
 
-async function boundedJson(response, signal) {
+export async function boundedJson(response, signal) {
   if (!response?.ok || response.status !== 200 || !response.headers?.get("content-type")?.toLowerCase().includes("application/json")
       || !response.body?.getReader) throw new Error("publisher unavailable");
   const declared = response.headers.get("content-length");
@@ -71,7 +79,8 @@ async function boundedJson(response, signal) {
   }
 }
 
-export function createPublisherNewsService({fetchImpl = globalThis.fetch, now = () => Date.now(), timeoutMs = 5000} = {}) {
+export function createPublisherNewsService({fetchImpl = globalThis.fetch, now = () => Date.now(), timeoutMs = 5000, publisherId = "kraken-blog"} = {}) {
+  const config = publisherConfig(publisherId);
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 5000) throw new Error("invalid publisher deadline");
   let cache = null;
   let pending = null;
@@ -88,7 +97,7 @@ export function createPublisherNewsService({fetchImpl = globalThis.fetch, now = 
           : publicationAgeMs <= NEWS_PUBLICATION_WINDOW_MS ? "within-window" : "older-than-window"};
     }) : [];
     return {state: !usable ? "unavailable" : stale ? "stale" : items.length ? "ok" : "empty",
-      publisher: {...POLICY}, retrievedAt: usable ? cache.retrievedAt : null,
+      publisher: {...config.policy}, retrievedAt: usable ? cache.retrievedAt : null,
       retrievalAgeMs: usable ? age : null, assessedAt, publicationWindowMs: NEWS_PUBLICATION_WINDOW_MS,
       rejectedCount: usable ? cache.rejectedCount : null, items,
       scoreImpact: "none", counterEvidence: "not-collected",
@@ -104,11 +113,11 @@ export function createPublisherNewsService({fetchImpl = globalThis.fetch, now = 
     const task = (async () => {
       try {
         const work = (async () => {
-          const response = await fetchImpl(PUBLISHER_NEWS_URL, {
+          const response = await fetchImpl(config.url, {
             method: "GET", headers: {accept: "application/json"}, redirect: "error", credentials: "omit", signal: controller.signal
           });
-          if (response.url && response.url !== PUBLISHER_NEWS_URL) throw new Error("unexpected publisher redirect");
-          return normalizePublisherPosts(await boundedJson(response, controller.signal));
+          if (response.url && response.url !== config.url) throw new Error("unexpected publisher redirect");
+          return normalizePublisherPosts(await boundedJson(response, controller.signal), publisherId);
         })();
         const deadline = new Promise((_, reject) => {
           timer = setTimeout(() => {controller.abort(); reject(new Error("publisher timeout"));}, timeoutMs);
