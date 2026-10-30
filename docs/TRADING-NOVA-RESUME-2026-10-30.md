@@ -2,6 +2,20 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — publication-aware publisher research
+
+Starting main `9b4f9167e6b5da9ae71860e7a42be56819d191a2`: PR #93 merged, main CI `41022112429`, Chromium `41022112501` and lockfile `41022112490` succeeded. Open PRs/local changes were empty; no applicable AGENTS.md was found. Implementation commit `64aefe307bc17eb997a72dde52c304535d958758` implements the next bounded research slice: real publisher headline metadata with explicit publication freshness.
+
+Authenticated GET/HEAD `/api/research/news` loads at most 10 Kraken Blog posts from one hardcoded public JSON endpoint. No user/model URL is accepted, redirects are refused, article links must stay on the exact HTTPS publisher host without credentials/ports, and no article body is fetched. Transport has a 5-second hard deadline including body reads, 64-KiB streamed-body bound, coalesced in-flight work, 5-minute cache, 30-minute stale ceiling and 30-second failure cooldown. Failures are sanitized; expired/unavailable caches expose no headlines. Publication dates use strict WordPress `date_gmt` UTC semantics with invalid/unknown/future states; `modified_gmt` and retrieval time never replace publication time. Publication ages are re-evaluated on cache hits against a disclosed 72-hour window.
+
+Dashboard Publisher Research loads only on an explicit button click, displays publication/retrieval/assessment times separately, marks stale cache, and clears old content on offline/error/empty responses. Safe text-only headline links cannot render publisher HTML. Source policy labels this as a single first-party exchange publisher that may include promotions; relevance, independent corroboration and counter-evidence remain unchecked. The feed does not change Council scores or trading decisions, and is not yet Gemini context. Existing Council news/fundamental/sentiment proxies remain labelled disconnected.
+
+Evidence checked on 30 October 2026: official WordPress Posts schema documents `date_gmt` as publication UTC and `modified_gmt` as modification UTC (https://developer.wordpress.org/rest-api/reference/posts/). A bounded cURL read of the fixed Kraken JSON endpoint returned HTTP 200/application-json with 10 metadata records. A separate read using the new service's native Node fetch returned `unavailable` at its deadline in this environment; live adapter/runtime connectivity is therefore NOT proven. No paid provider call or deployment occurred.
+
+Local validation: 641 total, 634 pass, 0 fail, 7 expected external-PostgreSQL skips; focused research/release checks 19/19. Lint, syntax, secret scan, evidence schema and diff checks passed. Behavioral tests cover exact-host URL validation, strict dates, cached publication ageing, unknown/future dates, concurrent coalescing, stale/expired/cooldown states, oversized/invalid/HTML/redirect/429 responses, transport/body deadlines, stream cancellation, real HTTP GET/HEAD/405/query rejection and private access before any provider request. Chromium scenarios cover on-demand loading, publication/retrieval separation, text-only markup, stale/offline/empty states; read the matching PR for exact head and final CI/merge evidence.
+
+Next: source diversity/counter-evidence, explicit asset relevance and verified structured context for tutor/Council before designing any news score impact. Production source soak/runtime connectivity, live Gemini, deployment, DR/security certification and trade aggregation/calibration/revalidation remain separate work. Real money OFF; Risk Gate unchanged; no credentials, paid resources or production data changed.
+
 ## Current task — complete learning-history pages
 
 Starting main `d61c5fe9bf42312404990bf1bea7391f42f9b8ed`: PR #92 merged, main CI `41021158018`, Chromium `41021157963` and lockfile `41021157968` all succeeded. Open PRs/local edits were empty and no applicable AGENTS.md was found. Implementation commit `0e2da8e6ac44d994ee6bca434cc94bfa5c812563` fixes a reproduced history-completeness gap.

@@ -27,6 +27,10 @@ let watchlistWriteMode = "ok";
 const watchlistWrites = [];
 const fixtureThesisHash = "a".repeat(64);
 const fixtureLossAutopsies = [];
+let publisherNewsMode = "ok";
+let publisherNewsRequests = 0;
+let releasePublisherNews = null;
+let publisherNewsStarted = null;
 
 function fillsForPage(offset, limit = 10) {
   const total = 25;
@@ -56,6 +60,27 @@ async function installApiFixtures(page) {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
+
+    if (pathname === "/api/research/news") {
+      publisherNewsRequests++;
+      if (publisherNewsMode === "loading") await new Promise(resolve => {
+        releasePublisherNews = resolve;
+        publisherNewsStarted?.();
+      });
+      if (publisherNewsMode === "offline") {await route.abort("failed"); return;}
+      const empty = publisherNewsMode === "empty";
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: {
+        state: publisherNewsMode === "stale" ? "stale" : empty ? "empty" : "ok",
+        publisher: {name: "Kraken Blog", independence: "not-independent"},
+        retrievedAt: 1793361600000, assessedAt: 1793365200000, retrievalAgeMs: 3600000, rejectedCount: 0,
+        items: empty ? [] : [
+          {title: "Publisher <img src=x onerror=alert(1)> headline", url: "https://blog.kraken.com/fixture-headline",
+            publishedAt: 1793358000000, publicationFreshness: "within-window"},
+          {title: "Undated publisher item", url: "https://blog.kraken.com/fixture-undated", publishedAt: null, publicationFreshness: "unknown"}
+        ], note: "Publisher-reported dates. Single-source context; no effect on Council scores."
+      }})});
+      return;
+    }
 
     if (pathname === "/api/markets") {
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: {
@@ -452,6 +477,48 @@ async function main() {
         assert.match(learning, /Fee discipline review/);
         assert.match(learning, /I ignored simulated fees/);
       } finally {
+        await page.close();
+      }
+    });
+
+    await run("publisher research loads on demand with separate publication and retrieval times", async () => {
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        assert.equal(publisherNewsRequests, 0, "terminal refresh must not fetch the publisher automatically");
+        await page.locator("#publisher-news-badge").getByText("NOT LOADED", {exact: true}).waitFor();
+        publisherNewsMode = "loading";
+        const started = new Promise(resolve => {publisherNewsStarted = resolve;});
+        await page.locator("#publisher-news-load").click();
+        await started;
+        assert.equal(await page.locator("#publisher-news-load").isDisabled(), true);
+        assert.equal(await page.locator("#publisher-news-values").getAttribute("aria-busy"), "true");
+        publisherNewsMode = "ok";
+        assert.equal(typeof releasePublisherNews, "function");
+        releasePublisherNews();
+        await page.locator("#publisher-news-badge").getByText("PUBLISHER CONTEXT", {exact: true}).waitFor();
+        const items = await page.locator("#publisher-news-items").innerText();
+        assert.match(items, /Published \(publisher-reported UTC\)/);
+        assert.match(items, /within-window/);
+        assert.match(items, /Unknown.*unknown/);
+        assert.match(items, /<img src=x/);
+        assert.equal(await page.locator("#publisher-news-items img").count(), 0);
+        const link = page.locator("#publisher-news-items a").first();
+        assert.equal(await link.getAttribute("rel"), "noopener noreferrer");
+        assert.match(await page.locator("#publisher-news-values").innerText(), /Retrieved \(UTC\)/);
+        assert.match(await page.locator("#publisher-news-values").innerText(), /Assessed \(UTC\)/);
+        publisherNewsMode = "stale";
+        await page.locator("#publisher-news-load").click();
+        await page.locator("#publisher-news-badge").getByText("STALE CACHE", {exact: true}).waitFor();
+        publisherNewsMode = "offline";
+        await page.locator("#publisher-news-load").click();
+        await page.locator("#publisher-news-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
+        assert.equal(await page.locator("#publisher-news-items li").count(), 0);
+        publisherNewsMode = "empty";
+        await page.locator("#publisher-news-load").click();
+        await page.locator("#publisher-news-badge").getByText("NO POSTS", {exact: true}).waitFor();
+        assert.equal(await page.locator("#publisher-news-items li").count(), 0);
+      } finally {
+        publisherNewsMode = "ok";
         await page.close();
       }
     });

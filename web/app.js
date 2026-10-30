@@ -1190,6 +1190,55 @@
     });
   }
 
+  var publisherNewsBusy = false;
+  function renderPublisherNews() {
+    if (publisherNewsBusy) return Promise.resolve();
+    publisherNewsBusy = true;
+    var button = $("publisher-news-load");
+    var values = $("publisher-news-values");
+    var list = $("publisher-news-items");
+    button.disabled = true;
+    clear(values); clear(list);
+    setBusy("publisher-news-values", true);
+    setBadge("publisher-news-badge", "loading", "LOADING");
+    return api("/api/research/news").then(function (result) {
+      if (result.status !== 200 || result.body?.ok !== true || !result.body.data) {
+        throw new Error("Publisher headlines unavailable. No current article evidence was inferred.");
+      }
+      var data = result.body.data;
+      setBadge("publisher-news-badge", data.state === "stale" ? "stale" : data.state === "empty" ? "empty" : "ok",
+        data.state === "stale" ? "STALE CACHE" : data.state === "empty" ? "NO POSTS" : "PUBLISHER CONTEXT");
+      row(values, "Publisher", data.publisher?.name || "Unknown");
+      row(values, "Retrieved (UTC)", Number.isFinite(data.retrievedAt) ? new Date(data.retrievedAt).toISOString() : "Unknown");
+      row(values, "Assessed (UTC)", Number.isFinite(data.assessedAt) ? new Date(data.assessedAt).toISOString() : "Unknown");
+      row(values, "Retrieval age at assessment", fmtAge(data.retrievalAgeMs));
+      row(values, "Rejected records", data.rejectedCount);
+      row(values, "Counter-evidence", "Not collected · corroboration not checked");
+      (Array.isArray(data.items) ? data.items : []).slice(0, 10).forEach(function (item) {
+        try {
+          var url = new URL(item.url);
+          if (url.protocol !== "https:" || url.hostname !== "blog.kraken.com" || url.port || url.username || url.password) return;
+          var li = el("li");
+          var link = el("a", null, item.title);
+          link.href = url.href; link.target = "_blank"; link.rel = "noopener noreferrer";
+          li.appendChild(link);
+          var publication = Number.isFinite(item.publishedAt) ? new Date(item.publishedAt).toISOString() : "Unknown";
+          li.appendChild(el("p", "muted", "Published (publisher-reported UTC): " + publication
+            + " · " + String(item.publicationFreshness || "unknown") + " (72h window at assessment)"));
+          list.appendChild(li);
+        } catch (_err) { /* Invalid links are never rendered. */ }
+      });
+      note("publisher-news-note", data.note);
+    }).catch(function (error) {
+      clear(values); clear(list);
+      setBadge("publisher-news-badge", "unavailable", "UNAVAILABLE");
+      note("publisher-news-note", error.message);
+    }).finally(function () {
+      publisherNewsBusy = false; button.disabled = false;
+      setBusy("publisher-news-values", false);
+    });
+  }
+
   function syncLossAutopsyControl() {
     var select = $("journal-outcome-select");
     var type = $("journal-type-select");
@@ -1741,6 +1790,7 @@
     $("watchlist-form").addEventListener("submit", addWatchlistSymbol);
     $("tutor-form").addEventListener("submit", submitTutorMessage);
     $("tutor-check-status-btn").addEventListener("click", renderTutorStatus);
+    $("publisher-news-load").addEventListener("click", renderPublisherNews);
     renderTutorStatus();
     configureLogout();
 
