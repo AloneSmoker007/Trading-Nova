@@ -1135,6 +1135,45 @@
     });
   }
 
+  function renderLearningOutcomes() {
+    setBadge("learning-badge", "loading");
+    setBusy("learning-values", true);
+    return api("/api/learning/outcomes").then(function (result) {
+      var dl = $("learning-values");
+      var list = $("learning-outcomes");
+      clear(dl);
+      clear(list);
+      var body = result.body;
+      if (result.status === 200 && body && body.ok === true && body.data) {
+        var data = body.data;
+        var summary = data.summary || {};
+        setBadge("learning-badge", data.state === "empty" ? "empty" : "ok",
+          data.state === "empty" ? "NO REALIZED OUTCOMES" : "SERVER-DERIVED");
+        row(dl, "Accounting", String(data.accounting || "—") + " · " + String(data.currency || "—"));
+        row(dl, "Realized outcomes", String(summary.outcomeCount || 0));
+        row(dl, "Thesis-linked", String(summary.linkedOutcomeCount || 0));
+        row(dl, "Net paper P&L", "$" + fmtNum(summary.realizedNetPnl, 4));
+        row(dl, "Open FIFO lots", String(summary.openLotCount || 0));
+        (data.outcomes || []).slice(-10).reverse().forEach(function (outcome) {
+          var title = outcome.thesisRef && outcome.thesisRef.title ? outcome.thesisRef.title : "Unlinked fill";
+          list.appendChild(el("li", null,
+            title + " · " + outcome.symbol + " " + outcome.direction + " · " + outcome.result
+            + " · net $" + fmtNum(outcome.netPnl, 4) + " after $" + fmtNum(outcome.fees, 4) + " fees"));
+        });
+        note("learning-note", data.note);
+      } else {
+        var failure = failureState(result);
+        setBadge("learning-badge", failure.state);
+        note("learning-note", failure.message + " No outcome was invented.");
+      }
+    }).catch(function (err) {
+      setBadge("learning-badge", "unavailable");
+      note("learning-note", err.message + " No outcome was invented.");
+    }).finally(function () {
+      setBusy("learning-values", false);
+    });
+  }
+
   function renderRiskStatus() {
     setBadge("risk-badge", "loading");
     setBusy("risk-values", true);
@@ -1363,6 +1402,7 @@
         orderHistoryOffset = 0;
         renderOrderHistory();
         renderPaperOrders();
+        renderLearningOutcomes();
         return;
       }
 
@@ -1591,6 +1631,7 @@
       renderPaperOrders(),
       renderStrategyLab(),
       renderJournal(),
+      renderLearningOutcomes(),
       renderRiskStatus(),
       renderHealth()
     ]).then(function () {

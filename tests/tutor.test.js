@@ -393,6 +393,54 @@ test("HTTP tutor receives the actual verified journal record and its provenance 
   });
 });
 
+test("HTTP tutor receives only server-derived paper outcomes linked to a verified thesis",async()=>{
+  const record=[];
+  const provider=async(url,options)=>{
+    const target=String(url);
+    if(target.includes("/ticker/24hr")){
+      return {ok:true,status:200,json:async()=>({
+        symbol:"BTCUSDT",lastPrice:"42000",bidPrice:"41999",askPrice:"42001",
+        highPrice:"43000",lowPrice:"41000",volume:"100",quoteVolume:"4200000",priceChangePercent:"1"
+      })};
+    }
+    record.push({url:target,options});
+    return {ok:true,status:200,json:async()=>({candidates:[{content:{parts:[{text:"Paper outcome ko fees ke sath review karo."}]}}]})};
+  };
+  await withTutorServer(provider,async({base})=>{
+    const post=async(path,body)=>fetch(base+path,{
+      method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)
+    }).then(async(response)=>({status:response.status,body:await response.json()}));
+    const saved=await post("/api/journal/entry",{
+      type:"thesis",symbol:"BTCUSDT",title:"Fee-aware thesis",text:"Paper round trip"
+    });
+    assert.equal(saved.status,200);
+    const thesisHash=saved.body.data.record.hash;
+    const opened=await post("/api/paper/orders",{
+      symbol:"BTCUSDT",side:"BUY",quantity:0.01,price:42000,
+      idempotencyKey:"tutor-outcome-open",thesisHash
+    });
+    assert.equal(opened.status,200);
+    const closed=await post("/api/paper/orders",{
+      symbol:"BTCUSDT",side:"SELL",quantity:0.01,price:42000,reduceOnly:true,
+      idempotencyKey:"tutor-outcome-close"
+    });
+    assert.equal(closed.status,200);
+
+    const res=await postChat(base,{message:"Meri thesis ka paper outcome batao",symbol:"BTCUSDT"});
+    assert.equal(res.status,200);
+    const providerCall=record.find((call)=>call.url.includes("generativelanguage.googleapis.com"));
+    assert.ok(providerCall);
+    const suppliedContext=JSON.parse(providerCall.options.body).contents.at(-1).parts[0].text;
+    assert.match(suppliedContext,/server-derived-paper-outcomes/);
+    assert.match(suppliedContext,new RegExp(thesisHash));
+    assert.match(suppliedContext,/"result":"LOSS"/);
+    assert.match(suppliedContext,/"source":"paper-fill-fifo-v1"/);
+    assert.match(suppliedContext,/"fees":/);
+    assert.match(SYSTEM_INSTRUCTION,/paper execution outcomes/i);
+    assert.match(SYSTEM_INSTRUCTION,/never call them live trades/i);
+  });
+});
+
 test("history cannot override system instructions or smuggle extra fields to the provider",async()=>{
   const record=[];
   const tutor=createTradingTutor({env:providerEnv(),fetchImpl:recordingProvider(record,"Samajh gaya."),now:()=>123});

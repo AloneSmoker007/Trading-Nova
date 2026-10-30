@@ -368,7 +368,7 @@
                 <option value="thesis">Trade Thesis</option>
                 <option value="notes">Research Notes</option>
                 <option value="mistake">Mistake Review</option>
-                <option value="outcome">Trade Outcome</option>
+                <option value="outcome">Outcome Notes (user-entered)</option>
               </select>
             </div>
             <div class="field">
@@ -381,6 +381,13 @@
         <dl class="values" id="journal-values" aria-live="polite" aria-busy="true"></dl>
         <ul class="journal-list" id="journal-entries"></ul>
         <p class="panel-note" id="journal-note"></p>
+        <div class="card-head">
+          <h3 id="learning-title">Verified Paper Outcomes</h3>
+          <span class="badge" id="learning-badge" data-state="loading">LOADING…</span>
+        </div>
+        <dl class="values" id="learning-values" aria-labelledby="learning-title" aria-live="polite" aria-busy="true"></dl>
+        <ul class="journal-list" id="learning-outcomes" aria-label="Server-derived realized paper outcomes"></ul>
+        <p class="panel-note" id="learning-note">Only reconciled paper fills can become realized outcomes.</p>
       </section>
 
       <!-- Risk Status & Active Alerts -->

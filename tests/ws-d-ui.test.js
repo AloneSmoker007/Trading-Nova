@@ -198,6 +198,19 @@ test("paper order ticket only targets the gated paper endpoint", () => {
   assert.match(app, /unchanged retry in this tab reuses the same idempotency key/);
 });
 
+test("learning panel renders only server-derived realized paper outcomes", () => {
+  const html = read("web/index.html");
+  const app = read("web/app.js");
+  assert.match(html, /id="learning-badge"/);
+  assert.match(html, /id="learning-values"/);
+  assert.match(html, /id="learning-outcomes"/);
+  assert.match(app, /function renderLearningOutcomes/);
+  assert.match(app, /\/api\/learning\/outcomes/);
+  assert.match(app, /SERVER-DERIVED/);
+  assert.match(app, /No outcome was invented/);
+  assert.match(app, /net \$/);
+});
+
 test("web/style.css provides responsive layout and visible focus", () => {
   const css = read("web/style.css");
   assert.match(css, /:focus-visible/);

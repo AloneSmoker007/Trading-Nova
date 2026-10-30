@@ -17,6 +17,7 @@ test("Phase 8: public API surface is explicitly bounded", () => {
   assert.ok(matchApi("/api/journal"));
   assert.ok(matchApi("/api/backtest"));
   assert.ok(matchApi("/api/paper/orders"));
+  assert.ok(matchApi("/api/learning/outcomes"));
   assert.equal(matchApi("/api/admin"), null);
   assert.equal(matchApi("/api/live/orders"), null);
   assert.equal(matchApi("/api/unknown"), null);
