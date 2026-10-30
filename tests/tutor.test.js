@@ -425,6 +425,14 @@ test("HTTP tutor receives only server-derived paper outcomes linked to a verifie
       idempotencyKey:"tutor-outcome-close"
     });
     assert.equal(closed.status,200);
+    const learning=await fetch(base+"/api/learning/outcomes").then(response=>response.json());
+    const loss=learning.data.outcomes[0];
+    assert.equal(loss.result,"LOSS");
+    const reviewed=await post("/api/journal/entry",{
+      type:"loss-autopsy",outcomeId:loss.outcomeId,title:"Fee lesson",
+      text:"Maine fees ko thesis mein ignore kiya.",tags:["fees"]
+    });
+    assert.equal(reviewed.status,200);
 
     const res=await postChat(base,{message:"Meri thesis ka paper outcome batao",symbol:"BTCUSDT"});
     assert.equal(res.status,200);
@@ -436,8 +444,11 @@ test("HTTP tutor receives only server-derived paper outcomes linked to a verifie
     assert.match(suppliedContext,/"result":"LOSS"/);
     assert.match(suppliedContext,/"source":"paper-fill-fifo-v1"/);
     assert.match(suppliedContext,/"fees":/);
+    assert.match(suppliedContext,/user-authored-loss-autopsy/);
+    assert.match(suppliedContext,/Maine fees ko thesis mein ignore kiya/);
     assert.match(SYSTEM_INSTRUCTION,/paper execution outcomes/i);
     assert.match(SYSTEM_INSTRUCTION,/never call them live trades/i);
+    assert.match(SYSTEM_INSTRUCTION,/user-authored reflections/i);
   });
 });
 

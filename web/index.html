@@ -367,13 +367,20 @@
               <select id="journal-type-select">
                 <option value="thesis">Trade Thesis</option>
                 <option value="notes">Research Notes</option>
-                <option value="mistake">Mistake Review</option>
+                <option value="mistake">Mistake Notes (unlinked)</option>
+                <option value="loss-autopsy">Loss Autopsy (verified outcome)</option>
                 <option value="outcome">Outcome Notes (user-entered)</option>
               </select>
             </div>
             <div class="field">
+              <label for="journal-outcome-select">Realized loss</label>
+              <select id="journal-outcome-select" disabled>
+                <option value="">Choose a server-derived loss</option>
+              </select>
+            </div>
+            <div class="field">
               <label for="journal-text-input">Entry Notes</label>
-              <input id="journal-text-input" type="text" placeholder="Detail reasoning, entry evidence, risk plan..." required>
+              <input id="journal-text-input" type="text" maxlength="2000" placeholder="Detail reasoning, entry evidence, risk plan..." required>
             </div>
             <button type="submit" id="journal-submit-btn">Save Entry</button>
           </div>

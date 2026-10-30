@@ -4,6 +4,7 @@ import {mkdtempSync, rmSync} from "node:fs";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {derivePaperOutcomes} from "../src/journal/outcomes.js";
+import {appendJournalEntry} from "../src/journal/journal.js";
 import {DurableStore} from "../src/persistence/store.js";
 import {startTestServer, fakeFetch, jsonResponse, ticker24hPayload} from "./ws-d-helpers.js";
 
@@ -149,6 +150,160 @@ test("HTTP learning report links an actual closed paper fill to its verified the
   } finally {
     await srv.close().catch(() => {});
     rmSync(dir, {recursive: true, force: true});
+  }
+});
+
+test("loss autopsy must bind to an existing server-derived realized loss", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-autopsy-"));
+  const stateFile = join(dir, "paper-state.json");
+  const executionStateFile = join(dir, "paper-orders.json");
+  const srv = await startTestServer({fetchImpl: tickerFetchAt(42000, 41999, 42001), stateFile, executionStateFile});
+  try {
+    const savedThesis = await post(srv.base, "/api/journal/entry", {
+      type: "thesis", symbol: "BTCUSDT", title: "Autopsy thesis", text: "Paper-only test"
+    });
+    const thesisHash = savedThesis.body.data.record.hash;
+    assert.equal((await post(srv.base, "/api/paper/orders", {
+      symbol: "BTCUSDT", side: "BUY", quantity: 0.01, price: 42000,
+      idempotencyKey: "autopsy-open", thesisHash
+    })).status, 200);
+    assert.equal((await post(srv.base, "/api/paper/orders", {
+      symbol: "BTCUSDT", side: "SELL", quantity: 0.01, price: 42000,
+      idempotencyKey: "autopsy-close", reduceOnly: true
+    })).status, 200);
+
+    const before = await fetch(srv.base + "/api/learning/outcomes").then(response => response.json());
+    const loss = before.data.outcomes[0];
+    assert.equal(loss.result, "LOSS");
+    assert.equal(before.data.reviewState, "verified");
+    assert.equal(before.data.summary.reviewedLossCount, 0);
+    assert.equal(before.data.summary.unreviewedLossCount, 1);
+
+    const fake = await post(srv.base, "/api/journal/entry", {
+      type: "loss-autopsy", outcomeId: "f".repeat(64), title: "Fake", text: "Must reject"
+    });
+    assert.equal(fake.status, 400);
+    assert.equal(fake.body.error.code, "learning-outcome-not-found");
+
+    const oversized = await post(srv.base, "/api/journal/entry", {
+      type: "loss-autopsy", outcomeId: loss.outcomeId, title: "Too long", text: "x".repeat(2001)
+    });
+    assert.equal(oversized.status, 400);
+    assert.equal(oversized.body.error.code, "loss-autopsy-too-long");
+
+    const review = await post(srv.base, "/api/journal/entry", {
+      type: "loss-autopsy", outcomeId: loss.outcomeId, symbol: "ETHUSDT",
+      title: "Waited too long", text: "I ignored the invalidation level.", tags: ["late-exit"]
+    });
+    assert.equal(review.status, 200);
+    assert.deepEqual(review.body.data.record.entry.reviewOf, {
+      outcomeId: loss.outcomeId,
+      thesisHash,
+      symbol: "BTCUSDT",
+      result: "LOSS",
+      netPnl: loss.netPnl,
+      closedAt: loss.closedAt,
+      source: "paper-fill-fifo-v1"
+    });
+    assert.equal(review.body.data.record.entry.symbol, "BTCUSDT", "server outcome symbol wins over user input");
+
+    const journal = await fetch(srv.base + "/api/journal").then(response => response.json());
+    assert.equal(journal.data.verified, true);
+    assert.equal(journal.data.entries.at(-1).hash, review.body.data.record.hash);
+
+    const after = await fetch(srv.base + "/api/learning/outcomes").then(response => response.json());
+    assert.equal(after.data.reviewState, "verified");
+    assert.equal(after.data.summary.reviewedLossCount, 1);
+    assert.equal(after.data.summary.unreviewedLossCount, 0);
+    assert.equal(after.data.summary.lossAutopsyCount, 1);
+    assert.deepEqual(after.data.lossAutopsies, [{
+      recordHash: review.body.data.record.hash,
+      recordIndex: review.body.data.record.index,
+      timestamp: review.body.data.record.entry.timestamp,
+      outcomeId: loss.outcomeId,
+      thesisHash,
+      symbol: "BTCUSDT",
+      title: "Waited too long",
+      text: "I ignored the invalidation level.",
+      tags: ["late-exit"],
+      source: "user-authored-loss-autopsy"
+    }]);
+  } finally {
+    await srv.close();
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
+
+test("loss autopsy rejects a realized win and hides semantically forged review links", async () => {
+  const winningStore = new DurableStore();
+  const opening = fill({id: "win-open", side: "BUY", quantity: 1, price: 100, fee: 1,
+    timestamp: 1, thesisRef: thesis("e".repeat(64))});
+  const closing = fill({id: "win-close", side: "SELL", quantity: 1, price: 120, fee: 1, timestamp: 2});
+  winningStore.put("paper-fills", opening.orderId, opening);
+  winningStore.put("paper-fills", closing.orderId, closing);
+  const win = derivePaperOutcomes([opening, closing]).outcomes[0];
+  const winServer = await startTestServer({fetchImpl: tickerFetchAt(120, 119, 121), store: winningStore});
+  try {
+    const rejected = await post(winServer.base, "/api/journal/entry", {
+      type: "loss-autopsy", outcomeId: win.outcomeId, title: "Not a loss", text: "Must reject"
+    });
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.error.code, "loss-autopsy-requires-loss");
+  } finally {
+    await winServer.close();
+  }
+
+  const forgedStore = new DurableStore();
+  const lossOpen = fill({id: "loss-open", side: "BUY", quantity: 1, price: 100, fee: 1,
+    timestamp: 1, thesisRef: thesis("f".repeat(64))});
+  const lossClose = fill({id: "loss-close", side: "SELL", quantity: 1, price: 90, fee: 1, timestamp: 2});
+  forgedStore.put("paper-fills", lossOpen.orderId, lossOpen);
+  forgedStore.put("paper-fills", lossClose.orderId, lossClose);
+  const loss = derivePaperOutcomes([lossOpen, lossClose]).outcomes[0];
+  const chain = [];
+  appendJournalEntry(chain, {
+    timestamp: 3, type: "loss-autopsy", symbol: loss.symbol, title: "Forged projection",
+    text: "Hash-valid text with mismatched execution facts", tags: [],
+    reviewOf: {outcomeId: loss.outcomeId, thesisHash: loss.thesisRef.hash, symbol: loss.symbol,
+      result: "LOSS", netPnl: loss.netPnl + 1, closedAt: loss.closedAt, source: loss.source}
+  });
+  forgedStore.put("paper-journal", "main", {payload: JSON.stringify({version: 1, updatedAt: 3, entries: chain})});
+  const forgedServer = await startTestServer({fetchImpl: tickerFetchAt(90, 89, 91), store: forgedStore});
+  try {
+    const response = await fetch(forgedServer.base + "/api/learning/outcomes");
+    assert.equal(response.status, 200, "execution outcomes remain available independently");
+    const data = (await response.json()).data;
+    assert.equal(data.outcomes.length, 1);
+    assert.equal(data.reviewState, "unavailable");
+    assert.deepEqual(data.lossAutopsies, []);
+    assert.equal(data.summary.reviewedLossCount, null);
+    assert.equal(data.summary.unreviewedLossCount, null);
+  } finally {
+    await forgedServer.close();
+  }
+
+  const boundedStore = new DurableStore();
+  boundedStore.put("paper-fills", lossOpen.orderId, lossOpen);
+  boundedStore.put("paper-fills", lossClose.orderId, lossClose);
+  const longChain = [];
+  appendJournalEntry(longChain, {
+    timestamp: 3, type: "loss-autopsy", symbol: loss.symbol, title: "Valid but outside read window",
+    text: "Must not be silently omitted from coverage counts", tags: [],
+    reviewOf: {outcomeId: loss.outcomeId, thesisHash: loss.thesisRef.hash, symbol: loss.symbol,
+      result: loss.result, netPnl: loss.netPnl, closedAt: loss.closedAt, source: loss.source}
+  });
+  for (let index = 0; index < 200; index++) {
+    appendJournalEntry(longChain, {timestamp: 4 + index, type: "notes", symbol: "GENERAL",
+      title: "Bounded note", text: String(index), tags: []});
+  }
+  boundedStore.put("paper-journal", "main", {payload: JSON.stringify({version: 1, updatedAt: 204, entries: longChain})});
+  const boundedServer = await startTestServer({fetchImpl: tickerFetchAt(90, 89, 91), store: boundedStore});
+  try {
+    const data = await fetch(boundedServer.base + "/api/learning/outcomes").then(response => response.json()).then(body => body.data);
+    assert.equal(data.reviewState, "unavailable", "an incomplete journal window must not under-count older reviews");
+    assert.equal(data.summary.reviewedLossCount, null);
+  } finally {
+    await boundedServer.close();
   }
 });
 

@@ -209,6 +209,11 @@ test("learning panel renders only server-derived realized paper outcomes", () =>
   assert.match(app, /SERVER-DERIVED/);
   assert.match(app, /No outcome was invented/);
   assert.match(app, /net \$/);
+  assert.match(html, /value="loss-autopsy"/);
+  assert.match(html, /id="journal-outcome-select"/);
+  assert.match(app, /syncLossAutopsyControl/);
+  assert.match(app, /payload\.outcomeId = outcomeId/);
+  assert.match(app, /USER-REVIEWED/);
 });
 
 test("web/style.css provides responsive layout and visible focus", () => {

@@ -136,7 +136,8 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
               journalIntegrity:"verified",
               entries,
               outcomeState:"unavailable",
-              executionOutcomes:[]
+              executionOutcomes:[],
+              lossAutopsies:[]
             }};
             try{
               const learningSnapshot=await api.learningOutcomes();
@@ -163,6 +164,19 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
                   }));
                 context.learningMemory.outcomeState=executionOutcomes.length?"server-derived-paper-outcomes":"no-realized-linked-outcomes";
                 context.learningMemory.executionOutcomes=executionOutcomes;
+                const outcomeIds=new Set(executionOutcomes.map((outcome)=>outcome.outcomeId).filter(Boolean));
+                context.learningMemory.lossAutopsies=(Array.isArray(learningData.lossAutopsies)?learningData.lossAutopsies:[])
+                  .filter((review)=>outcomeIds.has(review?.outcomeId))
+                  .slice(-5)
+                  .map((review)=>({
+                    outcomeId:review.outcomeId,
+                    thesisHash:review.thesisHash,
+                    symbol:review.symbol,
+                    title:typeof review.title==="string"?review.title.slice(0,120):"Loss autopsy",
+                    text:typeof review.text==="string"?review.text.slice(0,350):"",
+                    tags:Array.isArray(review.tags)?review.tags.slice(0,20):[],
+                    source:"user-authored-loss-autopsy"
+                  }));
               }
             }catch{
               // Keep verified notes available while marking execution outcomes unavailable.

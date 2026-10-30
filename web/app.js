@@ -15,6 +15,7 @@
   var orderSubmissionInProgress = false;
   var orderOutcomeUncertain = false;
   var verifiedJournalRecords = [];
+  var verifiedLearningOutcomes = [];
 
   // Keep the visible history page bounded and independent from order submission.
   var orderHistoryPageSize = 10;
@@ -1147,6 +1148,8 @@
       if (result.status === 200 && body && body.ok === true && body.data) {
         var data = body.data;
         var summary = data.summary || {};
+        verifiedLearningOutcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
+        syncLossAutopsyControl();
         setBadge("learning-badge", data.state === "empty" ? "empty" : "ok",
           data.state === "empty" ? "NO REALIZED OUTCOMES" : "SERVER-DERIVED");
         row(dl, "Accounting", String(data.accounting || "—") + " · " + String(data.currency || "—"));
@@ -1154,24 +1157,60 @@
         row(dl, "Thesis-linked", String(summary.linkedOutcomeCount || 0));
         row(dl, "Net paper P&L", "$" + fmtNum(summary.realizedNetPnl, 4));
         row(dl, "Open FIFO lots", String(summary.openLotCount || 0));
+        row(dl, "Reviewed losses", data.reviewState === "verified"
+          ? String(summary.reviewedLossCount || 0) + " / " + String(summary.losses || 0)
+          : "Unavailable — journal review integrity not verified");
+        var reviewedIds = new Set((data.lossAutopsies || []).map(function (review) { return review.outcomeId; }));
         (data.outcomes || []).slice(-10).reverse().forEach(function (outcome) {
           var title = outcome.thesisRef && outcome.thesisRef.title ? outcome.thesisRef.title : "Unlinked fill";
           list.appendChild(el("li", null,
             title + " · " + outcome.symbol + " " + outcome.direction + " · " + outcome.result
-            + " · net $" + fmtNum(outcome.netPnl, 4) + " after $" + fmtNum(outcome.fees, 4) + " fees"));
+            + " · net $" + fmtNum(outcome.netPnl, 4) + " after $" + fmtNum(outcome.fees, 4) + " fees"
+            + (reviewedIds.has(outcome.outcomeId) ? " · USER-REVIEWED" : "")));
+        });
+        (data.lossAutopsies || []).slice(-5).reverse().forEach(function (review) {
+          list.appendChild(el("li", "loss-autopsy", "User loss autopsy · " + review.symbol + " · "
+            + review.title + " · " + review.text));
         });
         note("learning-note", data.note);
       } else {
+        verifiedLearningOutcomes = [];
+        syncLossAutopsyControl();
         var failure = failureState(result);
         setBadge("learning-badge", failure.state);
         note("learning-note", failure.message + " No outcome was invented.");
       }
     }).catch(function (err) {
+      verifiedLearningOutcomes = [];
+      syncLossAutopsyControl();
       setBadge("learning-badge", "unavailable");
       note("learning-note", err.message + " No outcome was invented.");
     }).finally(function () {
       setBusy("learning-values", false);
     });
+  }
+
+  function syncLossAutopsyControl() {
+    var select = $("journal-outcome-select");
+    var type = $("journal-type-select");
+    if (!select || !type) return;
+    var selected = select.value;
+    clear(select);
+    var empty = el("option", null, "Choose a server-derived loss");
+    empty.value = "";
+    select.appendChild(empty);
+    verifiedLearningOutcomes.filter(function (outcome) {
+      return outcome && outcome.result === "LOSS" && typeof outcome.outcomeId === "string";
+    }).forEach(function (outcome) {
+      var option = el("option", null, outcome.symbol + " · " + outcome.direction
+        + " · net $" + fmtNum(outcome.netPnl, 4) + " · " + fmtTime(outcome.closedAt));
+      option.value = outcome.outcomeId;
+      select.appendChild(option);
+    });
+    select.disabled = type.value !== "loss-autopsy" || select.options.length <= 1;
+    if (Array.prototype.some.call(select.options, function (option) { return option.value === selected; })) {
+      select.value = selected;
+    }
   }
 
   function renderRiskStatus() {
@@ -1600,17 +1639,22 @@
     var type = $("journal-type-select").value;
     var symbol = readSymbol() || "GENERAL";
 
-    if (!title || !text) return;
+    var outcomeId = type === "loss-autopsy" ? $("journal-outcome-select").value : "";
+    if (!title || !text || (type === "loss-autopsy" && !outcomeId)) return;
+
+    var payload = { title: title, text: text, type: type, symbol: symbol };
+    if (outcomeId) payload.outcomeId = outcomeId;
 
     return api("/api/journal/entry", {
       method: "POST",
-      body: JSON.stringify({ title: title, text: text, type: type, symbol: symbol }),
+      body: JSON.stringify(payload),
       headers: { "Content-Type": "application/json" }
     }).then(function (result) {
       if (result.status === 200 && result.body && result.body.ok === true) {
         $("journal-title-input").value = "";
         $("journal-text-input").value = "";
-        renderJournal();
+        $("journal-outcome-select").value = "";
+        return Promise.all([renderJournal(), renderLearningOutcomes()]);
       }
     });
   }
@@ -1693,6 +1737,7 @@
     $("run-backtest-btn").addEventListener("click", renderStrategyLab);
 
     $("journal-form").addEventListener("submit", submitJournalEntry);
+    $("journal-type-select").addEventListener("change", syncLossAutopsyControl);
     $("watchlist-form").addEventListener("submit", addWatchlistSymbol);
     $("tutor-form").addEventListener("submit", submitTutorMessage);
     $("tutor-check-status-btn").addEventListener("click", renderTutorStatus);
