@@ -361,7 +361,7 @@ async function main() {
 
         await page.locator("#order-quantity").fill("0.001");
         await page.locator("#order-price").fill("42000.5");
-        await page.locator("#order-thesis option", {hasText: "Browser verified thesis"}).waitFor();
+        await page.locator("#order-thesis option", {hasText: "Browser verified thesis"}).waitFor({state: "attached"});
         assert.equal(await page.locator("#order-thesis").isDisabled(), false);
         await page.locator("#order-thesis").selectOption(fixtureThesisHash);
         await page.getByRole("button", {name: "Submit Paper Order"}).click();
