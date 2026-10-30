@@ -2,6 +2,16 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — learning quote-currency integrity
+
+Verified starting main `8eea82983bfebafad7b01bb7dfb543cfe23d082d`: PR #91 merged, main CI `41019547990`, Chromium `41019548040` and lockfile `41019547971` all succeeded; open PRs and local changes were empty. No applicable AGENTS.md was found. Implementation commit `a0bf1c8645ca36a33e1a3484720cd0528e667c70` fixes a newly reproduced learning-path regression rather than repeating the earlier order-path protection.
+
+Two regression tests failed before the fix: legacy reconciled ETHBTC open/close fills were accepted by the FIFO module and HTTP learning endpoint, which returned BTC-denominated P&L with `currency: USDT`. New order submission already rejected this currency, but historical fills still reached learning and loss-autopsy derivation. The USDT learning projection now requires every fill to have a supported USDT pair, matching the existing terminal order boundary. Any unsupported historical fill makes the complete report unavailable and blocks loss-autopsy creation; no FX rate, partial filtered report, history rewrite or balance conversion is invented. Generic market parsing, generic execution/risk contracts and order approval remain unchanged.
+
+Acceptance coverage: unsupported quote variants and malformed bare/suffixed symbols fail closed even in mixed USDT history; HTTP returns sanitized 503 with no report; autopsy returns 503 with no journal write; historical fills stay byte-equivalent; no provider request occurs; supported USDT long/short/partial FIFO and actual thesis-to-loss-to-autopsy controls still pass. Focused currency/learning tests: 12/12. Full local suite: 617 total, 610 pass, 0 fail, 7 expected external-PostgreSQL skips. Lint, secret scan, evidence schema and diff checks passed. Read the matching PR for final remote candidate, CI, merge and merged-main evidence.
+
+Historical cross-currency reconciliation requires a separate reviewed accounting design. Next investigate complete pagination/snapshot consistency for learning history, then continue source publication freshness/counter-evidence and structured council research. Trade aggregation/calibration/revalidation and all external deployment/runtime/feed-soak/security/DR evidence remain unfinished. No paid provider call, credential change, deployment or live-money action occurred.
+
 ## Current task — verified user loss autopsy
 
 Base main `97ce9c83013244626cfe7dd03e67510e1d9bfd5a`; PR #90 and merged-main CI/Chromium/lockfile were green, and no open PR or overlapping work existed at start. Implementation commit `f7c1d21a9872bcbd6b928ac958f066ff5ad90d59` closes the reproduced gap that “Mistake Review” accepted free text without binding it to any server-derived paper loss, so it could not safely support outcome learning.
