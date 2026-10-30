@@ -18,6 +18,7 @@ Completed and merged. CI is green. Paper/shadow foundation certified only; live-
 - [x] CI-safe injected-pool regression tests
 - [x] Backup/restore drill against a real PostgreSQL 17.11 service (local drill host only; production rerun with measured RTO/RPO still open)
 - [x] Crash-recovery drill against a real PostgreSQL service (`npm run recovery:crash`, incl. `-m immediate` restart)
+- [x] RTO/RPO measured by the backup/restore drill and emitted as a validated evidence record (`evidence/backup-restore-rto-rpo.json`), with non-production hosts labelled `BLOCKED`
 - [ ] Real production deployment backup/restore drill with measured RTO/RPO
 
 Evidence: `docs/TASK-25-RECOVERY-DRILL-EVIDENCE.md`. A production deployment
