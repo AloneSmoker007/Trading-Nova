@@ -27,6 +27,7 @@ let watchlistWriteMode = "ok";
 const watchlistWrites = [];
 const fixtureThesisHash = "a".repeat(64);
 const fixtureLossAutopsies = [];
+let learningMode = "ok";
 let publisherNewsMode = "ok";
 let publisherNewsRequests = 0;
 let releasePublisherNews = null;
@@ -219,6 +220,7 @@ async function installApiFixtures(page) {
     }
 
     if (pathname === "/api/learning/outcomes" && request.method() === "GET") {
+      if (learningMode === "offline") {await route.abort("failed"); return;}
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({
         ok: true,
         data: {
@@ -229,6 +231,8 @@ async function installApiFixtures(page) {
             reviewedLossCount: fixtureLossAutopsies.length ? 1 : 0,
             unreviewedLossCount: fixtureLossAutopsies.length ? 0 : 1},
           reviewState: "verified", lossAutopsies: fixtureLossAutopsies,
+          thesisSummaries: [{thesisHash: fixtureThesisHash, title: "Thesis <img src=x onerror=alert(1)>", symbols: ["BTCUSDT"],
+            matchedFragments: 1, wins: 0, losses: 1, breakeven: 0, fees: 2, netPnl: -2, openLotCount: 0}],
           outcomes: [{
             outcomeId: "fixture-outcome", status: "REALIZED", source: "paper-fill-fifo-v1",
             symbol: "BTCUSDT", direction: "LONG", quantity: 0.01, openedAt: 1, closedAt: 2,
@@ -504,6 +508,12 @@ async function main() {
       const page = await openDashboard(browser, baseUrl);
       try {
         await page.locator("#learning-badge").getByText("SERVER-DERIVED", {exact: true}).waitFor();
+        const thesisRow = page.locator("#learning-theses-body tr");
+        assert.equal(await thesisRow.count(), 1);
+        assert.match(await thesisRow.innerText(), /Thesis <img src=x onerror=alert\(1\)>/);
+        assert.equal(await thesisRow.locator("img").count(), 0);
+        assert.equal(await thesisRow.locator("td").nth(1).innerText(), "1");
+        assert.equal(await thesisRow.locator("td").nth(3).innerText(), "2 / -2");
         assert.match(await page.locator("#learning-values").innerText(), /FIFO · USDT/);
         assert.match(await page.locator("#learning-values").innerText(), /Net paper P&L\s+\$-2/);
         const outcome = await page.locator("#learning-outcomes").innerText();
@@ -531,7 +541,13 @@ async function main() {
         assert.match(learning, /User loss autopsy/);
         assert.match(learning, /Fee discipline review/);
         assert.match(learning, /I ignored simulated fees/);
+        assert.equal(await page.locator("#learning-theses-body tr").count(), 1, "refresh does not duplicate thesis groups");
+        learningMode = "offline";
+        await page.reload();
+        await page.locator("#learning-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
+        assert.equal(await page.locator("#learning-theses-body tr").count(), 0);
       } finally {
+        learningMode = "ok";
         await page.close();
       }
     });

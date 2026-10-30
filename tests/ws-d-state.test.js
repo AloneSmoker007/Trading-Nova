@@ -5,15 +5,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {mkdtempSync, writeFileSync, rmSync} from "node:fs";
-import {join, dirname} from "node:path";
-import {fileURLToPath} from "node:url";
+import {join} from "node:path";
+import {tmpdir} from "node:os";
 import {appendJournalEntry} from "../src/journal/journal.js";
 import {startTestServer, getJson, findSecretViolations} from "./ws-d-helpers.js";
 
-const TESTS_DIR = dirname(fileURLToPath(import.meta.url));
+const TEMP_ROOT = tmpdir();
 
 async function withTempState(raw, fn, {nowValue} = {}) {
-  const dir = mkdtempSync(join(TESTS_DIR, "tmp-ws-d-"));
+  const dir = mkdtempSync(join(TEMP_ROOT, "tmp-ws-d-"));
   const stateFile = join(dir, "paper-state.json");
   try {
     if (raw !== null) writeFileSync(stateFile, typeof raw === "string" ? raw : JSON.stringify(raw));
@@ -113,7 +113,7 @@ test("corrupt or invalid paper state is a 500 error state — no internals leake
       assert.equal(res.body.ok, false);
       assert.equal(res.body.state, "error");
       assert.equal(res.body.error.code, "paper-state-error");
-      assert.ok(!res.text.includes(TESTS_DIR), "no filesystem paths in error payloads");
+      assert.ok(!res.text.includes(TEMP_ROOT), "no filesystem paths in error payloads");
       assert.ok(!/\bat \S+\.js:\d+/.test(res.text), "no stack traces in error payloads");
       assert.deepEqual(findSecretViolations(res.body, res.text), []);
     } finally {
