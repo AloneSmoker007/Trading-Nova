@@ -32,6 +32,8 @@ let publisherNewsRequests = 0;
 let releasePublisherNews = null;
 let publisherNewsStarted = null;
 let structuredResearchMode = "ok";
+let backtestMode = "ok";
+const backtestRequests = [];
 function researchFixture() {
   return {symbol: "BTCUSDT", state: structuredResearchMode, sourceCoverage: {eligiblePublisherCount: structuredResearchMode === "ok" ? 2 : 1},
     counterEvidence: {state: "candidates-found", candidateIds: ["bitfinex-blog:1"]},
@@ -70,6 +72,28 @@ async function installApiFixtures(page) {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
+    if (pathname === "/api/backtest") {
+      const strategy = url.searchParams.get("strategy");
+      backtestRequests.push(strategy);
+      if (backtestMode === "offline") {await route.abort("failed"); return;}
+      if (backtestMode === "partial" && strategy === "momentum") {
+        await route.fulfill({status: 503, contentType: "application/json", body: JSON.stringify({ok: false, error: {code: "fixture-unavailable"}})});
+        return;
+      }
+      const result = {returnPct: 0.01, equity: 10100, trades: 3, maxDrawdown: 0.02};
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: {
+        strategy: {name: strategy}, startingCash: 10000, stale: backtestMode === "stale",
+        parameters: {feeRate: 0.001, slippageBps: 5},
+        evaluationSplit: {mode: "automatic", inSampleCandles: 140, outOfSampleCandles: 60},
+        inSample: result, outOfSample: result,
+        comparison: backtestMode === "missing-comparison" ? {} : {
+          benchmarks: {buyHold: {outOfSample: {state: "filled", returnPct: 0.02, strategyExcessReturn: -0.01}}},
+          costSensitivity: {scenarios: [{id: "double-cost", outOfSample: {returnPct: 0.005}},
+            {id: "higher-slippage", outOfSample: {returnPct: -0.005}}]}
+        }
+      }})});
+      return;
+    }
     if (pathname.startsWith("/api/research/context/")) {
       if (structuredResearchMode === "offline") {await route.abort("failed"); return;}
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: researchFixture()})});
@@ -587,6 +611,43 @@ async function main() {
         councilMode = "unavailable";
         await page.close();
       }
+    });
+
+    await run("Strategy Lab displays cost comparisons, unavailable evidence and stale history without submitting orders", async () => {
+      backtestRequests.length = 0;
+      const orderCount = requestBodies.length;
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#lab-comparison-body tr").nth(2).waitFor();
+        assert.deepEqual([...new Set(backtestRequests)].sort(), ["famous-turtle", "momentum", "sma-cross"]);
+        const first = page.locator("#lab-comparison-body tr").first();
+        assert.match(await first.innerText(), /SMA Cross/);
+        assert.equal(await first.locator("td").nth(1).innerText(), "2%");
+        assert.equal(await first.locator("td").nth(2).innerText(), "-1 pp");
+        assert.equal(await first.locator("td").nth(4).innerText(), "-0.5%");
+        await page.locator("#backtest-values").getByText(/Cash-rejected entry is unavailable/).waitFor();
+
+        backtestMode = "stale";
+        await page.locator("#run-backtest-btn").click();
+        await page.locator("#backtest-values").getByText("STALE historical cache", {exact: true}).waitFor();
+        backtestMode = "partial";
+        await page.locator("#run-backtest-btn").click();
+        await page.locator("#lab-badge").getByText("PARTIAL RESULTS", {exact: true}).waitFor();
+        assert.match(await page.locator("#lab-comparison-body tr").nth(1).innerText(), /UNAVAILABLE/);
+
+        backtestMode = "missing-comparison";
+        await page.locator("#run-backtest-btn").click();
+        await page.locator("#run-backtest-btn").waitFor({state: "visible"});
+        await page.waitForFunction(() => !globalThis.document.getElementById("run-backtest-btn").disabled);
+        assert.match(await first.innerText(), /UNAVAILABLE/);
+        assert.equal(await first.locator("td").nth(1).innerText(), "UNAVAILABLE");
+
+        backtestMode = "offline";
+        await page.locator("#run-backtest-btn").click();
+        await page.locator("#lab-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
+        assert.match(await first.innerText(), /UNAVAILABLE/);
+        assert.equal(requestBodies.length, orderCount);
+      } finally {backtestMode = "ok"; await page.close();}
     });
 
     await run("tutor setup is honest and required-source questions handle uncited and grounded replies", async () => {

@@ -14,7 +14,7 @@ const SYMBOL_RE = /^[A-Z0-9]{2,24}$/;
 // (BINANCE_INTERVAL_MS keys in src/market-data/providers/crypto.js).
 const ALLOWED_INTERVALS = Object.freeze(["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w"]);
 
-const ALLOWED_STRATEGIES = Object.freeze(["sma-cross"]);
+const ALLOWED_STRATEGIES = Object.freeze(["sma-cross", "momentum", "famous-turtle"]);
 
 const LIMIT_MIN = 5;
 const LIMIT_MAX = 1000;
