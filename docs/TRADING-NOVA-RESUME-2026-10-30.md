@@ -2,6 +2,16 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — bounded rolling fixed-rule backtest windows
+
+Starting refreshed main `0ce393552030202ceec1fea0a76c273842e445fa` is merged PR #97 (candidate `ca74f44c4bf0d0f8728335a7ef0830fd42f8bf2a`): all 14 enabled exact-head push/PR checks passed; merged-main CI `41032746727`, Chromium `41032746744` and lockfile `41032746963` succeeded. No open PR/local edits before this next increment. Section 21/gap audit and applicable-instruction search were retained; no AGENTS.md applies. Do not duplicate #97's whitelist/benchmark fix.
+
+Implementation `da9fae32cf5424fd8e689aeb601e05008cca61b5` adds fixed-rule rolling evaluation to the existing backtest response/browser. Each fold uses only its earlier 70-candle reference window to warm indicators, resets cash/positions for the following 35 held-out candles, and starts from a fresh strategy factory. Test windows are disjoint; reference windows can overlap. Latest-candle alignment uses at most six folds, discloses excluded prefix and exact index/timestamp boundaries. At least two folds (140 ordered source candles) are required. Missing/duplicate/reversed canonical openTime values return explicit unavailable; short history returns insufficient-data with no fake summary. No parameters are fitted or selected using held-out windows.
+
+Acceptance tests independently compare every fold against isolated engine runs for all three strategies, assert repeatability, latest alignment, coverage/cap, no future/excluded-prefix influence and honest zero-fill folds. Real HTTP tests verify short/complete history and one source read; Chromium checks add rolling counts/mean/range and insufficient/offline clearing. Initial HTTP regression caught use of the provider's pre-normalized ts name; implementation was corrected to canonical openTime before validation. Full local suite: 662 total, 655 pass, 0 fail, 7 expected external-PostgreSQL skips; focused rolling/comparison tests 9/9. Lint, syntax, secret scan, evidence schema and diff review passed. Read matching PR for exact final remote head, CI/Chromium, merge/main evidence.
+
+Mean/worst/best fold returns are descriptive, not compounded portfolio returns or independent statistical confidence. This adds multiple fixed-rule evaluation windows, not model training, optimization, a challenger promotion, profitability or release certification. Wider robustness/calibration/shadow UI and the rest of the authorized queue remain open as recorded below. No live provider/Gemini/paid call, credentials, deployment, production-data mutation or risk change occurred. Real money OFF; Risk Gate unchanged.
+
 ## Current task — Strategy Lab strategy coverage, benchmarks and cost stress
 
 User expanded authorization to the entire remaining queue from item 2 onward, retaining the existing paper-only/zero-spend/external-approval boundaries. Continue bounded tested increments; this checkpoint does not declare the full queue complete. Starting remote main `e17b465e1a007900903c47309db824f4d8034fd8` is merged PR #96; CI `41028591671`, Chromium `41028591715` and lockfile `41028591813` all succeeded. Open PR/local edits were empty and no applicable AGENTS.md was found. Read §21 and the gap audit; older incomplete-task headings do not override merge evidence.

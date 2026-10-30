@@ -86,6 +86,10 @@ async function installApiFixtures(page) {
         parameters: {feeRate: 0.001, slippageBps: 5},
         evaluationSplit: {mode: "automatic", inSampleCandles: 140, outOfSampleCandles: 60},
         inSample: result, outOfSample: result,
+        rolling: backtestMode === "rolling-insufficient" ? {state: "insufficient-data", summary: null} : {
+          state: "ok", summary: {foldCount: 3, testCandleCount: 105, meanReturn: 0.01, minReturn: -0.02,
+            maxReturn: 0.03, positiveFolds: 2, zeroFillFolds: 1}
+        },
         comparison: backtestMode === "missing-comparison" ? {} : {
           benchmarks: {buyHold: {outOfSample: {state: "filled", returnPct: 0.02, strategyExcessReturn: -0.01}}},
           costSensitivity: {scenarios: [{id: "double-cost", outOfSample: {returnPct: 0.005}},
@@ -625,6 +629,10 @@ async function main() {
         assert.equal(await first.locator("td").nth(1).innerText(), "2%");
         assert.equal(await first.locator("td").nth(2).innerText(), "-1 pp");
         assert.equal(await first.locator("td").nth(4).innerText(), "-0.5%");
+        const rollingRow = page.locator("#lab-rolling-body tr").first();
+        assert.equal(await rollingRow.locator("td").nth(1).innerText(), "3 / 105");
+        assert.equal(await rollingRow.locator("td").nth(2).innerText(), "1%");
+        assert.equal(await rollingRow.locator("td").nth(3).innerText(), "-2% / 3%");
         await page.locator("#backtest-values").getByText(/Cash-rejected entry is unavailable/).waitFor();
 
         backtestMode = "stale";
@@ -642,10 +650,16 @@ async function main() {
         assert.match(await first.innerText(), /UNAVAILABLE/);
         assert.equal(await first.locator("td").nth(1).innerText(), "UNAVAILABLE");
 
+        backtestMode = "rolling-insufficient";
+        await page.locator("#run-backtest-btn").click();
+        await page.locator("#lab-rolling-body").getByText("INSUFFICIENT DATA", {exact: true}).first().waitFor();
+        assert.equal(await rollingRow.locator("td").nth(2).innerText(), "—");
+
         backtestMode = "offline";
         await page.locator("#run-backtest-btn").click();
         await page.locator("#lab-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
         assert.match(await first.innerText(), /UNAVAILABLE/);
+        assert.equal(await rollingRow.locator("td").nth(1).innerText(), "UNAVAILABLE");
         assert.equal(requestBodies.length, orderCount);
       } finally {backtestMode = "ok"; await page.close();}
     });
