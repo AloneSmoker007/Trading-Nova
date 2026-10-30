@@ -17,6 +17,17 @@ export class PostgresStore {
     if(schema!==undefined && (typeof schema!=="string"||!/^[a-z][a-z0-9_]{0,62}$/.test(schema))) throw new Error("invalid PostgreSQL schema");
     this.pool=pool;
     this.schema=schema;
+    this.lastPoolError=null;
+    // A server restart, failover or dropped backend arrives as an idle-client
+    // "error" on the pool. Node turns an unlistened pool "error" into an
+    // unhandled event and kills the process, so every store keeps a listener
+    // and records the failure. Only the code is kept: messages can carry
+    // connection details.
+    if(typeof pool.on==="function"){
+      pool.on("error",error=>{
+        this.lastPoolError={code:typeof error?.code==="string"?error.code:"POOL_ERROR",at:new Date().toISOString()};
+      });
+    }
   }
   // Tenant isolation must never depend on session state: pooled endpoints
   // (e.g. Neon's transaction-mode pooler) can hand different server connections
