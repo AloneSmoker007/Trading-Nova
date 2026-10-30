@@ -994,8 +994,10 @@
     if (button) button.disabled = true;
     note("lab-note", "Running each strategy against historical OHLCV. Out-of-sample results are a separate held-out historical window, not a forecast.");
     var tbody = $("lab-body");
+    var comparisons = $("lab-comparison-body");
     var dl = $("backtest-values");
     clear(tbody);
+    clear(comparisons);
     clear(dl);
 
     return Promise.all(specs.map(function (spec) {
@@ -1004,6 +1006,7 @@
         .catch(function () { return {spec: spec, result: null}; });
     })).then(function (entries) {
       clear(tbody);
+      clear(comparisons);
       clear(dl);
       var successful = [];
       var failures = [];
@@ -1038,6 +1041,20 @@
           tr.appendChild(el("td", null, "—"));
         }
         tbody.appendChild(tr);
+        var compareRow = el("tr");
+        compareRow.appendChild(el("td", null, entry.spec.label));
+        var comparison = valid && data.comparison;
+        var hold = comparison && comparison.benchmarks?.buyHold?.outOfSample;
+        var scenarios = comparison && comparison.costSensitivity && comparison.costSensitivity.scenarios;
+        var doubleCost = Array.isArray(scenarios) && scenarios.find(function (s) { return s.id === "double-cost"; });
+        var higherSlip = Array.isArray(scenarios) && scenarios.find(function (s) { return s.id === "higher-slippage"; });
+        var holdFilled = hold && hold.state === "filled";
+        compareRow.appendChild(el("td", null, holdFilled && Number.isFinite(hold.returnPct) ? fmtPct(hold.returnPct * 100) : "UNAVAILABLE"));
+        compareRow.appendChild(el("td", null, holdFilled && Number.isFinite(hold.strategyExcessReturn) ? fmtNum(hold.strategyExcessReturn * 100) + " pp" : "—"));
+        [doubleCost, higherSlip].forEach(function (scenario) {
+          compareRow.appendChild(el("td", null, scenario && Number.isFinite(scenario.outOfSample?.returnPct) ? fmtPct(scenario.outOfSample.returnPct * 100) : "UNAVAILABLE"));
+        });
+        comparisons.appendChild(compareRow);
       });
 
       if (successful.length === 0) {
@@ -1054,12 +1071,15 @@
       row(dl, "Evaluation split", split.mode + " · " + split.inSampleCandles + " in-sample / " + split.outOfSampleCandles + " out-of-sample candles");
       row(dl, "Starting equity", "$" + fmtNum(sample.startingCash) + " per sample (positions reset at the split)");
       row(dl, "Execution assumptions", fmtNum(sample.parameters.feeRate * 100, 3) + "% fee per fill · " + fmtNum(sample.parameters.slippageBps, 0) + " bps slippage");
+      row(dl, "Cash benchmark", "0% return · zero interest · strategy minus cash equals its return");
+      row(dl, "Benchmark entry", "95% cash signal at first close; next-open fill with base costs. Cash-rejected entry is unavailable. Terminal mark, no exit fee.");
+      row(dl, "Cost stress", "Double-cost: 0.2% fee / 10 bps slip; higher-slippage: 0.3% / 20 bps. Fixed scenarios, no optimization.");
       row(dl, "Market data", sample.stale ? "STALE historical cache" : "historical candle response received");
       if (failures.length) row(dl, "Unavailable strategies", failures.join(" · "));
       note("lab-note", "Historical simulation only. The out-of-sample window is held out from execution tuning but starts with separate cash and no carried position. It is not a prediction. " +
         (sample.stale ? "The candle cache is stale; interpret this run cautiously. " : "") +
         (failures.length ? "Some strategies were unavailable. " : "") +
-        "Real money OFF.");
+        "Comparisons are descriptive; no statistical significance or profitability certificate. Indicator history warms from IS into OOS; cash/positions reset. Real money OFF.");
     }).catch(function () {
       setBadge("lab-badge", "unavailable", "OFFLINE");
       note("lab-note", "Unable to reach the backtest endpoint. No order was placed.");
