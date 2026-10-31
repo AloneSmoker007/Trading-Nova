@@ -70,4 +70,7 @@ Code-layer V1 is merged. The next work is evidence collection, not live-money en
 - [ ] Historical 1,900+ raw research list recovered/mapped
 - [ ] Human V1 release approval
 
+Per-gate field checklist: `docs/V1-EVIDENCE-CHECKLIST.md` — one page, nine gates,
+listing the exact measured fields and artifact each PASS needs.
+
 **Safety:** real-money trading remains blocked. Do not record simulated/mocked results as production evidence.
