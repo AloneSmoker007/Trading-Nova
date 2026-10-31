@@ -29,6 +29,28 @@ jobs:
       - run: npm run security:secrets
       - run: npm audit --audit-level=high
 
+  evidence-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Report V1 evidence pack status (informational, never fails the build)
+        shell: bash
+        run: |
+          {
+            echo "### V1 evidence pack status"
+            echo ""
+            echo "Real-money trading stays blocked until every required record is present, valid and PASS."
+            echo ""
+            echo '```'
+            npm run --silent evidence:validate -- --allow-incomplete || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          npm run --silent evidence:validate -- --allow-incomplete
+
   postgres-integration:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
