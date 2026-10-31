@@ -117,6 +117,21 @@ lists exactly which. Exit 0 means all nine requirements are present, valid and
 read-only status check that always exits 0. Exit code 2 means the CLI could not
 read the pack (missing/unparseable artifact) — that is an error, not a pass.
 
+A well-formed record is not automatically evidence. The report separates two
+kinds of rejection:
+
+- `invalid:` — required fields (`id`, `environment`, `timestamp`, `operator`,
+  `artifact`, `result`) are missing or `result` is not
+  `PASS`/`FAIL`/`BLOCKED`/`NOT_RUN`.
+- `unsupported:` — the record is well-formed but does not support the claim it
+  makes. A `PASS` for `backup-restore-rto-rpo` must carry numeric `rtoMs`,
+  `rpoMs`, an `artifactSha256` and `productionEligible: true` (a hand-typed
+  PASS with no measured durations certifies nothing), and any `BLOCKED`
+  record must carry a `blockedReason`.
+
+Add the measured fields to the record when the drill actually runs; never
+hand-enter a duration you did not measure.
+
 ## Certification rule
 
 **No artifact = no PASS.**
