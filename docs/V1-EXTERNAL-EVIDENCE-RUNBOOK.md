@@ -124,13 +124,29 @@ kinds of rejection:
   `artifact`, `result`) are missing or `result` is not
   `PASS`/`FAIL`/`BLOCKED`/`NOT_RUN`.
 - `unsupported:` — the record is well-formed but does not support the claim it
-  makes. A `PASS` for `backup-restore-rto-rpo` must carry numeric `rtoMs`,
-  `rpoMs`, an `artifactSha256` and `productionEligible: true` (a hand-typed
-  PASS with no measured durations certifies nothing), and any `BLOCKED`
-  record must carry a `blockedReason`.
+  makes. Every gate has the same rule: a `PASS` certifies nothing unless it
+  carries `productionEligible: true`, an `artifactSha256` that is a lowercase
+  64-character hex digest of the artifact you kept, and that gate's own
+  measured fields. Any `BLOCKED` record must carry a `blockedReason`.
 
-Add the measured fields to the record when the drill actually runs; never
-hand-enter a duration you did not measure.
+The measured proof required per gate:
+
+| Gate | Extra fields on a `PASS` |
+| --- | --- |
+| `postgres-production` | `serverVersion`, `restoreVerified: true` |
+| `backup-restore-rto-rpo` | `rtoMs`, `rpoMs` |
+| `market-data-soak` | `soakDurationMs`, `maxGapMs` |
+| `observability` | `scrapeIntervalMs`, `alertDeliveryVerified: true` |
+| `security-assurance` | `reportSha256` |
+| `capacity-load` | `peakRps`, `p95Ms` |
+| `paper-shadow` | `tradingDays` (count), `fillCount` |
+| `master-traceability` | `capabilityCount` |
+| `human-approval` | `approver`, `approvalDate` (parseable date) |
+
+Durations and rates must be numbers greater than zero — `rtoMs: 0`,
+`peakRps: 0` and `tradingDays: 0` are rejected as non-measurements, and a
+quoted number such as `"900000"` is rejected too. Fill in these fields from the
+run that produced the artifact; never hand-enter a number you did not measure.
 
 ## Certification rule
 
