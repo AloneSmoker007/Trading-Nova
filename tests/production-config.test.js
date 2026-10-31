@@ -15,7 +15,7 @@ const validProductionEnv = {
   TRADING_MODE: "paper",
   NOVA_ACCESS_PASSWORD: "this-is-a-valid-passphrase",
   NOVA_SESSION_SECRET: "0123456789abcdef0123456789abcdef",
-  POSTGRES_URL: "postgres://user:pass@db.internal:5432/trading_nova",
+  POSTGRES_URL: "postgres://SET_IN_HOST_SECRET_MANAGER",
   NOVA_PORT: "7411"
 };
 
