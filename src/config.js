@@ -43,7 +43,7 @@ function readConfig(env = process.env) {
     logLevel: level,
     level,
     nodeEnv,
-    env: Object.freeze({ ...env })
+    liveEnabled: mode === "limited-live" || mode === "live"
   });
 }
 
@@ -68,12 +68,12 @@ function validateProductionConfig(env = process.env) {
 
   const portText = normalizeEnvValue(env.NOVA_PORT, "7411");
   if (!/^\d+$/.test(portText)) {
-    throw new Error("NOVA_PORT must be a numeric TCP port between 1 and 65535 in hosted production mode.");
+    throw new Error("NOVA_PORT must be a numeric TCP port between 0 and 65535 in hosted production mode.");
   }
 
   const port = Number(portText);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("NOVA_PORT must be a numeric TCP port between 1 and 65535 in hosted production mode.");
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error("NOVA_PORT must be a numeric TCP port between 0 and 65535 in hosted production mode.");
   }
 
   return Object.freeze({

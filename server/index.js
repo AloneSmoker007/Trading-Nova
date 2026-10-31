@@ -18,12 +18,12 @@ function parsePort(raw) {
   if (raw === undefined || raw === "") return 7411;
   const text = String(raw).trim();
   if (!/^\d{1,5}$/.test(text)) {
-    console.error("Invalid port:", text);
+    console.error("Invalid port: expected an integer between 0 and 65535.");
     process.exit(2);
   }
   const port = Number(text);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error("Invalid port:", text);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    console.error("Invalid port: expected an integer between 0 and 65535.");
     process.exit(2);
   }
   return port;
@@ -67,9 +67,6 @@ try {
 } catch (error) {
   await store?.pool.end().catch(() => {});
   console.error("PostgreSQL persistence is unavailable or migrations are missing; server did not start.");
-  if (error instanceof Error && error.message) {
-    console.error(error.message);
-  }
   process.exitCode = 1;
   startupFailed = true;
 }

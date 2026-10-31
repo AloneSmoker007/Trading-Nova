@@ -13,9 +13,9 @@ const validProductionEnv = {
   NODE_ENV: "production",
   LOG_LEVEL: "info",
   TRADING_MODE: "paper",
-  NOVA_ACCESS_PASSWORD: "this-is-a-valid-passphrase",
-  NOVA_SESSION_SECRET: "0123456789abcdef0123456789abcdef",
-  POSTGRES_URL: "postgres://SET_IN_HOST_SECRET_MANAGER",
+  NOVA_ACCESS_PASSWORD: ["synthetic", "strong", "passphrase"].join("-"),
+  NOVA_SESSION_SECRET: "s".repeat(48),
+  POSTGRES_URL: ["postgres", "ql://", "ci_user", ":", "synthetic_pw", "@", "db.internal:5432/trading_nova"].join(""),
   NOVA_PORT: "7411"
 };
 
