@@ -11,7 +11,11 @@ import {REQUIRED_EVIDENCE} from "../scripts/evidence-schema.js";
 const CLI=path.join(path.dirname(fileURLToPath(import.meta.url)),"..","scripts","validate-evidence.js");
 
 function record(id,overrides={}){
-  return {id,environment:"production",timestamp:"2026-10-30T00:00:00.000Z",operator:"human",artifact:`artifact/${id}`,result:"PASS",...overrides};
+  const base={id,environment:"production",timestamp:"2026-10-30T00:00:00.000Z",operator:"human",artifact:`artifact/${id}`,result:"PASS",...overrides};
+  if(id==="backup-restore-rto-rpo"){
+    return {rtoMs:900000,rpoMs:300000,artifactSha256:"b".repeat(64),productionEligible:true,...base};
+  }
+  return base;
 }
 
 async function withDir(files,fn){
@@ -64,6 +68,42 @@ test("a BLOCKED record is not production evidence and blocks certification",asyn
     const result=run(["--dir",dir]);
     assert.equal(result.status,1);
     assert.match(result.stdout,/NOT CERTIFIED/);
+  });
+});
+
+test("a PASS backup/restore record without measured RTO/RPO is not certification evidence",async()=>{
+  const records=REQUIRED_EVIDENCE.map(id=>record(id));
+  records[1]=record("backup-restore-rto-rpo",{rtoMs:undefined,rpoMs:undefined,artifactSha256:undefined});
+  await withDir({"pack.json":records},async dir=>{
+    const report=buildReport(await loadEvidence(dir));
+    assert.equal(report.certified,false);
+    assert.equal(report.invalid.length,0,"the record is well-formed, it is just unsupported");
+    assert.deepEqual(report.unsupported,["backup-restore-rto-rpo"]);
+    const text=formatReport(report);
+    assert.match(text,/unsupported: backup-restore-rto-rpo/);
+    assert.match(text,/rtoMs must be a measured duration/);
+    assert.equal(run(["--dir",dir]).status,1);
+  });
+});
+
+test("a PASS record that was not produced in production cannot certify",async()=>{
+  const records=REQUIRED_EVIDENCE.map(id=>record(id));
+  records[1]=record("backup-restore-rto-rpo",{productionEligible:false});
+  await withDir({"pack.json":records},async dir=>{
+    const report=buildReport(await loadEvidence(dir));
+    assert.equal(report.certified,false);
+    assert.match(formatReport(report),/PASS requires productionEligible:true/);
+  });
+});
+
+test("a BLOCKED record must say why it is blocked",async()=>{
+  const records=REQUIRED_EVIDENCE.map(id=>record(id));
+  records[3]=record("observability",{result:"BLOCKED"});
+  await withDir({"pack.json":records},async dir=>{
+    const report=buildReport(await loadEvidence(dir));
+    assert.equal(report.certified,false);
+    assert.match(formatReport(report),/unsupported: observability .*BLOCKED without blockedReason/);
+    assert.equal(run(["--dir",dir]).status,1);
   });
 });
 
