@@ -215,8 +215,10 @@ test("getQuote returns an interface-normalised quote with hand-computed bid/ask"
   assert.equal(res.data.symbol, "BTCUSDT");
   assert.equal(res.data.bid, 67000.5);
   assert.equal(res.data.ask, 67001.25);
-  assert.equal(res.data.timestamp, 5000);
-  assert.equal(res.data.ageMs, 0);
+  assert.equal(res.data.timestamp, null, "Binance spot bookTicker has no source event timestamp");
+  assert.equal(res.data.timestampStatus, "not-provided");
+  assert.equal(res.data.ageMs, null, "unknown source age must not be reported as zero");
+  assert.equal(res.data.receivedAt, 5000);
   assert.equal(res.data.trust, 1);
 });
 

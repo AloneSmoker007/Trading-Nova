@@ -222,9 +222,9 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
     if (!res.ok) return res;
     const book = normaliseBinanceBookTicker(res.data);
     if (!book || !book.symbol) return {ok: false, reason: "invalid-payload"};
-    const t = now();
+    const receivedAt = now();
     try {
-      return {ok: true, data: normalizeQuote({source: "binance-public", symbol: book.symbol, bid: book.bid, ask: book.ask, timestamp: t, receivedAt: t})};
+      return {ok: true, data: normalizeQuote({source: "binance-public", symbol: book.symbol, bid: book.bid, ask: book.ask, receivedAt})};
     } catch {
       return {ok: false, reason: "invalid-payload"};
     }
