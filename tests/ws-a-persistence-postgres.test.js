@@ -146,3 +146,20 @@ test("PersistentPaperEngine writes its fill through the transaction handle", asy
   const commitAt = sqlIndex(pool.calls, "COMMIT");
   assert.ok(beginAt < writeAt && writeAt < idemAt && idemAt < commitAt, "fill and idempotency record commit together");
 });
+
+
+test("portfolio advisory lock precedes the per-order transition lock", async () => {
+  const pool = fakePool();
+  const store = new PostgresStore(pool);
+  await store.transactIdempotent("portfolio-order-lock", async tx => {
+    await tx.lockPortfolio();
+    await tx.lock("order:portfolio-order-lock");
+    return {ok: true};
+  });
+  const portfolioAt = pool.calls.findIndex(([sql, args]) => sql.includes("hashtextextended")
+    && String(args[0]).includes("paper-portfolio"));
+  const orderAt = pool.calls.findIndex(([sql, args]) => sql.includes("hashtextextended")
+    && String(args[0]).includes("paper-order-transition"));
+  assert.ok(portfolioAt >= 0 && orderAt > portfolioAt,
+    "the global portfolio lock must be acquired before the per-order lock");
+});

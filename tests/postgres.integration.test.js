@@ -7,6 +7,7 @@ import {createPostgresStore} from "../src/persistence/postgres.js";
 import {createApi} from "../server/api.js";
 import {createPaperOrderService} from "../server/orders.js";
 import {createWatchlistService} from "../server/watchlist.js";
+import {buildPortfolioState} from "../src/risk/portfolio.js";
 import {startTestServer} from "./ws-d-helpers.js";
 
 const enabled = process.env.TRADING_NOVA_REAL_DB_TEST === "1";
@@ -38,6 +39,87 @@ async function withStore(work){
   finally{ await store.pool.end(); }
 }
 
+
+auditRun("PostgreSQL distinct paper orders re-read and gate the latest portfolio under one cross-process lock", async () => {
+  const prefix = "portfolio-risk-race-" + randomUUID() + ":";
+  const first = await createPostgresStore({
+    connectionString: process.env.POSTGRES_URL, max: 2, schema: process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  const second = await createPostgresStore({
+    connectionString: process.env.POSTGRES_URL, max: 2, schema: process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  const scoped = store => ({
+    health: store.health.bind(store),
+    get: (namespace, id) => store.get(prefix + namespace, id),
+    put: (namespace, id, value) => store.put(prefix + namespace, id, value),
+    list: namespace => store.list(prefix + namespace),
+    transactIdempotent: (key, operation) => store.transactIdempotent(prefix + key, tx => operation({
+      get: (namespace, id) => tx.get(prefix + namespace, id),
+      put: (namespace, id, value) => tx.put(prefix + namespace, id, value),
+      lock: key => tx.lock(prefix + key),
+      lockPortfolio: () => tx.lockPortfolio(),
+      nextPaperSequence: () => tx.nextPaperSequence()
+    }))
+  });
+  const firstStore = scoped(first);
+  const secondStore = scoped(second);
+  const initialPortfolio = buildPortfolioState({
+    cash: 10000,
+    startingEquity: 20000,
+    positions: [
+      {symbol: "BTCUSDT", quantity: 0.1, markPrice: 50000},
+      {symbol: "ETHUSDT", quantity: 0.1, markPrice: 50000}
+    ]
+  });
+  const stateFile = join(tmpdir(), prefix + "state.json");
+  const executionStateFile = join(tmpdir(), prefix + "orders.json");
+  const quote = {state: "ok", ageMs: 0, data: {last: 50000, bid: 49999, ask: 50001}};
+  let arrivals = 0;
+  let releaseBarrier;
+  const barrier = new Promise(resolve => { releaseBarrier = resolve; });
+  const market = {
+    getTicker: async symbol => {
+      if (symbol === "SOLUSDT" && arrivals < 2) {
+        arrivals++;
+        if (arrivals === 2) releaseBarrier();
+        await barrier;
+      }
+      return quote;
+    }
+  };
+  try {
+    await firstStore.put("paper-portfolio", "current", initialPortfolio);
+    await firstStore.put("paper-portfolio-revision", "global", {revision: 0});
+    const serviceA = createPaperOrderService({market, stateFile, executionStateFile, store: firstStore});
+    const serviceB = createPaperOrderService({market, stateFile, executionStateFile, store: secondStore});
+    const [resultA, resultB] = await Promise.all([
+      serviceA.submit({symbol: "SOLUSDT", side: "BUY", quantity: 0.06, price: 1, idempotencyKey: "market-risk-a"}),
+      serviceB.submit({symbol: "SOLUSDT", side: "BUY", quantity: 0.06, price: 1, idempotencyKey: "market-risk-b"})
+    ]);
+    const results = [resultA, resultB];
+    assert.equal(results.filter(result => result.status === 200).length, 1);
+    assert.equal(results.filter(result => result.status === 400 && result.body.error.code === "risk-gate-rejected").length, 1);
+    const fills = await firstStore.list("paper-fills");
+    assert.equal(fills.length, 1, "the second concurrent order must not commit against the stale portfolio");
+    const portfolio = await firstStore.get("paper-portfolio", "current");
+    assert.ok(portfolio.grossExposure <= 15000);
+    assert.equal(portfolio.positions.filter(position => position.symbol === "SOLUSDT").length, 1);
+    assert.equal((await firstStore.get("paper-portfolio-revision", "global")).revision, 1);
+    const rejectedKey = resultA.status === 400 ? "market-risk-a" : "market-risk-b";
+    assert.equal(await firstStore.get("paper-fills", rejectedKey), null);
+  } finally {
+    releaseBarrier?.();
+    await first.withTransaction(client => client.query(
+      `DELETE FROM ${first.table("trading_state")} WHERE left(namespace,length($1))=$1`, [prefix]
+    ));
+    await first.withTransaction(client => client.query(
+      `DELETE FROM ${first.table("trading_idempotency")} WHERE left(idempotency_key,length($1))=$1`, [prefix]
+    ));
+    await first.pool.end();
+    await second.pool.end();
+  }
+});
+
 auditRun("PostgreSQL cancel and trigger fill are linearized across independent store connections", async () => {
   const prefix = "order-transition-race-" + randomUUID() + ":";
   const first = await createPostgresStore({
@@ -55,6 +137,7 @@ auditRun("PostgreSQL cancel and trigger fill are linearized across independent s
       get: (namespace, id) => tx.get(prefix + namespace, id),
       put: (namespace, id, value) => tx.put(prefix + namespace, id, value),
       lock: key => tx.lock(prefix + key),
+      lockPortfolio: () => tx.lockPortfolio(),
       nextPaperSequence: () => tx.nextPaperSequence()
     }))
   });

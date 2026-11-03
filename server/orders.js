@@ -334,20 +334,43 @@ export function createPaperOrderService({
     return portfolio;
   }
 
+  async function readPortfolioRevision(reader = store) {
+    const record = await reader.get("paper-portfolio-revision", "global");
+    if (record === null) return 0;
+    if (!record || !Number.isSafeInteger(record.revision) || record.revision < 0) {
+      throw new Error("invalid paper portfolio revision");
+    }
+    return record.revision;
+  }
+
+  async function readPortfolioSnapshot(base) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const before = await readPortfolioRevision();
+      const fillValues = await stateValues("paper-fills");
+      const portfolio = await currentPortfolio(base, fillValues);
+      const after = await readPortfolioRevision();
+      if (before === after) return {portfolio, revision: after};
+    }
+    return null;
+  }
+
   async function freshPortfolio(portfolio, newSymbol) {
     const symbols = [...new Set([newSymbol, ...(portfolio.positions || []).map((p) => p.symbol)])];
     const marks = new Map();
     const quotes = new Map();
+    let freshUntil = Number.POSITIVE_INFINITY;
     // Legacy cross-currency holdings cannot become USDT marks or risk evidence.
-    if (!symbols.every(supportsPaperQuote)) return {fresh: false, portfolio, marks, quotes};
+    if (!symbols.every(supportsPaperQuote)) return {fresh: false, portfolio, marks, quotes, freshUntil: null};
     for (const symbol of symbols) {
       try {
+        const checkedAt = now();
         const result = await market.getTicker(symbol);
         const data = result?.data;
         const price = data?.last;
         if (result?.state === "ok" && Number.isFinite(result.ageMs)
             && result.ageMs <= maxMarketAgeMs && Number.isFinite(price) && price > 0) {
           marks.set(symbol, price);
+          freshUntil = Math.min(freshUntil, checkedAt + maxMarketAgeMs - result.ageMs);
           if (Number.isFinite(data.bid) && data.bid > 0
               && Number.isFinite(data.ask) && data.ask > 0 && data.bid <= data.ask) {
             quotes.set(symbol, {bid: data.bid, ask: data.ask});
@@ -357,7 +380,7 @@ export function createPaperOrderService({
         // Missing or failed critical data keeps the gate closed.
       }
     }
-    if (marks.size !== symbols.length) return {fresh: false, portfolio, marks, quotes};
+    if (marks.size !== symbols.length) return {fresh: false, portfolio, marks, quotes, freshUntil: null};
     try {
       const startingEquity = portfolio.equity - portfolio.dailyPnl;
       const marked = buildPortfolioState({
@@ -366,9 +389,9 @@ export function createPaperOrderService({
         startingEquity,
         peakEquity: portfolio.peakEquity ?? portfolio.equity
       });
-      return {fresh: true, portfolio: marked, marks, quotes};
+      return {fresh: true, portfolio: marked, marks, quotes, freshUntil};
     } catch {
-      return {fresh: false, portfolio, marks, quotes};
+      return {fresh: false, portfolio, marks, quotes, freshUntil: null};
     }
   }
 
@@ -393,11 +416,23 @@ export function createPaperOrderService({
     };
   }
 
-  async function transitionPendingOrder(order, status, buildRecord) {
+  async function transitionPendingOrder(order, status, buildRecord, {expectedPortfolioRevision} = {}) {
+    const expectedRevision = expectedPortfolioRevision === undefined ? null : expectedPortfolioRevision;
+    if (expectedRevision !== null && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+      throw new Error("invalid expected paper portfolio revision");
+    }
     const transition = await store.transactIdempotent(
-      `paper-order-transition:${order.idempotencyKey}:${status}`,
+      `paper-order-transition:${order.idempotencyKey}:${status}:${expectedRevision ?? "any"}`,
       async (tx) => {
-        // PostgreSQL takes a transaction-scoped advisory lock shared across
+        if (expectedRevision !== null) {
+          if (typeof tx.lockPortfolio !== "function") throw new Error("paper portfolio transaction lock required");
+          await tx.lockPortfolio();
+          const revision = await readPortfolioRevision(tx);
+          if (revision !== expectedRevision) {
+            return {changed: false, portfolioChanged: true, order: await tx.get("paper-orders", order.idempotencyKey)};
+          }
+        }
+        // PostgreSQL takes a transaction-scoped per-order lock shared across
         // server processes. The in-memory adapter serializes all transactions.
         if (typeof tx.lock === "function") await tx.lock("order:" + order.idempotencyKey);
         const current = await tx.get("paper-orders", order.idempotencyKey);
@@ -495,6 +530,104 @@ export function createPaperOrderService({
 
   function gateRejected(verdict) {
     return verdict.decision !== "ALLOW";
+  }
+
+  function portfolioError(code, message, details = {}) {
+    const error = new Error(message);
+    error.code = code;
+    Object.assign(error, details);
+    return error;
+  }
+
+  async function authorizePortfolioFill(tx, {snapshot, marketState, gatedOrder, fill}) {
+    if (typeof tx.lockPortfolio !== "function") {
+      throw new Error("paper portfolio transaction lock required");
+    }
+    const revision = await readPortfolioRevision(tx);
+    if (!marketState.fresh || !Number.isFinite(marketState.freshUntil) || now() > marketState.freshUntil) {
+      throw portfolioError("PAPER_MARKET_DATA_STALE", "market data expired before paper fill commit", {
+        portfolioRevision: revision
+      });
+    }
+
+    const saved = await tx.get("paper-portfolio", "current");
+    let current;
+    if (saved) {
+      try {
+        current = validatePortfolioState(saved);
+      } catch {
+        throw portfolioError("PAPER_PORTFOLIO_INVALID", "latest paper portfolio is invalid", {
+          portfolioRevision: revision
+        });
+      }
+    } else {
+      if (revision !== snapshot.revision) {
+        throw portfolioError("PAPER_PORTFOLIO_CHANGED", "portfolio changed without a recoverable current snapshot", {
+          portfolioRevision: revision
+        });
+      }
+      current = snapshot.portfolio;
+    }
+    if (!current) {
+      throw portfolioError("PAPER_PORTFOLIO_INVALID", "latest paper portfolio is unavailable", {
+        portfolioRevision: revision
+      });
+    }
+
+    const symbols = [...new Set([gatedOrder.symbol, ...(current.positions || []).map(position => position.symbol)])];
+    if (!symbols.every(symbol => marketState.marks.has(symbol))) {
+      throw portfolioError("PAPER_PORTFOLIO_CHANGED", "portfolio holdings changed and a fresh mark is missing; retry the paper order", {
+        portfolioRevision: revision
+      });
+    }
+
+    let latestPortfolio;
+    let projectedPortfolio;
+    try {
+      latestPortfolio = buildPortfolioState({
+        cash: current.cash,
+        positions: (current.positions || []).map(position => ({
+          ...position,
+          markPrice: marketState.marks.get(position.symbol)
+        })),
+        startingEquity: current.equity - current.dailyPnl,
+        peakEquity: current.peakEquity ?? current.equity
+      });
+      projectedPortfolio = applyFill(latestPortfolio, fill);
+    } catch {
+      throw portfolioError("PAPER_PORTFOLIO_INVALID", "latest projected paper portfolio is invalid", {
+        portfolioRevision: revision
+      });
+    }
+
+    const latestBase = await baseState();
+    if (latestBase.error) {
+      throw portfolioError("PAPER_PORTFOLIO_INVALID", "paper account safety state is unavailable", {
+        portfolioRevision: revision
+      });
+    }
+    const verdict = gateResult({
+      order: gatedOrder,
+      portfolio: latestPortfolio,
+      projectedPortfolio,
+      dataFresh: true,
+      killSwitch: latestBase.limits?.ok === false
+    });
+    if (gateRejected(verdict)) {
+      throw portfolioError("PAPER_RISK_GATE_REJECTED", "latest portfolio failed the server Risk Gate", {
+        reasons: verdict.reasons,
+        portfolioRevision: revision
+      });
+    }
+    if (revision >= Number.MAX_SAFE_INTEGER) {
+      throw portfolioError("PAPER_PORTFOLIO_INVALID", "paper portfolio revision is exhausted", {
+        portfolioRevision: revision
+      });
+    }
+    return {
+      artifact: verdict.artifact,
+      context: {portfolio: latestPortfolio, revision, verdict}
+    };
   }
 
   async function placePendingOrder(order, base, portfolio, marketState) {
@@ -623,20 +756,12 @@ export function createPaperOrderService({
 
       const base = await baseState();
       if (base.error) return fail(500, base.error, "paper portfolio state is unavailable", base.reason);
-      const fillValues = await stateValues("paper-fills");
-      let portfolio = await currentPortfolio(base, fillValues);
+      const snapshot = await readPortfolioSnapshot(base);
+      if (!snapshot) return unavailable("paper-portfolio-changing", "paper portfolio is changing; retry after the current execution completes");
+      let portfolio = snapshot.portfolio;
       if (!portfolio) return fail(500, "paper-portfolio-invalid", "paper portfolio state is invalid");
       const marketState = await freshPortfolio(portfolio, order.symbol);
-      if (marketState.fresh) {
-        portfolio = marketState.portfolio;
-        try {
-          await store.put("paper-portfolio", "current", portfolio);
-          await persist();
-        } catch {
-          storeError ||= "paper-order-state-unavailable";
-          return fail(500, "paper-order-state-unavailable", "paper order state is unavailable");
-        }
-      }
+      if (marketState.fresh) portfolio = marketState.portfolio;
 
       if (order.type !== "MARKET") {
         return placePendingOrder(order, base, portfolio, marketState);
@@ -699,6 +824,7 @@ export function createPaperOrderService({
 
       const orderRecord = baseOrderRecord({...order, price: gatedOrder.price}, "SUBMITTING");
       try {
+        let finalVerdict = null;
         const fill = await engine.submit(
           {
             ...gatedOrder, id: orderRecord.orderId, orderId: orderRecord.orderId,
@@ -711,9 +837,20 @@ export function createPaperOrderService({
             markPrice: gatedOrder.price,
             referencePrice: execution?.referencePrice ?? gatedOrder.price,
             execution,
-            gateArtifact: verdict.artifact,
-            onFill: async (tx, committedFill) => {
-              await tx.put("paper-portfolio", "current", applyFill(portfolio, committedFill));
+            authorizeFill: async (tx, context) => {
+              const authorization = await authorizePortfolioFill(tx, {
+                snapshot, marketState, gatedOrder, fill: context.fill
+              });
+              finalVerdict = authorization.context.verdict;
+              return authorization;
+            },
+            onFill: async (tx, committedFill, context) => {
+              if (!context?.portfolio || !Number.isSafeInteger(context.revision)
+                  || context.revision >= Number.MAX_SAFE_INTEGER) {
+                throw new Error("paper portfolio authorization context is invalid");
+              }
+              await tx.put("paper-portfolio", "current", applyFill(context.portfolio, committedFill));
+              await tx.put("paper-portfolio-revision", "global", {revision: context.revision + 1});
               await tx.put("paper-orders", order.idempotencyKey, {
                 ...orderRecord, status: "FILLED", updatedAt: now(),
                 filledAt: committedFill.timestamp, fillOrderId: committedFill.orderId
@@ -723,8 +860,20 @@ export function createPaperOrderService({
         );
         await persist();
         const record = await store.get("paper-orders", order.idempotencyKey);
-        return orderSuccess(record || gatedOrder, fill, verdict, false);
-      } catch {
+        return orderSuccess(record || gatedOrder, fill, finalVerdict || verdict, false);
+      } catch (error) {
+        if (error?.code === "PAPER_RISK_GATE_REJECTED") {
+          return noTrade({decision: "NO_TRADE", reasons: error.reasons || ["RISK_GATE_REJECTED"]});
+        }
+        if (error?.code === "PAPER_PORTFOLIO_CHANGED") {
+          return fail(409, "paper-portfolio-changed", "portfolio changed during execution or a fresh holding mark is missing; retry the paper order");
+        }
+        if (error?.code === "PAPER_MARKET_DATA_STALE") {
+          return unavailable("execution-quote-unavailable", "market data became stale before the paper fill could commit");
+        }
+        if (error?.code === "PAPER_PORTFOLIO_INVALID") {
+          return unavailable("paper-portfolio-invalid", "the latest paper portfolio could not be validated");
+        }
         storeError ||= "paper-order-state-unavailable";
         return fail(500, "paper-order-not-persisted", "paper order could not be safely persisted");
       }
@@ -740,6 +889,7 @@ export function createPaperOrderService({
       .slice(0, 100);
     let processed = 0;
     for (const order of pending) {
+      let snapshot = null;
       try {
         const alreadyFilled = await store.get("paper-fills", order.idempotencyKey);
         if (alreadyFilled) {
@@ -764,10 +914,9 @@ export function createPaperOrderService({
         }
         const base = await baseState();
         if (base.error) continue;
-        const fillValues = await stateValues("paper-fills");
-        const portfolio = await currentPortfolio(base, fillValues);
-        if (!portfolio) continue;
-        const marketState = await freshPortfolio(portfolio, order.symbol);
+        snapshot = await readPortfolioSnapshot(base);
+        if (!snapshot?.portfolio) continue;
+        const marketState = await freshPortfolio(snapshot.portfolio, order.symbol);
         if (!marketState.fresh) continue;
         const quote = marketState.quotes.get(order.symbol);
         if (!quote || !isOrderTriggered(order, quote)) continue;
@@ -787,7 +936,7 @@ export function createPaperOrderService({
           const transition = await transitionPendingOrder(order, "REJECTED", current => ({
             ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
             rejectionReasons: ["INSUFFICIENT_CASH"], rejectionCode: "risk-gate-rejected"
-          }));
+          }), {expectedPortfolioRevision: snapshot.revision});
           if (transition.changed) processed++;
           continue;
         }
@@ -801,7 +950,7 @@ export function createPaperOrderService({
           const transition = await transitionPendingOrder(order, "REJECTED", current => ({
             ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
             rejectionReasons: ["PROJECTED_PORTFOLIO_UNAVAILABLE"], rejectionCode: "risk-gate-rejected"
-          }));
+          }), {expectedPortfolioRevision: snapshot.revision});
           if (transition.changed) processed++;
           continue;
         }
@@ -813,7 +962,7 @@ export function createPaperOrderService({
           const transition = await transitionPendingOrder(order, "REJECTED", current => ({
             ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
             rejectionReasons: verdict.reasons, rejectionCode: "risk-gate-rejected"
-          }));
+          }), {expectedPortfolioRevision: snapshot.revision});
           if (transition.changed) processed++;
           continue;
         }
@@ -829,15 +978,22 @@ export function createPaperOrderService({
             markPrice: execution.executionPrice,
             referencePrice: execution.referencePrice,
             execution,
-            gateArtifact: verdict.artifact,
-            onFill: async (tx, committedFill) => {
+            authorizeFill: (tx, context) => authorizePortfolioFill(tx, {
+              snapshot, marketState, gatedOrder, fill: context.fill
+            }),
+            onFill: async (tx, committedFill, context) => {
               const currentOrder = await tx.get("paper-orders", order.idempotencyKey);
               if (currentOrder?.status !== "PENDING") {
                 const error = new Error("paper order is no longer pending");
                 error.code = "PAPER_ORDER_NOT_PENDING";
                 throw error;
               }
-              await tx.put("paper-portfolio", "current", applyFill(marketState.portfolio, committedFill));
+              if (!context?.portfolio || !Number.isSafeInteger(context.revision)
+                  || context.revision >= Number.MAX_SAFE_INTEGER) {
+                throw new Error("paper portfolio authorization context is invalid");
+              }
+              await tx.put("paper-portfolio", "current", applyFill(context.portfolio, committedFill));
+              await tx.put("paper-portfolio-revision", "global", {revision: context.revision + 1});
               await tx.put("paper-orders", order.idempotencyKey, {
                 ...currentOrder, status: "FILLED", updatedAt: now(),
                 filledAt: committedFill.timestamp, fillOrderId: committedFill.orderId,
@@ -850,7 +1006,25 @@ export function createPaperOrderService({
         await persist();
         if (fill?.status === "RECONCILED") processed++;
       } catch (error) {
-        if (error?.code === "PAPER_ORDER_NOT_PENDING") continue;
+        if (error?.code === "PAPER_ORDER_NOT_PENDING"
+            || error?.code === "PAPER_PORTFOLIO_CHANGED"
+            || error?.code === "PAPER_MARKET_DATA_STALE") continue;
+        if (error?.code === "PAPER_RISK_GATE_REJECTED") {
+          const expectedRevision = Number.isSafeInteger(error.portfolioRevision)
+            ? error.portfolioRevision : snapshot?.revision;
+          if (Number.isSafeInteger(expectedRevision)) {
+            const transition = await transitionPendingOrder(order, "REJECTED", current => ({
+              ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+              rejectionReasons: error.reasons || ["RISK_GATE_REJECTED"], rejectionCode: "risk-gate-rejected"
+            }), {expectedPortfolioRevision: expectedRevision});
+            if (transition.changed) processed++;
+          }
+          continue;
+        }
+        if (error?.code === "PAPER_PORTFOLIO_INVALID") {
+          storeError ||= "paper-portfolio-invalid";
+          break;
+        }
         storeError ||= "paper-order-state-unavailable";
         break;
       }

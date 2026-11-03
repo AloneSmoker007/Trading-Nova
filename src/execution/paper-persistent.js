@@ -12,6 +12,7 @@ export class PersistentPaperEngine {
     markPrice,
     referencePrice = markPrice,
     gateArtifact,
+    authorizeFill,
     onFill,
     execution = null
   } = {}) {
@@ -46,7 +47,10 @@ export class PersistentPaperEngine {
 
     return this.store.transactIdempotent("paper:" + order.idempotencyKey, async (tx) => {
       const writer = tx ?? this.store;
-      if (typeof writer.lock === "function") await writer.lock("order:" + order.idempotencyKey);
+      if (typeof writer.lockPortfolio !== "function") throw new Error("paper portfolio transaction lock required");
+      await writer.lockPortfolio();
+      if (typeof writer.lock !== "function") throw new Error("paper order transaction lock required");
+      await writer.lock("order:" + order.idempotencyKey);
       const prior = typeof writer.get === "function" ? await writer.get("paper-fills", order.idempotencyKey) : null;
       if (prior) {
         // Replay of an already-executed order returns its stored fill and costs;
@@ -54,8 +58,15 @@ export class PersistentPaperEngine {
         if (prior.intentHash !== intentHash) throw new Error("idempotency_key_reuse_with_different_payload");
         return prior;
       }
-      // No order executes without a genuine ALLOW artifact bound to this payload.
-      assertGateArtifact(gateArtifact, gatedOrder);
+      // Re-authorize after the global portfolio lock is held. The callback
+      // reads the latest committed portfolio and issues the final ALLOW artifact.
+      const authorization = typeof authorizeFill === "function"
+        ? await authorizeFill(writer, {
+          order, gatedOrder, markPrice, referencePrice, execution,
+          fill: {symbol, side, quantity: order.quantity, price: markPrice, markPrice: referencePrice, fee}
+        })
+        : {artifact: gateArtifact, context: null};
+      assertGateArtifact(authorization?.artifact, gatedOrder);
       const executionSequence = await writer.nextPaperSequence();
       const fill = {
         sequenceVersion: 1,
@@ -93,7 +104,7 @@ export class PersistentPaperEngine {
       };
       // Fill, fee and portfolio mutation commit atomically through the transaction handle.
       await writer.put("paper-fills", order.idempotencyKey, fill);
-      if (onFill) await onFill(writer, fill);
+      if (onFill) await onFill(writer, fill, authorization?.context ?? null);
       return fill;
     });
   }

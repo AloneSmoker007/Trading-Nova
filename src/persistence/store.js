@@ -91,7 +91,9 @@ export class DurableStore {
         put: (namespace, id, value) => this.put(namespace, id, value),
         get: (namespace, id) => this.get(namespace, id),
         // The in-memory adapter serializes all transactions through _queue.
-        lock: async () => {}
+        lock: async () => {},
+        // All in-memory transactions already share one serialized queue.
+        lockPortfolio: async () => {}
       };
       tx.nextPaperSequence = () => nextPaperSequence(tx);
       this._activeTx = tx;
