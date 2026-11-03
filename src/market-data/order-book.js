@@ -169,6 +169,8 @@ export class BinanceSpotDepthBook {
     this.reason = reason;
     this.snapshotLoaded = false;
     this.updateId = null;
+    this.snapshotLimit = null;
+    this.snapshotReceivedAt = null;
     this.lastEventTime = null;
     this.lastEventReceivedAt = null;
     this.bids.clear();

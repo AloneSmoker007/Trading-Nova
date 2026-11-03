@@ -234,7 +234,7 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
   }
 
   // Snapshot is explicitly bounded; its receipt time is not an exchange event time.
-  async function getDepthSnapshot(symbol, {limit = 1000} = {}) {
+  async function getDepthSnapshot(symbol, {limit = 100} = {}) {
     const sym = validateSymbol(symbol);
     if (!sym) return {ok: false, reason: "invalid-symbol"};
     if (!DEPTH_SNAPSHOT_LIMITS.includes(limit)) return {ok: false, reason: "invalid-limit"};

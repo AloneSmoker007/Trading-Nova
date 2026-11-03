@@ -25,7 +25,7 @@ export class BinancePublicConnector{
     finally{if(timer)clearTimeout(timer);}
   }
   async getQuote(symbol){const x=await this.request("/api/v3/ticker/bookTicker",{symbol:symbol.toUpperCase()});return normalizeQuote({source:"binance-public",symbol:x.symbol,bid:Number(x.bidPrice),ask:Number(x.askPrice),receivedAt:this.now()});}
-  async getDepthSnapshot(symbol,{limit=1000}={}){
+  async getDepthSnapshot(symbol,{limit=100}={}){
     const sym=typeof symbol==="string"?symbol.trim().toUpperCase():"";
     if(!SYMBOL_RE.test(sym))throw new Error("invalid symbol");
     if(!DEPTH_SNAPSHOT_LIMITS.includes(limit))throw new Error("invalid depth limit");

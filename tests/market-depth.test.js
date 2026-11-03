@@ -48,7 +48,7 @@ test("provider exposes a bounded Binance depth snapshot and the official diff st
     now: () => 1000,
     http: {retries: 0}
   });
-  const result = await provider.getDepthSnapshot("btcusdt", {limit: 100});
+  const result = await provider.getDepthSnapshot("btcusdt");
   assert.equal(result.ok, true);
   assert.equal(calls[0], "https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=100");
   assert.equal(result.data.lastUpdateId, 100);
@@ -83,11 +83,14 @@ test("BinancePublicConnector exposes a validated snapshot and diff-depth URL", a
     fetchImpl: async (url) => { calls.push(String(url)); return okJson(snapshot()); },
     now: () => 2000
   });
-  const result = await connector.getDepthSnapshot("btcusdt", {limit: 50});
+  const result = await connector.getDepthSnapshot("btcusdt");
   assert.equal(result.lastUpdateId, 100);
-  assert.equal(result.snapshotLimit, 50);
+  assert.equal(result.snapshotLimit, 100);
   assert.equal(result.receivedAt, 2000);
-  assert.equal(calls[0], "https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=50");
+  assert.equal(calls[0], "https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=100");
+  const deeper = await connector.getDepthSnapshot("BTCUSDT", {limit: 50});
+  assert.equal(deeper.snapshotLimit, 50);
+  assert.equal(calls[1], "https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=50");
   assert.equal(connector.depthWebsocketUrl("BTCUSDT"), "wss://stream.binance.com:9443/ws/btcusdt@depth@100ms");
   assert.equal(connector.depthWebsocketUrl("BTCUSDT", "1000ms"), "wss://stream.binance.com:9443/ws/btcusdt@depth");
   assert.throws(() => connector.depthWebsocketUrl("BTC/USDT"), /symbol/);
@@ -96,6 +99,7 @@ test("BinancePublicConnector exposes a validated snapshot and diff-depth URL", a
 test("depth book buffers stream events before snapshot and applies the first bridging sequence", () => {
   let clock = 1000;
   const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => clock});
+  assert.equal(book.getView().executionEligible, false);
   book.ingest(event(101, 102, {E: 900, b: [["99", "2"]]}));
   book.ingest(event(103, 104, {E: 950, a: [["101", "3"]]}));
   const view = book.setSnapshot(snapshot(100, {snapshotLimit: 100}));
@@ -128,6 +132,8 @@ test("depth book invalidates and clears on a missing sequence range", () => {
   const view = book.ingest(event(102, 102, {E: 900, b: [["99", "4"]]}));
   assert.equal(view.status, "invalid");
   assert.equal(view.reason, "sequence-gap");
+  assert.equal(view.snapshotLimit, null);
+  assert.equal(view.snapshotReceivedAt, null);
   assert.equal(view.isUsable, false);
   assert.deepEqual(view.bids, []);
   assert.deepEqual(view.asks, []);
@@ -206,4 +212,22 @@ test("future event timestamps and one-sided books are never usable", () => {
   const oneSidedView = oneSided.ingest(event(101, 101, {E: 950}));
   assert.equal(oneSidedView.reason, "one-sided-book");
   assert.equal(oneSidedView.isUsable, false);
+});
+
+test("depth book caps retained levels while preserving the best prices", () => {
+  const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000, maxLevels: 2});
+  book.setSnapshot({
+    lastUpdateId: 100,
+    snapshotLimit: 2,
+    bids: [["99", "1"], ["98", "2"]],
+    asks: [["101", "1"], ["102", "2"]]
+  });
+  const view = book.ingest(event(101, 101, {
+    E: 950,
+    b: [["100", "1"], ["97", "5"]],
+    a: [["103", "1"]]
+  }));
+  assert.deepEqual(view.bids, [{price: 100, quantity: 1}, {price: 99, quantity: 1}]);
+  assert.deepEqual(view.asks, [{price: 101, quantity: 1}, {price: 102, quantity: 2}]);
+  assert.equal(view.executionEligible, false);
 });
