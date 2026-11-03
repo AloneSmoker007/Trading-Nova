@@ -91,7 +91,9 @@ export class DurableStore {
         put: (namespace, id, value) => this.put(namespace, id, value),
         get: (namespace, id) => this.get(namespace, id),
         // The in-memory adapter serializes all transactions through _queue.
-        lock: async () => {}
+        lock: async () => {},
+        // All in-memory transactions already share one serialized queue.
+        lockPortfolio: async () => {}
       };
       tx.nextPaperSequence = () => nextPaperSequence(tx);
       this._activeTx = tx;
@@ -111,6 +113,33 @@ export class DurableStore {
 
     const next = this._queue.then(run, run);
     // Keep the chain alive even when an operation fails.
+    this._queue = next.then(() => {}, () => {});
+    return next;
+  }
+
+  withPortfolioLock(operation) {
+    if (typeof operation !== "function") throw new Error("portfolio operation required");
+    const run = async () => {
+      const tx = {
+        writes: new Map(),
+        put: (namespace, id, value) => this.put(namespace, id, value),
+        get: (namespace, id) => this.get(namespace, id),
+        lock: async () => {},
+        lockPortfolio: async () => {}
+      };
+      tx.nextPaperSequence = () => nextPaperSequence(tx);
+      this._activeTx = tx;
+      let result;
+      try {
+        result = await operation(tx);
+      } finally {
+        this._activeTx = null;
+      }
+      const committed = clone(result);
+      for (const [key, value] of tx.writes) this.state.set(key, value);
+      return clone(committed);
+    };
+    const next = this._queue.then(run, run);
     this._queue = next.then(() => {}, () => {});
     return next;
   }
