@@ -1,5 +1,26 @@
 # Trading-Nova continuation — 30 October 2026 PKT
 
+## Current task — global paper-portfolio risk serialization (3 November 2026 PKT)
+
+PR #117 is merged. Starting main: `17b1161eb11f4b0aa4bc9fb9aa8ff36a14924656`. Root/nested `AGENTS.md` search found no applicable file. Re-read locked Product Contract §21, this resume file and `docs/V1-PRODUCT-GAP-AUDIT.md`; the existing PR #117 was resumed rather than duplicated.
+
+Reproduced issue: two distinct paper orders could each pass the Risk Gate against the same pre-fill portfolio, then commit using stale exposure/cash. A schema-scoped PostgreSQL transaction advisory lock now serializes the shared paper portfolio. Every persistent fill acquires the portfolio lock before its per-order lock, re-reads the latest committed portfolio, re-marks all current holdings from a still-fresh quote snapshot, and issues the final server Risk Gate ALLOW artifact while holding the lock. Fill, portfolio, order and monotonic portfolio revision commit atomically. Pending risk rejections use an expected portfolio revision so a stale rejection cannot overwrite state after another fill. The in-memory adapter provides the same serialized contract.
+
+A second edge case was also reproduced: concurrent pending BUYs could both pass pre-lock affordability; after the first consumed cash, the second `applyFill` threw for negative cash. The pending processor misclassified that normal race as invalid portfolio state, left the order pending and latched a service error. Final locked authorization now checks exact fill notional + fee against the latest cash and returns a normal `PAPER_RISK_GATE_REJECTED / INSUFFICIENT_CASH`; the order is persisted REJECTED and the processor remains healthy.
+
+Acceptance evidence on exact PR head `362b54e268b386c052bd70ae9e7bba1a616fa005`:
+- CI `41635137506`: **742 tests, 731 pass, 0 fail, 11 expected skips**; PostgreSQL audit integration **11/11**; PostgreSQL integration, Neon PostgreSQL, recovery drill, stress capacity, lint, secret scan and `npm audit --audit-level=high` passed.
+- Browser E2E `41635137449`: PASS. Opt-in `market-data-evidence`: SKIPPED, not a production feed-soak pass.
+- PR #117 merged as `17b1161eb11f4b0aa4bc9fb9aa8ff36a14924656`. Merged-main CI `41635626521`, Browser E2E `41635626407`, lockfile `41635626428`: all enabled checks PASS; same test totals **742 / 731 / 0 / 11**; PostgreSQL audit **11/11**; PostgreSQL/Neon, recovery, stress, lint, secret scan and high-severity audit passed. `market-data-evidence` remained skipped.
+- npm audit still reports **5 moderate minimatch advisories**. The available forced remediation downgrades ESLint, so it was not applied.
+- Local full suite was not run: this runtime cannot resolve `github.com`; all reported test results are remote CI.
+
+Scope: the lock is schema-scoped and protects writers using this release's portfolio-lock/revision protocol. Older application binaries or direct SQL can bypass it and must not coexist with the lock-aware release. This is not exchange-grade matching, production deployment, market-data soak, profitability evidence or certification. Real-money remains OFF; the mandatory server Risk Gate and existing risk limits are unchanged. No broker credentials, paid calls, production data or deployment were touched.
+
+Remaining paper-V1 work: partial fills, amend/replace, queue priority and realistic latency; strategy calibration/revalidation; stronger independent research attribution, counter-evidence and publication freshness; broader fundamentals/news/social sources; live Gemini runtime proof; production deployment, sustained market-data soak, real backup/restore and measured RTO/RPO, alert routing, independent security assessment and final human release approval. Vercel has no confirmed exact-repo project, Render workspace selection remains unconfirmed, and Railway's Nova-AI services are a separate app and were not used. No paid Gemini call or credential action is authorized.
+
+---
+
 ## Current task — cross-process pending-order transition linearization (3 November 2026 PKT)
 
 Starting remote main: `87bb150a501e1136449f6bf5d47fae6b9fc14683`. No open PRs and no applicable `AGENTS.md` were found. Re-read locked Product Contract §21, this resume file and `docs/V1-PRODUCT-GAP-AUDIT.md`. The quote-currency contract, durable fill sequence and whole-trade learning work were already merged and were not duplicated.
