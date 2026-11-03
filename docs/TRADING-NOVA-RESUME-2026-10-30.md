@@ -1,8 +1,8 @@
 # Trading-Nova continuation — 30 October 2026 PKT
 
-## Current task — revision-safe pending paper-order trigger amendments (3 November 2026 PKT)
+## Completed increment — revision-safe pending paper-order trigger amendments (3 November 2026 PKT)
 
-Starting remote main: `f0c8057828252957566fb0b2ea49dd4e30af68fd`. No open PRs and no applicable root/nested `AGENTS.md` were found. Re-read this resume file, locked Product Contract §21 in `docs/TRADING-NOVA-MASTER-ROADMAP.md`, and the current `docs/V1-PRODUCT-GAP-AUDIT.md`. PR #117 already implements the global cross-order portfolio lock/revalidation; this task did not duplicate it.
+Starting remote main: `f0c8057828252957566fb0b2ea49dd4e30af68fd`. There were no open PRs at the start of this increment and no applicable root/nested `AGENTS.md` were found. Re-read this resume file, locked Product Contract §21 in `docs/TRADING-NOVA-MASTER-ROADMAP.md`, and the current `docs/V1-PRODUCT-GAP-AUDIT.md`. PR #117 already implements the global cross-order portfolio lock/revalidation; this task did not duplicate it. PR #118 was opened from that main and is now merged.
 
 PR #118 adds a deliberately narrow amend operation for pending LIMIT, STOP_LOSS and TAKE_PROFIT paper orders. Only the trigger/limit price may change; symbol, side, quantity, order type, reduce-only and thesis provenance remain immutable. Each order now has a monotonic revision and a bounded last-10 amendment history. The HTTP endpoint requires `expectedRevision`, rejects stale/invalid revisions, and re-evaluates the unchanged quantity at the proposed trigger price through the server Risk Gate while holding the global portfolio lock followed by the per-order lock. The current portfolio revision and quote freshness are checked again before commit. A same-request retry is reported as `REPLAYED` only when the latest stored amendment still matches; this is not presented as a new Risk Gate evaluation.
 
@@ -18,6 +18,14 @@ Acceptance evidence on final code head `08d56187e2a04fb0b4f4360b3a4be6ed66f55b52
 - The first candidate CI `41644325326` exposed a retry response bug; the replay path was corrected. Review of that completed path then found the non-committed-result caching issue described above, which is covered by the new final-head regression.
 - The local clone still cannot resolve `github.com`; no local full-suite pass is claimed. Modified JavaScript files passed syntax parsing in the connector runtime.
 - `npm audit` continues to report **5 moderate minimatch advisories**; the forced remediation would downgrade ESLint and was not applied.
+
+
+Merged-main verification:
+- PR #118 merged with squash as `415913df6eb542db57f7eb25cc943d3e7f357d22`; this is the current main SHA at checkpoint time, parent `f0c8057828252957566fb0b2ea49dd4e30af68fd`. Open PR count after merge: **0**.
+- Merged-main CI run `41655804784`: all enabled jobs **PASS**. Test job: **749 total / 737 pass / 0 fail / 12 expected skips**; PostgreSQL integration **12/12**, PostgreSQL audit integration **12/12**, Neon integration plus Neon-backed startup/readiness passed, recovery crash/rollback drill passed, and loopback stress checks passed at 100 requests/sec with concurrency 20 across health, portfolio and journal endpoints. Browser E2E run `41655804731` passed; lockfile run `41655804824` passed.
+- Recovery limitation: the backup/restore evidence artifact reported `BLOCKED` because its environment was `local` (it recorded 92 ms RTO / 84 ms RPO but is not production evidence); server-crash injection was skipped because `PG_CRASH_CMD` was not configured. Do not treat this as production DR certification.
+- The opt-in `market-data-evidence` job was **SKIPPED**, not passed. No live feed soak is claimed.
+- `npm audit --audit-level=high` passed, while **5 moderate minimatch advisories remain**; no forced ESLint downgrade was applied. Local full-suite execution remains unavailable because this runtime cannot resolve `github.com`; reported counts are remote GitHub CI results only.
 
 Scope: this is **trigger-price amendment only**, not full replace (quantity/symbol/side/type changes remain unsupported). It does not model partial fills, venue queue priority or realistic network latency. No volume-derived liquidity proxy was invented: partial fills need a trustworthy executable depth/participation contract. This is not an exchange-grade matching engine or production certification. Real-money remains OFF; the mandatory server Risk Gate and all risk limits are unchanged. No broker credentials, paid calls, deployment, production-data mutation or new resources were used.
 
