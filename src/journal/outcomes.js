@@ -103,8 +103,54 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
 
   const lotsBySymbol = new Map();
   const outcomes = [];
+  const campaigns = new Map();
+  const activeCampaignBySymbol = new Map();
+  const addUnique = (values, value) => {
+    if (!values.includes(value)) values.push(value);
+  };
+  const openCampaign = (fill, signedQuantity) => {
+    const direction = signedQuantity > 0 ? "LONG" : "SHORT";
+    const identity = {
+      symbol: fill.symbol,
+      direction,
+      openingFillId: fill.id,
+      openedAt: fill.timestamp,
+      executionSequence: fill.executionSequence ?? null
+    };
+    const tradeId = createHash("sha256")
+      .update("paper-position-cycle-v1:" + JSON.stringify(identity)).digest("hex");
+    const campaign = {
+      tradeId,
+      symbol: fill.symbol,
+      direction,
+      openedAt: fill.timestamp,
+      closedAt: null,
+      status: "OPEN",
+      openingOrderIds: [],
+      closingOrderIds: [],
+      openedQuantity: 0,
+      closedQuantity: 0,
+      matchedFragments: 0,
+      grossPnl: 0,
+      fees: 0,
+      netPnl: 0
+    };
+    campaigns.set(tradeId, campaign);
+    activeCampaignBySymbol.set(fill.symbol, campaign);
+    return campaign;
+  };
   for (const closingFill of ordered) {
     const lots = lotsBySymbol.get(closingFill.symbol) || [];
+    let activeCampaign = activeCampaignBySymbol.get(closingFill.symbol) || null;
+    if (lots.length > 0) {
+      const lotCampaign = campaigns.get(lots[0].tradeId);
+      if (!lotCampaign || lotCampaign.status !== "OPEN"
+          || (activeCampaign && activeCampaign.tradeId !== lotCampaign.tradeId)) {
+        throw new Error("invalid paper trade-cycle state");
+      }
+      activeCampaign = lotCampaign;
+      activeCampaignBySymbol.set(closingFill.symbol, lotCampaign);
+    }
     const fillSign = closingFill.side === "BUY" ? 1 : -1;
     let remaining = closingFill.quantity * fillSign;
     const closeFeePerUnit = closingFill.fee / closingFill.quantity;
@@ -112,6 +158,12 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
     while (Math.abs(remaining) > EPSILON && lots.length > 0
         && Math.sign(lots[0].remaining) !== Math.sign(remaining)) {
       const openingLot = lots[0];
+      const campaign = campaigns.get(openingLot.tradeId);
+      if (!campaign || campaign.status !== "OPEN"
+          || (activeCampaign && activeCampaign.tradeId !== campaign.tradeId)) {
+        throw new Error("invalid paper trade-cycle attribution");
+      }
+      activeCampaign = campaign;
       const matchedQuantity = Math.min(Math.abs(remaining), Math.abs(openingLot.remaining));
       const direction = openingLot.remaining > 0 ? "LONG" : "SHORT";
       const grossPnl = direction === "LONG"
@@ -146,14 +198,41 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
         result: netPnl > EPSILON ? "WIN" : netPnl < -EPSILON ? "LOSS" : "BREAKEVEN",
         thesisRef: openingLot.thesisRef
       });
+      campaign.closedQuantity = cleanNumber(campaign.closedQuantity + matchedQuantity);
+      campaign.matchedFragments++;
+      campaign.grossPnl = cleanNumber(campaign.grossPnl + grossPnl);
+      campaign.fees = cleanNumber(campaign.fees + fees);
+      campaign.netPnl = cleanNumber(campaign.netPnl + netPnl);
+      addUnique(campaign.closingOrderIds, closingFill.orderId);
 
       openingLot.remaining = cleanNumber(openingLot.remaining - Math.sign(openingLot.remaining) * matchedQuantity);
       remaining = cleanNumber(remaining - Math.sign(remaining) * matchedQuantity);
       if (Math.abs(openingLot.remaining) <= EPSILON) lots.shift();
     }
 
+    if (lots.length === 0 && activeCampaign) {
+      activeCampaign.status = "CLOSED";
+      activeCampaign.closedAt = closingFill.timestamp;
+      activeCampaignBySymbol.delete(closingFill.symbol);
+      activeCampaign = null;
+    }
+
     if (Math.abs(remaining) > EPSILON) {
+      if (lots.length > 0) {
+        const lotCampaign = campaigns.get(lots[0].tradeId);
+        if (!lotCampaign || lotCampaign.status !== "OPEN"
+            || (activeCampaign && activeCampaign.tradeId !== lotCampaign.tradeId)
+            || Math.sign(lots[0].remaining) !== Math.sign(remaining)) {
+          throw new Error("inconsistent paper trade-cycle direction");
+        }
+        activeCampaign = lotCampaign;
+      } else {
+        activeCampaign = openCampaign(closingFill, remaining);
+      }
+      addUnique(activeCampaign.openingOrderIds, closingFill.orderId);
+      activeCampaign.openedQuantity = cleanNumber(activeCampaign.openedQuantity + Math.abs(remaining));
       lots.push({
+        tradeId: activeCampaign.tradeId,
         orderId: closingFill.orderId,
         remaining,
         price: closingFill.price,
@@ -161,6 +240,15 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
         timestamp: closingFill.timestamp,
         thesisRef: closingFill.thesisRef
       });
+      activeCampaignBySymbol.set(closingFill.symbol, activeCampaign);
+    } else if (lots.length > 0) {
+      activeCampaign = campaigns.get(lots[0].tradeId);
+      if (!activeCampaign || activeCampaign.status !== "OPEN") {
+        throw new Error("invalid open paper trade cycle");
+      }
+      activeCampaignBySymbol.set(closingFill.symbol, activeCampaign);
+    } else {
+      activeCampaignBySymbol.delete(closingFill.symbol);
     }
     lotsBySymbol.set(closingFill.symbol, lots);
   }
@@ -213,7 +301,71 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
     meanNetPnlPerFragment: group.matchedFragments ? cleanNumber(group.netPnl / group.matchedFragments) : null,
     source: "paper-fifo-thesis-summary-v1", unit: "matched-fifo-fragments-not-whole-trades"}))
     .sort((a, b) => (b.lastClosedAt ?? -1) - (a.lastClosedAt ?? -1) || (a.thesisHash || "").localeCompare(b.thesisHash || ""));
-  return {version: 1, accounting: "FIFO", currency: "USDT", outcomes, summary, thesisSummaries};
+  const tradeSummaries = [...campaigns.values()].map(campaign => {
+    const openLots = (lotsBySymbol.get(campaign.symbol) || [])
+      .filter(lot => lot.tradeId === campaign.tradeId);
+    const openQuantity = cleanNumber(openLots.reduce((total, lot) => total + Math.abs(lot.remaining), 0));
+    const status = openLots.length ? "OPEN" : "CLOSED";
+    if ((campaign.status === "OPEN") !== (status === "OPEN")
+        || (status === "CLOSED" && !Number.isFinite(campaign.closedAt))) {
+      throw new Error("paper trade-cycle lifecycle does not reconcile");
+    }
+    const openedQuantity = cleanNumber(campaign.openedQuantity);
+    const closedQuantity = cleanNumber(campaign.closedQuantity);
+    if (Math.abs(openedQuantity - closedQuantity - openQuantity) > 1e-9) {
+      throw new Error("paper trade-cycle quantities do not reconcile");
+    }
+    const realizedNetPnl = cleanNumber(campaign.netPnl);
+    return {
+      tradeId: campaign.tradeId,
+      source: "paper-position-cycle-v1",
+      unit: "flat-to-flat-symbol-position-cycle",
+      symbol: campaign.symbol,
+      direction: campaign.direction,
+      status,
+      result: status === "CLOSED"
+        ? realizedNetPnl > EPSILON ? "WIN" : realizedNetPnl < -EPSILON ? "LOSS" : "BREAKEVEN"
+        : null,
+      openedAt: campaign.openedAt,
+      closedAt: status === "CLOSED" ? campaign.closedAt : null,
+      openingOrderIds: [...campaign.openingOrderIds],
+      closingOrderIds: [...campaign.closingOrderIds],
+      openedQuantity,
+      closedQuantity,
+      openQuantity,
+      openLotCount: openLots.length,
+      matchedFragments: campaign.matchedFragments,
+      realizedGrossPnl: cleanNumber(campaign.grossPnl),
+      realizedFees: cleanNumber(campaign.fees),
+      realizedNetPnl
+    };
+  }).sort((a, b) => b.openedAt - a.openedAt || a.tradeId.localeCompare(b.tradeId));
+  const closedTrades = tradeSummaries.filter(trade => trade.status === "CLOSED");
+  const openTrades = tradeSummaries.filter(trade => trade.status === "OPEN");
+  const closedTradeWins = closedTrades.filter(trade => trade.result === "WIN").length;
+  const closedTradeLosses = closedTrades.filter(trade => trade.result === "LOSS").length;
+  const closedTradeBreakeven = closedTrades.filter(trade => trade.result === "BREAKEVEN").length;
+  const sumTradePnl = trades => cleanNumber(trades.reduce((total, trade) => total + trade.realizedNetPnl, 0));
+  const tradeSummary = {
+    tradeCount: tradeSummaries.length,
+    closedTradeCount: closedTrades.length,
+    openTradeCount: openTrades.length,
+    closedTradeWins,
+    closedTradeLosses,
+    closedTradeBreakeven,
+    closedTradeWinRate: closedTrades.length ? cleanNumber(closedTradeWins / closedTrades.length) : null,
+    closedTradeNetPnl: sumTradePnl(closedTrades),
+    openTradeRealizedNetPnl: sumTradePnl(openTrades),
+    realizedNetPnl: sumTradePnl(tradeSummaries),
+    source: "paper-position-cycle-v1",
+    note: "Only flat-to-flat closed position cycles receive a whole-trade result. Open cycles show realized partials separately; open exposure and unrealized P&L are excluded."
+  };
+  if (Math.abs(tradeSummary.realizedNetPnl - summary.realizedNetPnl) > 1e-9) {
+    throw new Error("whole-trade and FIFO fragment P&L do not reconcile");
+  }
+
+  return {version: 1, accounting: "FIFO", currency: "USDT", outcomes, summary, thesisSummaries,
+    tradeSummaries, tradeSummary};
 }
 
 export {DEFAULT_MAX_FILLS};
