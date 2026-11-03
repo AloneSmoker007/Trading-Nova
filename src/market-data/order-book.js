@@ -269,14 +269,14 @@ export class BinanceSpotDepthBook {
     this.state = "syncing";
     this.reason = null;
     this.updateId = snapshot.lastUpdateId;
+    const buffered = this.buffer;
+    this.buffer = [];
     this.initialStreamEventCoveredBySnapshot = buffered.length > 0
       && buffered[0].firstUpdateId <= snapshot.lastUpdateId;
     this.snapshotLimit = snapshot.snapshotLimit;
     this.snapshotReceivedAt = snapshot.receivedAt;
     this.bids = new Map(snapshot.bids);
     this.asks = new Map(snapshot.asks);
-    const buffered = this.buffer;
-    this.buffer = [];
     for (const event of buffered) {
       if (this.state === "invalid") break;
       this._applyEvent(event);
