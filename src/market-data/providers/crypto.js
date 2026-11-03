@@ -28,6 +28,7 @@
 // result envelopes instead of the throwing contract of the raw interface helpers.
 
 import {normalizeQuote, normalizeCandle} from "../connectors/interface.js";
+import {DEPTH_SNAPSHOT_LIMITS, normalizeDepthSnapshot} from "../order-book.js";
 import {detectCandleGap} from "../quality.js";
 import {DEFAULT_INFO_URL, DEFAULT_LEADERBOARD_URL, createHyperliquidClient, requestJson, toFiniteNumber, normaliseHyperliquidLeaderboardEntry} from "./hyperliquid.js";
 
@@ -230,6 +231,28 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
     }
   }
 
+  // Snapshot is explicitly bounded; its receipt time is not an exchange event time.
+  async function getDepthSnapshot(symbol, {limit = 1000} = {}) {
+    const sym = validateSymbol(symbol);
+    if (!sym) return {ok: false, reason: "invalid-symbol"};
+    if (!DEPTH_SNAPSHOT_LIMITS.includes(limit)) return {ok: false, reason: "invalid-limit"};
+    const res = await requestJson(fetchImpl, buildUrl(cfg.binance.baseUrl, "/api/v3/depth", {symbol: sym, limit}), undefined, httpOpts);
+    if (!res.ok) return res;
+    try {
+      return {ok: true, data: normalizeDepthSnapshot(res.data, {symbol: sym, receivedAt: now(), snapshotLimit: limit})};
+    } catch {
+      return {ok: false, reason: "invalid-payload"};
+    }
+  }
+
+  function getDepthStreamUrl(symbol, {speed = "100ms"} = {}) {
+    const sym = validateSymbol(symbol);
+    if (!sym) return {ok: false, reason: "invalid-symbol"};
+    if (speed !== "100ms" && speed !== "1000ms") return {ok: false, reason: "invalid-speed"};
+    const suffix = speed === "100ms" ? "@100ms" : "";
+    return {ok: true, data: "wss://stream.binance.com:9443/ws/" + sym.toLowerCase() + "@depth" + suffix};
+  }
+
   // Interface-compatible candles (see connectors/interface.js), fail-closed envelope.
   // closeTime is derived as ts + intervalMs - 1 (the same convention Binance uses).
   async function getCandles(symbol, {interval = "1m", limit = 100} = {}) {
@@ -271,5 +294,5 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
     return hyperliquid.getWalletPositions(address);
   }
 
-  return Object.freeze({getKlines, getTicker, getQuote, getCandles, getCoinPrice, getTopTraders, getWalletPositions});
+  return Object.freeze({getKlines, getTicker, getQuote, getDepthSnapshot, getDepthStreamUrl, getCandles, getCoinPrice, getTopTraders, getWalletPositions});
 }
