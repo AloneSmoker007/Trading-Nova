@@ -994,17 +994,33 @@ test("pending trigger orders can amend only their trigger price with optimistic 
     assert.equal(amended.amendments[0].previousPrice, 41000);
     assert.equal(amended.amendments[0].price, 39000);
 
-    const stale = await fetch(srv.base + "/api/paper/orders/" + amended.orderId + "/amend", {
+    const replay = await fetch(srv.base + "/api/paper/orders/" + amended.orderId + "/amend", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({price: 38000, expectedRevision: 1})
+      body: JSON.stringify({price: 39000, expectedRevision: 1})
     });
-    assert.equal(stale.status, 409);
-    assert.equal((await stale.json()).error.code, "order-revision-conflict");
+    assert.equal(replay.status, 200, "an unchanged retry remains idempotent while its revision is current");
+    assert.equal((await replay.json()).data.order.revision, 2);
+
+    const secondAmend = await fetch(srv.base + "/api/paper/orders/" + amended.orderId + "/amend", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({price: 38000, expectedRevision: 2})
+    });
+    assert.equal(secondAmend.status, 200);
+    assert.equal((await secondAmend.json()).data.order.revision, 3);
+
+    const staleReplay = await fetch(srv.base + "/api/paper/orders/" + amended.orderId + "/amend", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({price: 39000, expectedRevision: 1})
+    });
+    assert.equal(staleReplay.status, 409, "a cached old amendment must not claim the newer order revision");
+    assert.equal((await staleReplay.json()).error.code, "order-revision-conflict");
     const listed = await fetch(srv.base + "/api/paper/orders").then(response => response.json());
     const saved = listed.data.orders.find(order => order.orderId === amended.orderId);
-    assert.equal(saved.price, 39000);
-    assert.equal(saved.revision, 2);
+    assert.equal(saved.price, 38000);
+    assert.equal(saved.revision, 3);
     const fills = await fetch(srv.base + "/api/orders").then(response => response.json());
     assert.equal(fills.data.total, 0);
   });
