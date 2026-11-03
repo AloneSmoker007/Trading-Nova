@@ -1295,6 +1295,7 @@ export function createPaperOrderService({
               dataFresh: true, killSwitch: latestBase.limits?.ok === false
             });
             if (gateRejected(verdict)) return {state: "risk-rejected", reasons: verdict.reasons};
+            if (now() > marketState.freshUntil) return {state: "market-data-stale"};
 
             const nextRevision = latestRevision + 1;
             const timestamp = now();
