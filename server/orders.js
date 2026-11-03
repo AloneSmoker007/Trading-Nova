@@ -1195,7 +1195,7 @@ export function createPaperOrderService({
             && currentTriggerPrice === body.price) {
           return {status: 200, body: {ok: true, data: {
             state: "replayed", order,
-            verdict: {decision: "ALLOW", replayed: true, orderNotional: order.quantity * body.price},
+            verdict: {decision: "REPLAYED", riskGateReevaluated: false, orderNotional: order.quantity * body.price},
             note: "This pending paper trigger amendment was already applied. The current order revision is shown; real money OFF."
           }}};
         }
