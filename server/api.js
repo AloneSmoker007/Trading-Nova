@@ -1,7 +1,7 @@
 // server/api.js — JSON API over the real engine modules (src/).
 //
 // Envelope convention (every response is JSON):
-//   success: {ok: true,  data: {...}}                  — data.state: "ok" | "stale" | "empty"
+//   success: {ok: true,  data: {...}}                  — data.state: "ok" | "stale" | "empty" | "open"
 //   failure: {ok: false, state: "error" | "unavailable" | "not-implemented",
 //             error: {code, message, reason?}}
 //
@@ -9,6 +9,7 @@
 //   "stale"       = a cached value is being served past its freshness window
 //   "unavailable" = upstream/state genuinely cannot provide data right now (HTTP 503)
 //   "error"       = bad request (400) or server-side failure (500) — never leaks internals
+//   "open"        = reconciled paper fills exist, but only an open position cycle remains
 //
 // GOLDEN SAFETY RULE: Paper/shadow only. Real money OFF.
 // POST /api/paper/orders is GATED by Risk Gate enforcement. No execution without an ALLOW artifact.
