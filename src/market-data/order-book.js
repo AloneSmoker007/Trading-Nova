@@ -153,6 +153,7 @@ export class BinanceSpotDepthBook {
     this.state = "syncing";
     this.reason = null;
     this.snapshotLoaded = false;
+    this.initialStreamEventCoveredBySnapshot = false;
     this.updateId = null;
     this.snapshotLimit = null;
     this.snapshotReceivedAt = null;
@@ -168,6 +169,7 @@ export class BinanceSpotDepthBook {
     this.state = "invalid";
     this.reason = reason;
     this.snapshotLoaded = false;
+    this.initialStreamEventCoveredBySnapshot = false;
     this.updateId = null;
     this.snapshotLimit = null;
     this.snapshotReceivedAt = null;
@@ -188,9 +190,11 @@ export class BinanceSpotDepthBook {
   _applyEvent(event) {
     if (!this.snapshotLoaded || this.updateId === null) return;
     if (event.finalUpdateId <= this.updateId) return;
-    // Binance requires the snapshot update ID itself to fall inside the first event [U, u].
-    // If the first stream event starts after the snapshot, the snapshot must be fetched again.
-    if (this.state === "syncing" && event.firstUpdateId > this.updateId) {
+    // The first stream event must not start after the snapshot. If that first
+    // event was already covered by the snapshot, later contiguous events are
+    // ordinary updates and may begin at local update ID + 1.
+    if (this.state === "syncing" && event.firstUpdateId > this.updateId
+        && !this.initialStreamEventCoveredBySnapshot) {
       this._invalidate("snapshot-behind-stream");
       return;
     }
@@ -219,6 +223,7 @@ export class BinanceSpotDepthBook {
     this.bids = trimLevels(bids, "bid", this.maxLevels);
     this.asks = trimLevels(asks, "ask", this.maxLevels);
     this.updateId = event.finalUpdateId;
+    this.initialStreamEventCoveredBySnapshot = false;
     this.lastEventTime = event.eventTime;
     this.lastEventReceivedAt = event.receivedAt;
     this.state = "ready";
@@ -264,6 +269,8 @@ export class BinanceSpotDepthBook {
     this.state = "syncing";
     this.reason = null;
     this.updateId = snapshot.lastUpdateId;
+    this.initialStreamEventCoveredBySnapshot = buffered.length > 0
+      && buffered[0].firstUpdateId <= snapshot.lastUpdateId;
     this.snapshotLimit = snapshot.snapshotLimit;
     this.snapshotReceivedAt = snapshot.receivedAt;
     this.bids = new Map(snapshot.bids);
