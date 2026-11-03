@@ -314,7 +314,7 @@ async function installApiFixtures(page) {
       return;
     }
 
-    const amendOrderMatch = /^\\/api\\/paper\\/orders\\/([^/]+)\\/amend$/.exec(pathname);
+    const amendOrderMatch = /^\/api\/paper\/orders\/([^/]+)\/amend$/.exec(pathname);
     if (amendOrderMatch && request.method() === "POST") {
       const body = request.postDataJSON();
       paperOrderAmendments.push(body);
