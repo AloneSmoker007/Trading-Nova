@@ -31,6 +31,7 @@
 
 import {normalizeQuote, normalizeCandle} from "../connectors/interface.js";
 import {DEPTH_SNAPSHOT_LIMITS, normalizeDepthSnapshot} from "../order-book.js";
+import {BinanceSpotDepthStream} from "../depth-stream.js";
 import {detectCandleGap} from "../quality.js";
 import {DEFAULT_INFO_URL, DEFAULT_LEADERBOARD_URL, createHyperliquidClient, requestJson, toFiniteNumber, normaliseHyperliquidLeaderboardEntry} from "./hyperliquid.js";
 
@@ -296,5 +297,13 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
     return hyperliquid.getWalletPositions(address);
   }
 
-  return Object.freeze({getKlines, getTicker, getQuote, getDepthSnapshot, getDepthStreamUrl, getCandles, getCoinPrice, getTopTraders, getWalletPositions});
+  function createDepthStream(symbol, options = {}) {
+    return new BinanceSpotDepthStream({
+      ...options,
+      symbol,
+      provider: {getDepthSnapshot, getDepthStreamUrl}
+    });
+  }
+
+  return Object.freeze({getKlines, getTicker, getQuote, getDepthSnapshot, getDepthStreamUrl, createDepthStream, getCandles, getCoinPrice, getTopTraders, getWalletPositions});
 }
