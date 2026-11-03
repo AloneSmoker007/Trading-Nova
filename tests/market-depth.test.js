@@ -100,7 +100,7 @@ test("depth book buffers stream events before snapshot and applies the first bri
   let clock = 1000;
   const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => clock});
   assert.equal(book.getView().executionEligible, false);
-  book.ingest(event(101, 102, {E: 900, b: [["99", "2"]]}));
+  book.ingest(event(99, 102, {E: 900, b: [["99", "2"]]}));
   book.ingest(event(103, 104, {E: 950, a: [["101", "3"]]}));
   const view = book.setSnapshot(snapshot(100, {snapshotLimit: 100}));
   assert.equal(view.status, "ready");
@@ -118,18 +118,30 @@ test("depth book ignores updates already covered by snapshot and duplicate seque
   book.setSnapshot(snapshot());
   book.ingest(event(90, 100, {E: 850, b: [["99", "9"]]}));
   assert.equal(book.getView().status, "syncing");
-  book.ingest(event(101, 101, {E: 900, b: [["99", "2"]]}));
-  book.ingest(event(101, 101, {E: 901, b: [["99", "8"]]}));
+  book.ingest(event(100, 101, {E: 900, b: [["99", "2"]]}));
+  book.ingest(event(100, 101, {E: 901, b: [["99", "8"]]}));
   const view = book.getView();
   assert.equal(view.status, "ready");
   assert.equal(view.updateId, 101);
   assert.equal(view.bids[0].quantity, 2);
 });
+test("depth book rejects a snapshot that is behind the first buffered stream event", () => {
+  const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
+  book.ingest(event(101, 102, {E: 900}));
+  const view = book.setSnapshot(snapshot(100));
+  assert.equal(view.status, "invalid");
+  assert.equal(view.reason, "snapshot-behind-stream");
+  assert.equal(view.snapshotLimit, null);
+  assert.equal(view.snapshotReceivedAt, null);
+  assert.equal(view.executionEligible, false);
+});
 
-test("depth book invalidates and clears on a missing sequence range", () => {
+
+test("depth book invalidates and clears on a missing sequence range after the initial bridge", () => {
   const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
   book.setSnapshot(snapshot());
-  const view = book.ingest(event(102, 102, {E: 900, b: [["99", "4"]]}));
+  book.ingest(event(100, 101, {E: 890}));
+  const view = book.ingest(event(103, 103, {E: 900, b: [["99", "4"]]}));
   assert.equal(view.status, "invalid");
   assert.equal(view.reason, "sequence-gap");
   assert.equal(view.snapshotLimit, null);
@@ -142,7 +154,7 @@ test("depth book invalidates and clears on a missing sequence range", () => {
 test("depth book applies absolute quantities and zero-quantity deletions", () => {
   const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
   book.setSnapshot(snapshot());
-  const view = book.ingest(event(101, 101, {
+  const view = book.ingest(event(100, 101, {
     E: 950,
     b: [["99", "3"], ["97", "4"]],
     a: [["101", "0"], ["100", "5"]]
@@ -157,17 +169,17 @@ test("depth book applies absolute quantities and zero-quantity deletions", () =>
 test("depth book invalidates malformed events and symbol mismatches", () => {
   const wrongSymbol = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
   wrongSymbol.setSnapshot(snapshot());
-  assert.equal(wrongSymbol.ingest(event(101, 101, {s: "ETHUSDT"})).reason, "invalid-event");
+  assert.equal(wrongSymbol.ingest(event(100, 101, {s: "ETHUSDT"})).reason, "invalid-event");
 
   const malformed = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
   malformed.setSnapshot(snapshot());
-  assert.equal(malformed.ingest(event(101, 101, {b: [["99", "-1"]]})).reason, "invalid-event");
+  assert.equal(malformed.ingest(event(100, 101, {b: [["99", "-1"]]})).reason, "invalid-event");
 });
 
 test("depth book invalidates crossed updates without publishing a partially changed book", () => {
   const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
   book.setSnapshot(snapshot());
-  const view = book.ingest(event(101, 101, {E: 950, b: [["101", "2"]]}));
+  const view = book.ingest(event(100, 101, {E: 950, b: [["101", "2"]]}));
   assert.equal(view.status, "invalid");
   assert.equal(view.reason, "crossed-book");
   assert.deepEqual(view.bids, []);
@@ -175,11 +187,11 @@ test("depth book invalidates crossed updates without publishing a partially chan
 
 test("depth book bounds pre-snapshot buffering and requires explicit reset after invalidation", () => {
   const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000, maxBufferedEvents: 1});
-  book.ingest(event(101, 101));
+  book.ingest(event(100, 101));
   assert.equal(book.ingest(event(102, 102)).reason, "buffer-overflow");
   assert.equal(book.setSnapshot(snapshot()).status, "invalid");
   book.reset();
-  book.ingest(event(101, 101));
+  book.ingest(event(100, 101));
   assert.equal(book.setSnapshot(snapshot()).status, "ready");
 });
 
@@ -187,7 +199,7 @@ test("depth freshness uses exchange event time, not local receipt time", () => {
   let clock = 1000;
   const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => clock});
   book.setSnapshot(snapshot());
-  const first = book.ingest(event(101, 101, {E: 900}));
+  const first = book.ingest(event(100, 101, {E: 900}));
   assert.equal(first.ageMs, 100);
   assert.equal(first.eventReceivedAt, 1000);
   assert.equal(first.freshness, "fresh");
@@ -202,14 +214,14 @@ test("depth freshness uses exchange event time, not local receipt time", () => {
 test("future event timestamps and one-sided books are never usable", () => {
   const future = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
   future.setSnapshot(snapshot());
-  const futureView = future.ingest(event(101, 101, {E: 1100}));
+  const futureView = future.ingest(event(100, 101, {E: 1100}));
   assert.equal(futureView.freshness, "future");
   assert.equal(futureView.ageMs, null);
   assert.equal(futureView.isUsable, false);
 
   const oneSided = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
   oneSided.setSnapshot({lastUpdateId: 100, bids: [["99", "1"]], asks: []});
-  const oneSidedView = oneSided.ingest(event(101, 101, {E: 950}));
+  const oneSidedView = oneSided.ingest(event(100, 101, {E: 950}));
   assert.equal(oneSidedView.reason, "one-sided-book");
   assert.equal(oneSidedView.isUsable, false);
 });

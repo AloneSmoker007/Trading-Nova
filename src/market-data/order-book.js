@@ -188,6 +188,12 @@ export class BinanceSpotDepthBook {
   _applyEvent(event) {
     if (!this.snapshotLoaded || this.updateId === null) return;
     if (event.finalUpdateId <= this.updateId) return;
+    // Binance requires the snapshot update ID itself to fall inside the first event [U, u].
+    // If the first stream event starts after the snapshot, the snapshot must be fetched again.
+    if (this.state === "syncing" && event.firstUpdateId > this.updateId) {
+      this._invalidate("snapshot-behind-stream");
+      return;
+    }
     const nextUpdateId = this.updateId + 1;
     if (!Number.isSafeInteger(nextUpdateId)) {
       this._invalidate("sequence-exhausted");
