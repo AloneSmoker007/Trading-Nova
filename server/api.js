@@ -625,6 +625,12 @@ export function createApi({
     }
     const reviewedLosses = new Set(lossAutopsies.map((review) => review.outcomeId));
     const losses = report.outcomes.filter((outcome) => outcome.result === "LOSS");
+    let learningNote = "Server-derived FIFO fragments and flat-to-flat paper trade cycles from reconciled fills, including simulated fees. Loss autopsies are hash-chained user reviews, not execution facts or profitability evidence.";
+    if (report.state === "empty") {
+      learningNote = "No reconciled paper fills yet. No trade outcome is inferred. Real money OFF.";
+    } else if (report.state === "open") {
+      learningNote = "Only open paper position cycles exist. Any displayed realized partials are not closed-trade results; open exposure and unrealized P&L are excluded. Real money OFF.";
+    }
     return ok({
       ...report,
       reviewState,
@@ -636,11 +642,7 @@ export function createApi({
         unreviewedLossCount: reviewState === "verified"
           ? losses.filter((outcome) => !reviewedLosses.has(outcome.outcomeId)).length : null
       },
-      note: report.state === "empty"
-        ? "No reconciled paper fills yet. No trade outcome is inferred. Real money OFF."
-        : report.state === "open"
-          ? "Only open paper position cycles exist. Any displayed realized partials are not closed-trade results; open exposure and unrealized P&L are excluded. Real money OFF."
-          : "Server-derived FIFO fragments and flat-to-flat paper trade cycles from reconciled fills, including simulated fees. Loss autopsies are hash-chained user reviews, not execution facts or profitability evidence."
+      note: learningNote
     });
   }
 
