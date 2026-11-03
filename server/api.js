@@ -394,6 +394,20 @@ export function createApi({
     }
   }
 
+  async function amendPaperOrder(orderId, body) {
+    let parsedBody;
+    try {
+      parsedBody = typeof body === "string" ? JSON.parse(body) : body;
+    } catch {
+      return fail(400, "error", "invalid-json", "request body must be valid JSON");
+    }
+    try {
+      return await paperOrderService.amendOrder(orderId, parsedBody);
+    } catch {
+      return fail(500, "error", "paper-order-amend-failed", "paper order could not be safely amended");
+    }
+  }
+
   async function processPaperOrders() {
     return paperOrderService.processPendingOrders();
   }
@@ -801,7 +815,7 @@ export function createApi({
     }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, cancelPaperOrder, processPaperOrders, markets, watchlist, researchNews, researchContext, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
+  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, amendPaperOrder, cancelPaperOrder, processPaperOrders, markets, watchlist, researchNews, researchContext, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};
