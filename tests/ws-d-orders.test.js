@@ -965,3 +965,129 @@ test("concurrent pending fills that exhaust shared cash reject cleanly without p
     rmSync(dir, {recursive: true, force: true});
   }
 });
+
+
+test("pending trigger orders can amend only their trigger price with optimistic revision and Risk Gate", async () => {
+  await withServer(async ({srv}) => {
+    const original = {...validOrder("pending-amend-key"), type: "LIMIT", price: 41000};
+    const accepted = await post(srv.base, original);
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.data.order.status, "PENDING");
+    assert.equal(accepted.body.data.order.revision, 1);
+
+    const response = await fetch(srv.base + "/api/paper/orders/" + accepted.body.data.order.orderId + "/amend", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({price: 39000, expectedRevision: 1})
+    });
+    assert.equal(response.status, 200);
+    const amended = (await response.json()).data.order;
+    assert.equal(amended.status, "PENDING");
+    assert.equal(amended.type, "LIMIT");
+    assert.equal(amended.price, 39000);
+    assert.equal(amended.limitPrice, 39000);
+    assert.equal(amended.quantity, original.quantity);
+    assert.equal(amended.side, original.side);
+    assert.equal(amended.idempotencyKey, original.idempotencyKey);
+    assert.equal(amended.revision, 2);
+    assert.equal(amended.amendments.length, 1);
+    assert.equal(amended.amendments[0].previousPrice, 41000);
+    assert.equal(amended.amendments[0].price, 39000);
+
+    const stale = await fetch(srv.base + "/api/paper/orders/" + amended.orderId + "/amend", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({price: 38000, expectedRevision: 1})
+    });
+    assert.equal(stale.status, 409);
+    assert.equal((await stale.json()).error.code, "order-revision-conflict");
+    const listed = await fetch(srv.base + "/api/paper/orders").then(response => response.json());
+    const saved = listed.data.orders.find(order => order.orderId === amended.orderId);
+    assert.equal(saved.price, 39000);
+    assert.equal(saved.revision, 2);
+    const fills = await fetch(srv.base + "/api/orders").then(response => response.json());
+    assert.equal(fills.data.total, 0);
+  });
+});
+
+test("amendment rejects malformed, extra-field, and terminal order requests", async () => {
+  await withServer(async ({srv}) => {
+    const accepted = await post(srv.base, {...validOrder("pending-amend-invalid"), type: "STOP_LOSS", price: 39000});
+    const orderId = accepted.body.data.order.orderId;
+    const send = body => fetch(srv.base + "/api/paper/orders/" + orderId + "/amend", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+    });
+    assert.equal((await send({price: 0, expectedRevision: 1})).status, 400);
+    assert.equal((await send({price: 38000, expectedRevision: 1, quantity: 99})).status, 400);
+    const canceled = await fetch(srv.base + "/api/paper/orders/" + orderId + "/cancel", {method: "POST"});
+    assert.equal(canceled.status, 200);
+    const terminal = await send({price: 38000, expectedRevision: 1});
+    assert.equal(terminal.status, 409);
+    assert.equal((await terminal.json()).error.code, "order-not-amendable");
+  });
+
+  await withServer(async ({srv}) => {
+    const filled = await post(srv.base, validOrder("filled-order-amend"));
+    assert.equal(filled.body.data.order.status, "FILLED");
+    const response = await fetch(srv.base + "/api/paper/orders/" + filled.body.data.order.orderId + "/amend", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({price: 41000, expectedRevision: 1})
+    });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error.code, "order-not-amendable");
+  });
+});
+
+test("a trigger snapshot superseded by an amendment cannot commit a stale fill", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-order-amend-race-"));
+  let releaseQuote;
+  let processing;
+  let quoteReleased = false;
+  const restingQuote = {state: "ok", ageMs: 0, data: {last: 42000.5, bid: 42000, ask: 42001}};
+  const release = value => {
+    if (!quoteReleased && releaseQuote) {
+      quoteReleased = true;
+      releaseQuote(value);
+    }
+  };
+  try {
+    const store = new DurableStore();
+    const stateFile = join(dir, "paper-state.json");
+    const executionStateFile = join(dir, "paper-orders.json");
+    const first = createPaperOrderService({
+      market: {getTicker: async () => restingQuote}, stateFile, executionStateFile, store
+    });
+    const accepted = await first.submit({...validOrder("pending-amend-race"), type: "LIMIT", price: 41000});
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.data.order.status, "PENDING");
+
+    let markQuoteStarted;
+    const quoteStarted = new Promise(resolve => { markQuoteStarted = resolve; });
+    const delayedQuote = new Promise(resolve => { releaseQuote = resolve; });
+    const second = createPaperOrderService({
+      market: {getTicker: async () => { markQuoteStarted(); return delayedQuote; }},
+      stateFile, executionStateFile, store
+    });
+    processing = second.processPendingOrders();
+    await quoteStarted;
+
+    const amended = await first.amendOrder(accepted.body.data.order.orderId, {price: 39000, expectedRevision: 1});
+    assert.equal(amended.status, 200);
+    assert.equal(amended.body.data.order.revision, 2);
+
+    // This quote would trigger the old 41,000 BUY limit but not the amended 39,000 limit.
+    release({state: "ok", ageMs: 0, data: {last: 40000, bid: 39999, ask: 40000}});
+    const processed = await processing;
+    assert.equal(processed.state, "ok");
+    assert.equal(processed.processed, 0);
+    const saved = await store.get("paper-orders", "pending-amend-race");
+    assert.equal(saved.status, "PENDING");
+    assert.equal(saved.price, 39000);
+    assert.equal(saved.revision, 2);
+    assert.equal(await store.get("paper-fills", "pending-amend-race"), null);
+  } finally {
+    release(restingQuote);
+    await processing?.catch(() => {});
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
