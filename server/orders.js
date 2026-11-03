@@ -134,6 +134,13 @@ function orderRevision(order) {
   return Number.isSafeInteger(order.revision) && order.revision >= 0 ? order.revision : null;
 }
 
+function amendmentNotCommitted(outcome) {
+  const error = new Error("paper order amendment did not commit");
+  error.code = "PAPER_ORDER_AMEND_NOT_COMMITTED";
+  error.outcome = outcome;
+  return error;
+}
+
 function isOrderTriggered(order, quote) {
   if (!quote || !Number.isFinite(quote.bid) || !Number.isFinite(quote.ask)) return false;
   if (order.type === "LIMIT") {
@@ -1221,6 +1228,7 @@ export function createPaperOrderService({
         result = await store.transactIdempotent(
           "paper-order-amend:" + order.idempotencyKey + ":" + body.expectedRevision + ":" + requestHash,
           async tx => {
+            const outcome = await (async () => {
             if (typeof tx.lockPortfolio !== "function" || typeof tx.lock !== "function") {
               throw new Error("paper order amendment locks are required");
             }
@@ -1314,11 +1322,20 @@ export function createPaperOrderService({
             };
             await tx.put("paper-orders", order.idempotencyKey, next);
             return {state: "ok", order: next, verdict};
+            })();
+            // transactIdempotent caches every returned value. A conflict, stale quote,
+            // or Risk Gate rejection did not commit an amendment and must remain retryable.
+            if (outcome.state !== "ok") throw amendmentNotCommitted(outcome);
+            return outcome;
           }
         );
-      } catch {
-        storeError ||= "paper-order-state-unavailable";
-        return fail(500, "paper-order-not-persisted", "paper order amendment could not be safely persisted");
+      } catch (error) {
+        if (error?.code === "PAPER_ORDER_AMEND_NOT_COMMITTED" && error.outcome) {
+          result = error.outcome;
+        } else {
+          storeError ||= "paper-order-state-unavailable";
+          return fail(500, "paper-order-not-persisted", "paper order amendment could not be safely persisted");
+        }
       }
 
       if (result.state === "ok") {

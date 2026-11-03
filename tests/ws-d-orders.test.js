@@ -1169,3 +1169,56 @@ test("malformed legacy order revisions fail closed for amendment and trigger exe
     rmSync(dir, {recursive: true, force: true});
   }
 });
+
+
+test("retrying an amendment after a portfolio revision conflict re-evaluates the request", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-amend-retry-"));
+  const store = new DurableStore();
+  const quote = {state: "ok", ageMs: 0, data: {last: 42000.5, bid: 42000, ask: 42001}};
+  let bumpRevisionOnNextQuote = false;
+  const market = {
+    getTicker: async () => {
+      if (bumpRevisionOnNextQuote) {
+        bumpRevisionOnNextQuote = false;
+        const current = await store.get("paper-portfolio-revision", "global");
+        await store.put("paper-portfolio-revision", "global", {
+          revision: (current?.revision ?? 0) + 1
+        });
+      }
+      return quote;
+    }
+  };
+  const service = createPaperOrderService({
+    market,
+    stateFile: join(dir, "paper-state.json"),
+    executionStateFile: join(dir, "paper-orders.json"),
+    store
+  });
+  try {
+    const accepted = await service.submit({
+      ...validOrder("amend-retry-after-portfolio-conflict"),
+      type: "LIMIT",
+      price: 41000
+    });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.data.order.status, "PENDING");
+
+    const request = {price: 39000, expectedRevision: 1};
+    bumpRevisionOnNextQuote = true;
+    const conflicted = await service.amendOrder(accepted.body.data.order.orderId, request);
+    assert.equal(conflicted.status, 409);
+    assert.equal(conflicted.body.error.code, "paper-portfolio-changed");
+
+    // Same idempotency tuple is safe to retry: the failed attempt changed no order.
+    // The retry must take a new portfolio snapshot and run the Risk Gate again.
+    const retried = await service.amendOrder(accepted.body.data.order.orderId, request);
+    assert.equal(retried.status, 200);
+    assert.equal(retried.body.data.state, "amended");
+    assert.equal(retried.body.data.verdict.decision, "ALLOW");
+    assert.equal(retried.body.data.order.revision, 2);
+    assert.equal(retried.body.data.order.price, 39000);
+    assert.equal((await store.get("paper-orders", "amend-retry-after-portfolio-conflict")).status, "PENDING");
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
