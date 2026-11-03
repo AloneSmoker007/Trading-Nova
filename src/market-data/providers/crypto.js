@@ -16,6 +16,8 @@
 //        (read-only on-chain query; see ./hyperliquid.js)
 //   6. GET https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=<id>&per_page=1&page=1
 //        -> [{id,symbol,name,current_price,market_cap,total_volume,price_change_percentage_24h,last_updated}]
+//   7. GET https://api.binance.com/api/v3/depth?symbol&limit -> {lastUpdateId,bids,asks}
+//        (bounded REST snapshot; paired with the diff-depth stream URL for sequence sync)
 //
 // Fail-closed contract: every async method resolves to {ok:true,data} or
 // {ok:false,reason} — never throws on upstream data, never emits NaN/Infinity.

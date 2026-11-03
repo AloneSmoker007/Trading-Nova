@@ -106,6 +106,7 @@ test("depth book buffers stream events before snapshot and applies the first bri
   assert.equal(view.ageMs, 50);
   assert.equal(view.eventReceivedAt, 1000);
   assert.equal(view.isUsable, true);
+  assert.equal(view.executionEligible, false);
 });
 
 test("depth book ignores updates already covered by snapshot and duplicate sequence events", () => {
@@ -189,6 +190,7 @@ test("depth freshness uses exchange event time, not local receipt time", () => {
   assert.equal(stale.ageMs, 1200);
   assert.equal(stale.freshness, "stale");
   assert.equal(stale.isUsable, false);
+  assert.equal(stale.executionEligible, false);
 });
 
 test("future event timestamps and one-sided books are never usable", () => {

@@ -291,6 +291,7 @@ export class BinanceSpotDepthBook {
         ageMs: null,
         freshness: "unknown",
         isUsable: false,
+        executionEligible: false,
         bestBid: null,
         bestAsk: null,
         spread: null,
