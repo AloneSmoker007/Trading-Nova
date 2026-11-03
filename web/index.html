@@ -436,6 +436,15 @@
         <dl class="values" id="learning-values" aria-labelledby="learning-title" aria-live="polite" aria-busy="true"></dl>
         <ul class="journal-list" id="learning-outcomes" aria-label="Server-derived realized paper outcomes"></ul>
         <div class="table-wrap">
+          <table><caption>Whole-trade position cycles · latest 20</caption>
+            <thead><tr><th scope="col">Symbol / cycle</th><th scope="col">Closed result</th>
+              <th scope="col">Opened / closed / remaining quantity</th><th scope="col">FIFO fragments</th>
+              <th scope="col">Realized fees / net (USDT)</th><th scope="col">Closed at</th></tr></thead>
+            <tbody id="learning-trades-body"></tbody>
+          </table>
+        </div>
+        <p class="panel-note">Whole-trade cycles are netted per symbol from flat to flat. Only closed cycles receive WIN / LOSS / BREAKEVEN; open cycles show realized partials separately, with open exposure and unrealized P&amp;L excluded. This is descriptive paper history, not a profitability certificate. Session grouping is not inferred.</p>
+        <div class="table-wrap">
           <table><caption>Thesis learning summaries · latest 20 groups</caption>
             <thead><tr><th scope="col">Thesis / hash</th><th scope="col">Matched fragments</th>
               <th scope="col">Wins / losses / flat fragments</th><th scope="col">Realized fees / net (USDT)</th>
