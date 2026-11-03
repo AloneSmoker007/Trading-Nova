@@ -622,7 +622,6 @@ export function createPaperOrderService({
     }
 
     let latestPortfolio;
-    let projectedPortfolio;
     try {
       latestPortfolio = buildPortfolioState({
         cash: current.cash,
@@ -633,6 +632,29 @@ export function createPaperOrderService({
         startingEquity: current.equity - current.dailyPnl,
         peakEquity: current.peakEquity ?? current.equity
       });
+    } catch {
+      throw portfolioError("PAPER_PORTFOLIO_INVALID", "latest paper portfolio is invalid", {
+        portfolioRevision: revision
+      });
+    }
+
+    // A concurrent fill may consume cash after the pre-lock estimate. Treat
+    // that as a normal Risk Gate rejection, not corrupted portfolio state.
+    const requiredCash = fill.quantity * fill.price + (fill.fee ?? 0);
+    if (!Number.isFinite(requiredCash) || requiredCash < 0) {
+      throw portfolioError("PAPER_PORTFOLIO_INVALID", "latest paper fill cost is invalid", {
+        portfolioRevision: revision
+      });
+    }
+    if (fill.side === "BUY" && requiredCash > latestPortfolio.cash) {
+      throw portfolioError("PAPER_RISK_GATE_REJECTED", "latest portfolio has insufficient cash for the paper fill", {
+        reasons: ["INSUFFICIENT_CASH"],
+        portfolioRevision: revision
+      });
+    }
+
+    let projectedPortfolio;
+    try {
       projectedPortfolio = applyFill(latestPortfolio, fill);
     } catch {
       throw portfolioError("PAPER_PORTFOLIO_INVALID", "latest projected paper portfolio is invalid", {

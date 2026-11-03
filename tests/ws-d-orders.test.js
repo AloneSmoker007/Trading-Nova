@@ -890,3 +890,74 @@ test("concurrent pending triggers re-evaluate the latest portfolio before either
     rmSync(dir, {recursive: true, force: true});
   }
 });
+
+
+test("concurrent pending fills that exhaust shared cash reject cleanly without poisoning the order processor", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-portfolio-cash-fence-"));
+  const store = new DurableStore();
+  const initialPortfolio = buildPortfolioState({
+    cash: 5000,
+    startingEquity: 10000,
+    positions: [{symbol: "BTCUSDT", quantity: 0.1, markPrice: 50000}]
+  });
+  store.put("paper-portfolio", "current", initialPortfolio);
+  store.put("paper-portfolio-revision", "global", {revision: 0});
+
+  const restingQuote = {state: "ok", ageMs: 0, data: {last: 50000, bid: 49999, ask: 50001}};
+  const triggeredQuote = {state: "ok", ageMs: 0, data: {last: 48000, bid: 47999, ask: 48000}};
+  const triggerSymbols = new Set(["SOLUSDT", "XRPUSDT"]);
+  let quoteMode = "resting";
+  let triggerArrivals = 0;
+  let releaseTrigger;
+  const triggerBarrier = new Promise(resolve => { releaseTrigger = resolve; });
+  const market = {
+    getTicker: async symbol => {
+      if (quoteMode === "triggered" && triggerSymbols.has(symbol) && triggerArrivals < 2) {
+        triggerArrivals++;
+        if (triggerArrivals === 2) releaseTrigger();
+        await triggerBarrier;
+      }
+      return quoteMode === "triggered" ? triggeredQuote : restingQuote;
+    }
+  };
+  const stateFile = join(dir, "state.json");
+  const executionStateFile = join(dir, "orders.json");
+  const keyA = "portfolio-cash-trigger-a";
+  const keyB = "portfolio-cash-trigger-b";
+  const first = createPaperOrderService({
+    market, stateFile, executionStateFile, store: orderScopedStore(store, keyA)
+  });
+  const second = createPaperOrderService({
+    market, stateFile, executionStateFile, store: orderScopedStore(store, keyB)
+  });
+
+  try {
+    const orderA = await first.submit({...validOrder(keyA), symbol: "SOLUSDT", quantity: 0.06, price: 49000, type: "LIMIT"});
+    const orderB = await second.submit({...validOrder(keyB), symbol: "XRPUSDT", quantity: 0.06, price: 49000, type: "LIMIT"});
+    assert.equal(orderA.status, 200);
+    assert.equal(orderA.body.data.order.status, "PENDING");
+    assert.equal(orderB.status, 200);
+    assert.equal(orderB.body.data.order.status, "PENDING");
+
+    quoteMode = "triggered";
+    const processed = await Promise.all([first.processPendingOrders(), second.processPendingOrders()]);
+    assert.ok(processed.every(result => result.state === "ok"), "cash exhaustion is a rejected order, not a store outage");
+
+    const fills = store.listPage("paper-fills", {limit: 10, offset: 0});
+    assert.equal(fills.total, 1);
+    const savedA = store.get("paper-orders", keyA);
+    const savedB = store.get("paper-orders", keyB);
+    const statuses = [savedA.status, savedB.status].sort();
+    assert.deepEqual(statuses, ["FILLED", "REJECTED"]);
+    const rejected = savedA.status === "REJECTED" ? savedA : savedB;
+    assert.deepEqual(rejected.rejectionReasons, ["INSUFFICIENT_CASH"]);
+    assert.equal(store.get("paper-portfolio-revision", "global").revision, 1);
+    assert.ok(store.get("paper-portfolio", "current").cash >= 0);
+
+    const retried = await Promise.all([first.processPendingOrders(), second.processPendingOrders()]);
+    assert.ok(retried.every(result => result.state === "ok"), "the order service remains healthy after a cash rejection");
+  } finally {
+    releaseTrigger?.();
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
