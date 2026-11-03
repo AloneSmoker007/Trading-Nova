@@ -17,6 +17,9 @@ const server = createNovaServer({
 const requestBodies = [];
 const orderOffsets = [];
 let orderHistoryMode = "pages";
+let paperOrdersMode = "empty";
+let paperOrderFixture = null;
+const paperOrderAmendments = [];
 let councilMode = "unavailable";
 let tutorSetupMode = "unconfigured";
 let tutorReplyMode = "grounded";
@@ -297,14 +300,38 @@ async function installApiFixtures(page) {
     }
 
     if (pathname === "/api/paper/orders" && request.method() === "GET") {
+      const orders = paperOrdersMode === "pending" && paperOrderFixture ? [paperOrderFixture] : [];
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           ok: true, state: "ok",
-          data: {state: "ok", orders: [], total: 0, pendingCount: 0, note: "Paper only; real money OFF."}
+          data: {state: "ok", orders, total: orders.length,
+            pendingCount: orders.filter(order => order.status === "PENDING").length,
+            note: "Paper only; real money OFF."}
         })
       });
+      return;
+    }
+
+    const amendOrderMatch = /^\/api\/paper\/orders\/([^/]+)\/amend$/.exec(pathname);
+    if (amendOrderMatch && request.method() === "POST") {
+      const body = request.postDataJSON();
+      paperOrderAmendments.push(body);
+      if (paperOrdersMode === "pending" && paperOrderFixture?.orderId === decodeURIComponent(amendOrderMatch[1])
+          && Number.isFinite(body?.price) && Number.isSafeInteger(body?.expectedRevision)
+          && body.expectedRevision === paperOrderFixture.revision) {
+        paperOrderFixture = {...paperOrderFixture, price: body.price, limitPrice: body.price,
+          revision: paperOrderFixture.revision + 1};
+        await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({
+          ok: true, data: {state: "amended", order: paperOrderFixture, verdict: {decision: "ALLOW"},
+            note: "Pending paper trigger amended. Real money OFF."}
+        })});
+      } else {
+        await route.fulfill({status: 409, contentType: "application/json", body: JSON.stringify({
+          ok: false, state: "error", error: {code: "order-revision-conflict", message: "Fixture order revision conflict"}
+        })});
+      }
       return;
     }
 
@@ -474,6 +501,34 @@ async function main() {
         assert.equal(await errorPage.getByRole("button", {name: "Next fill history page"}).isDisabled(), true);
       } finally {
         await errorPage.close();
+      }
+    });
+
+    await run("pending trigger amendment uses the displayed revision and refreshes the saved order", async () => {
+      paperOrdersMode = "pending";
+      paperOrderFixture = {
+        orderId: "browser-pending-amend", idempotencyKey: "browser-pending-amend-key",
+        symbol: "BTCUSDT", side: "BUY", type: "LIMIT", quantity: 0.01,
+        price: 41000, limitPrice: 41000, status: "PENDING", revision: 3,
+        createdAt: 1793361600000, amendments: []
+      };
+      paperOrderAmendments.length = 0;
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        const row = page.locator("#paper-orders-body tr").first();
+        await row.getByRole("button", {name: "Amend pending LIMIT order for BTCUSDT"}).waitFor();
+        await row.getByRole("button", {name: "Amend pending LIMIT order for BTCUSDT"}).click();
+        const input = row.getByRole("spinbutton", {name: "New trigger price for BTCUSDT"});
+        await input.fill("39000");
+        await row.getByRole("button", {name: "Save"}).click();
+        await row.getByText("PENDING", {exact: true}).waitFor();
+        assert.deepEqual(paperOrderAmendments, [{price: 39000, expectedRevision: 3}]);
+        await row.getByRole("button", {name: "Amend pending LIMIT order for BTCUSDT"}).click();
+        assert.equal(await row.getByRole("spinbutton", {name: "New trigger price for BTCUSDT"}).inputValue(), "39000");
+      } finally {
+        paperOrdersMode = "empty";
+        paperOrderFixture = null;
+        await page.close();
       }
     });
 

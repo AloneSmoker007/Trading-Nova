@@ -124,9 +124,21 @@ function orderIntentHash(order) {
     type: order.type || "MARKET",
     price: order.type === "MARKET" ? null : order.price,
     reduceOnly: order.reduceOnly === true,
-    thesisHash: order.thesisHash || null
+    thesisHash: order.thesisHash || order.thesisRef?.hash || null
   };
   return createHash("sha256").update(JSON.stringify(intent)).digest("hex");
+}
+
+function orderRevision(order) {
+  if (order?.revision === undefined) return 0; // legacy pending records predate revisions
+  return Number.isSafeInteger(order.revision) && order.revision >= 0 ? order.revision : null;
+}
+
+function amendmentNotCommitted(outcome) {
+  const error = new Error("paper order amendment did not commit");
+  error.code = "PAPER_ORDER_AMEND_NOT_COMMITTED";
+  error.outcome = outcome;
+  return error;
 }
 
 function isOrderTriggered(order, quote) {
@@ -509,6 +521,8 @@ export function createPaperOrderService({
       reduceOnly: order.reduceOnly === true,
       orderIntentHash: orderIntentHash(order),
       ...(order.thesisRef ? {thesisRef: order.thesisRef} : {}),
+      revision: 1,
+      amendments: [],
       status,
       createdAt: t,
       updatedAt: t,
@@ -1063,6 +1077,16 @@ export function createPaperOrderService({
                 error.code = "PAPER_ORDER_NOT_PENDING";
                 throw error;
               }
+              const currentRevision = orderRevision(currentOrder);
+              const expectedRevision = orderRevision(order);
+              const currentIntentHash = currentOrder.orderIntentHash || orderIntentHash(currentOrder);
+              const expectedIntentHash = order.orderIntentHash || orderIntentHash(order);
+              if (currentRevision === null || expectedRevision === null
+                  || currentRevision !== expectedRevision || currentIntentHash !== expectedIntentHash) {
+                const error = new Error("paper order changed after trigger evaluation");
+                error.code = "PAPER_ORDER_CHANGED";
+                throw error;
+              }
               if (!context?.portfolio || !Number.isSafeInteger(context.revision)
                   || context.revision >= Number.MAX_SAFE_INTEGER) {
                 throw new Error("paper portfolio authorization context is invalid");
@@ -1082,6 +1106,7 @@ export function createPaperOrderService({
         if (fill?.status === "RECONCILED") processed++;
       } catch (error) {
         if (error?.code === "PAPER_ORDER_NOT_PENDING"
+            || error?.code === "PAPER_ORDER_CHANGED"
             || error?.code === "PAPER_PORTFOLIO_CHANGED"
             || error?.code === "PAPER_MARKET_DATA_STALE") continue;
         if (error?.code === "PAPER_RISK_GATE_REJECTED") {
@@ -1134,6 +1159,212 @@ export function createPaperOrderService({
         pendingCount: records.filter((record) => record.status === "PENDING").length,
         note: "Paper/shadow only. Trigger orders are simulated from fresh public bid/ask quotes; real money OFF."
       };
+    });
+  }
+
+
+  // Trigger-price-only amendment: portfolio lock -> order lock, then revision/intent checks
+  // prevent both stale clients and an in-flight old trigger snapshot from winning.
+  async function amendOrder(orderId, body) {
+    return serialize(async () => {
+      if (tradingMode !== "paper") return fail(403, "trading-mode-not-paper", "order amendment only available in paper mode");
+      if (typeof orderId !== "string" || !orderId.trim()) return fail(400, "invalid-order-id", "orderId is required");
+      if (!(await initialize())) return fail(500, storeError, "paper order state is unavailable");
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).some(key => !["price", "expectedRevision"].includes(key))) {
+        return fail(400, "invalid-amendment", "amendment must contain only price and expectedRevision");
+      }
+      if (!Number.isFinite(body.price) || body.price <= 0) {
+        return fail(400, "invalid-amendment-price", "replacement trigger price must be positive and finite");
+      }
+      if (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0) {
+        return fail(400, "invalid-order-revision", "expectedRevision must be a non-negative safe integer");
+      }
+
+      const records = await ensureOrderRecords();
+      const order = records.find(record => record.orderId === orderId);
+      if (!order) return fail(404, "order-not-found", "paper order was not found");
+      if (order.status !== "PENDING") {
+        return fail(409, "order-not-amendable", "only pending paper orders can be amended", order.status);
+      }
+      if (!["LIMIT", "STOP_LOSS", "TAKE_PROFIT"].includes(order.type)) {
+        return fail(409, "order-not-amendable", "only pending trigger orders can be amended", order.type);
+      }
+      const currentRevision = orderRevision(order);
+      if (currentRevision === null) return fail(409, "order-revision-invalid", "paper order revision is invalid; amendment is blocked");
+      if (currentRevision !== body.expectedRevision) {
+        const lastAmendment = Array.isArray(order.amendments) ? order.amendments[order.amendments.length - 1] : null;
+        const currentTriggerPrice = order.type === "LIMIT" ? order.limitPrice
+          : order.type === "STOP_LOSS" ? order.stopPrice : order.takeProfitPrice;
+        if (Number.isSafeInteger(body.expectedRevision + 1)
+            && currentRevision === body.expectedRevision + 1
+            && lastAmendment?.revision === currentRevision
+            && lastAmendment.price === body.price
+            && order.price === body.price
+            && currentTriggerPrice === body.price) {
+          return {status: 200, body: {ok: true, data: {
+            state: "replayed", order,
+            verdict: {decision: "REPLAYED", riskGateReevaluated: false, orderNotional: order.quantity * body.price},
+            note: "This pending paper trigger amendment was already applied. The current order revision is shown; real money OFF."
+          }}};
+        }
+        return fail(409, "order-revision-conflict", "paper order changed; refresh before amending", String(currentRevision));
+      }
+
+      const base = await baseState();
+      if (base.error) return unavailable("paper-portfolio-unavailable", "paper portfolio state is unavailable for order amendment");
+      const snapshot = await readPortfolioSnapshot(base);
+      if (!snapshot?.portfolio) return unavailable("paper-portfolio-changing", "paper portfolio is changing; retry the amendment");
+      const marketState = await freshPortfolio(snapshot.portfolio, order.symbol);
+      if (!marketState.fresh || !marketState.quotes.has(order.symbol)) {
+        return unavailable("execution-quote-unavailable", "a fresh valid bid/ask quote is required before amending a paper order");
+      }
+
+      const nextPrice = body.price;
+      const expectedIntentHash = order.orderIntentHash || orderIntentHash(order);
+      const requestHash = createHash("sha256").update(String(nextPrice)).digest("hex");
+      let result;
+      try {
+        result = await store.transactIdempotent(
+          "paper-order-amend:" + order.idempotencyKey + ":" + body.expectedRevision + ":" + requestHash,
+          async tx => {
+            const outcome = await (async () => {
+            if (typeof tx.lockPortfolio !== "function" || typeof tx.lock !== "function") {
+              throw new Error("paper order amendment locks are required");
+            }
+            // Keep the global portfolio -> per-order lock order used by fills.
+            await tx.lockPortfolio();
+            const revision = await readPortfolioRevision(tx);
+            if (revision !== snapshot.revision) return {state: "portfolio-changed"};
+            if (!Number.isFinite(marketState.freshUntil) || now() > marketState.freshUntil) {
+              return {state: "market-data-stale"};
+            }
+            await tx.lock("order:" + order.idempotencyKey);
+            const current = await tx.get("paper-orders", order.idempotencyKey);
+            if (!current) return {state: "missing"};
+            const existingFill = await tx.get("paper-fills", order.idempotencyKey);
+            if (existingFill) return {state: "filled", order: current};
+            if (current.status !== "PENDING") return {state: "not-pending", order: current};
+            const latestRevision = orderRevision(current);
+            const latestIntentHash = current.orderIntentHash || orderIntentHash(current);
+            if (latestRevision === null) return {state: "revision-invalid"};
+            if (latestRevision !== body.expectedRevision || latestIntentHash !== expectedIntentHash) {
+              return {state: "revision-conflict", order: current};
+            }
+            if (latestRevision >= Number.MAX_SAFE_INTEGER) return {state: "revision-exhausted"};
+
+            const saved = await tx.get("paper-portfolio", "current");
+            let latestPortfolio;
+            if (saved) {
+              try { latestPortfolio = validatePortfolioState(saved); }
+              catch { return {state: "portfolio-invalid"}; }
+            } else {
+              if (revision !== snapshot.revision) return {state: "portfolio-changed"};
+              latestPortfolio = snapshot.portfolio;
+            }
+            const symbols = (latestPortfolio.positions || []).map(position => position.symbol);
+            if (!symbols.every(symbol => marketState.marks.has(symbol))) return {state: "portfolio-changed"};
+            try {
+              latestPortfolio = buildPortfolioState({
+                cash: latestPortfolio.cash,
+                positions: (latestPortfolio.positions || []).map(position => ({
+                  ...position, markPrice: marketState.marks.get(position.symbol)
+                })),
+                startingEquity: latestPortfolio.equity - latestPortfolio.dailyPnl,
+                peakEquity: latestPortfolio.peakEquity ?? latestPortfolio.equity
+              });
+            } catch { return {state: "portfolio-invalid"}; }
+
+            const finalOrder = {
+              ...current,
+              price: nextPrice,
+              limitPrice: current.type === "LIMIT" ? nextPrice : current.limitPrice,
+              stopPrice: current.type === "STOP_LOSS" ? nextPrice : current.stopPrice,
+              takeProfitPrice: current.type === "TAKE_PROFIT" ? nextPrice : current.takeProfitPrice,
+              thesisHash: current.thesisRef?.hash ?? current.thesisHash ?? null
+            };
+            const fee = finalOrder.quantity * nextPrice * executionCostConfig.feeRate;
+            const notional = finalOrder.quantity * nextPrice;
+            if (![fee, notional].every(Number.isFinite) || fee < 0 || notional <= 0) {
+              return {state: "invalid-cost"};
+            }
+            if (finalOrder.side === "BUY" && notional + fee > latestPortfolio.cash) {
+              return {state: "risk-rejected", reasons: ["INSUFFICIENT_CASH"]};
+            }
+            let projectedPortfolio;
+            try {
+              projectedPortfolio = applyFill(latestPortfolio, {
+                symbol: finalOrder.symbol, side: finalOrder.side, quantity: finalOrder.quantity,
+                price: nextPrice, markPrice: marketState.marks.get(finalOrder.symbol), fee
+              });
+            } catch { return {state: "portfolio-invalid"}; }
+            const latestBase = await baseState();
+            if (latestBase.error) return {state: "portfolio-invalid"};
+            const verdict = gateResult({
+              order: finalOrder, portfolio: latestPortfolio, projectedPortfolio,
+              dataFresh: true, killSwitch: latestBase.limits?.ok === false
+            });
+            if (gateRejected(verdict)) return {state: "risk-rejected", reasons: verdict.reasons};
+            if (now() > marketState.freshUntil) return {state: "market-data-stale"};
+
+            const nextRevision = latestRevision + 1;
+            const timestamp = now();
+            const priorAmendments = Array.isArray(current.amendments) ? current.amendments.slice(-9) : [];
+            const next = {
+              ...finalOrder,
+              orderIntentHash: orderIntentHash(finalOrder),
+              revision: nextRevision,
+              updatedAt: timestamp,
+              amendedAt: timestamp,
+              amendments: [...priorAmendments, {
+                revision: nextRevision, previousPrice: current.price, price: nextPrice, timestamp
+              }]
+            };
+            await tx.put("paper-orders", order.idempotencyKey, next);
+            return {state: "ok", order: next, verdict};
+            })();
+            // transactIdempotent caches every returned value. A conflict, stale quote,
+            // or Risk Gate rejection did not commit an amendment and must remain retryable.
+            if (outcome.state !== "ok") throw amendmentNotCommitted(outcome);
+            return outcome;
+          }
+        );
+      } catch (error) {
+        if (error?.code === "PAPER_ORDER_AMEND_NOT_COMMITTED" && error.outcome) {
+          result = error.outcome;
+        } else {
+          storeError ||= "paper-order-state-unavailable";
+          return fail(500, "paper-order-not-persisted", "paper order amendment could not be safely persisted");
+        }
+      }
+
+      if (result.state === "ok") {
+        const committed = await store.get("paper-orders", order.idempotencyKey);
+        if (!committed || committed.status !== "PENDING") {
+          return fail(409, "order-not-amendable", "paper order is no longer pending", committed?.status || "MISSING");
+        }
+        if (committed.revision !== result.order.revision || committed.orderIntentHash !== result.order.orderIntentHash) {
+          return fail(409, "order-revision-conflict", "paper order changed after this amendment; refresh before retrying");
+        }
+        try { await persist(); }
+        catch { return fail(500, "paper-order-not-persisted", "paper order amendment could not be safely persisted"); }
+        return {status: 200, body: {ok: true, data: {
+          state: "amended", order: committed,
+          verdict: {decision: "ALLOW", orderNotional: result.verdict.orderNotional ?? committed.quantity * nextPrice},
+          note: "Pending paper trigger amended. The next execution still requires a fresh quote and the server Risk Gate; real money OFF."
+        }}};
+      }
+      if (result.state === "risk-rejected") return noTrade({decision: "NO_TRADE", reasons: result.reasons || ["RISK_GATE_REJECTED"]});
+      if (result.state === "portfolio-changed") return fail(409, "paper-portfolio-changed", "portfolio changed during amendment; refresh and retry");
+      if (result.state === "market-data-stale") return unavailable("execution-quote-unavailable", "market data expired before the paper order amendment could commit");
+      if (result.state === "revision-conflict") return fail(409, "order-revision-conflict", "paper order changed; refresh before amending");
+      if (result.state === "filled") return fail(409, "order-not-amendable", "a filled paper order cannot be amended", "FILLED");
+      if (result.state === "not-pending") return fail(409, "order-not-amendable", "only pending paper orders can be amended", result.order?.status || "UNKNOWN");
+      if (result.state === "missing") return fail(404, "order-not-found", "paper order was not found");
+      if (result.state === "revision-exhausted") return unavailable("order-revision-exhausted", "paper order revision is exhausted");
+      if (result.state === "revision-invalid") return fail(409, "order-revision-invalid", "paper order revision is invalid; amendment is blocked");
+      if (result.state === "invalid-cost") return fail(400, "invalid-amendment-price", "replacement trigger price produces invalid execution costs");
+      return unavailable("paper-portfolio-invalid", "latest paper portfolio could not be validated for amendment");
     });
   }
 
@@ -1260,7 +1491,7 @@ export function createPaperOrderService({
     });
   }
 
-  return {submit, getPortfolio, getOrders, getLearningReport, getPaperOrders, cancelOrder, processPendingOrders};
+  return {submit, getPortfolio, getOrders, getLearningReport, getPaperOrders, amendOrder, cancelOrder, processPendingOrders};
 }
 
 

@@ -45,6 +45,7 @@ function matchApi(pathname){
   if(pathname==="/api/learning/outcomes")return{name:"learningOutcomes",params:{}};
   if(pathname==="/api/paper/orders")return{name:"paperOrders",params:{}};
   let mCancel=/^\/api\/paper\/orders\/([^/]+)\/cancel$/.exec(pathname);if(mCancel)return{name:"cancelPaperOrder",params:{orderId:decodeURIComponent(mCancel[1])}};
+  let mAmend=/^\/api\/paper\/orders\/([^/]+)\/amend$/.exec(pathname);if(mAmend)return{name:"amendPaperOrder",params:{orderId:decodeURIComponent(mAmend[1])}};
   if(pathname==="/api/risk/status")return{name:"riskStatus",params:{}};
   if(pathname==="/api/strategy/lab")return{name:"strategyLab",params:{}};
   return null;
@@ -69,7 +70,7 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
       if(!route){sendJson(res,404,{ok:false,state:"error",error:{code:"not-found",message:"unknown API route"}},{omitBody:method==="HEAD"});return;}
       const allowed=route.name==="paperOrders"?["GET","HEAD","POST"]
         :(route.name==="watchlist"?["GET","HEAD","PUT"]
-        :(["cancelPaperOrder","addJournalEntry","tutorChat"].includes(route.name)?["POST"]:["GET","HEAD"]));
+        :(["cancelPaperOrder","amendPaperOrder","addJournalEntry","tutorChat"].includes(route.name)?["POST"]:["GET","HEAD"]));
       if(!allowed.includes(method)){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:allowed.join(", ")});return;}
       if(route.name==="watchlist"&&method==="PUT"){
         const limiter=getBoundedTokenBucket(watchlistLimiters,req.socket.remoteAddress||"unknown",{capacity:30,refillPerSecond:0.5,now});
@@ -225,6 +226,11 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
       if(route.name==="cancelPaperOrder"){
         const clientKey=req.socket.remoteAddress||"unknown";const limiter=getBoundedTokenBucket(orderLimiters,clientKey,{capacity:PAPER_ORDER_RATE_CAPACITY,refillPerSecond:PAPER_ORDER_RATE_REFILL_PER_SECOND,now});if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"too many paper-order requests"}},{"Retry-After":"2"});return;}
         const out=await api.cancelPaperOrder(route.params.orderId);sendJson(res,out.status,out.body);return;
+      }
+      if(route.name==="amendPaperOrder"){
+        const clientKey=req.socket.remoteAddress||"unknown";const limiter=getBoundedTokenBucket(orderLimiters,clientKey,{capacity:PAPER_ORDER_RATE_CAPACITY,refillPerSecond:PAPER_ORDER_RATE_REFILL_PER_SECOND,now});if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"too many paper-order requests"}},{"Retry-After":"2"});return;}
+        const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
+        const out=await api.amendPaperOrder(route.params.orderId,request.body);sendJson(res,out.status,out.body);return;
       }
       if(route.name==="addJournalEntry"){
         const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
