@@ -84,7 +84,7 @@ test("same-count fill replacement during a paged read fails closed for reports a
     assert.equal(review.status, 503);
     assert.equal((await review.json()).error.code, "paper-learning-unavailable");
     assert.equal(replacements, 2);
-    assert.equal(store.listPage("paper-fills", {limit: 200, offset: 0}).total, 202);
+    assert.equal([...store.state.keys()].filter(key => key.startsWith("paper-fills:")).length, 202);
     assert.equal(store.get("paper-journal", "main"), null);
   });
 });
