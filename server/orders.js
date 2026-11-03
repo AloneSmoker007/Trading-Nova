@@ -1190,14 +1190,6 @@ export function createPaperOrderService({
       }
 
       const nextPrice = body.price;
-      const amendedDraft = {
-        ...order,
-        price: nextPrice,
-        limitPrice: order.type === "LIMIT" ? nextPrice : order.limitPrice,
-        stopPrice: order.type === "STOP_LOSS" ? nextPrice : order.stopPrice,
-        takeProfitPrice: order.type === "TAKE_PROFIT" ? nextPrice : order.takeProfitPrice,
-        thesisHash: order.thesisRef?.hash ?? order.thesisHash ?? null
-      };
       const expectedIntentHash = order.orderIntentHash || orderIntentHash(order);
       const requestHash = createHash("sha256").update(String(nextPrice)).digest("hex");
       let result;
