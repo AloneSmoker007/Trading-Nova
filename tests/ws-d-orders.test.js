@@ -40,6 +40,11 @@ function asyncStore({healthy = true} = {}) {
     list: async (namespace) => [...durable.state.entries()]
       .filter(([key]) => key.startsWith(`${namespace}:`))
       .map(([, value]) => value),
+    withPortfolioLock: operation => durable.withPortfolioLock(tx => operation({
+      get: async (...args) => tx.get(...args),
+      put: async (...args) => tx.put(...args),
+      lockPortfolio: async () => tx.lockPortfolio()
+    })),
     transactIdempotent: (key, operation) => durable.transactIdempotent(key, (tx) => operation({
       get: async (...args) => tx.get(...args),
       put: async (...args) => tx.put(...args),
@@ -799,6 +804,11 @@ function orderScopedStore(durable, orderKey) {
           && (namespace !== "paper-orders" || value?.idempotencyKey === orderKey))
         .map(([, value]) => value);
     },
+    withPortfolioLock: operation => durable.withPortfolioLock(tx => operation({
+      get: async (...args) => tx.get(...args),
+      put: async (...args) => tx.put(...args),
+      lockPortfolio: async () => tx.lockPortfolio()
+    })),
     transactIdempotent: (key, operation) => durable.transactIdempotent(key, tx => operation({
       get: async (...args) => tx.get(...args),
       put: async (...args) => tx.put(...args),

@@ -117,6 +117,33 @@ export class DurableStore {
     return next;
   }
 
+  withPortfolioLock(operation) {
+    if (typeof operation !== "function") throw new Error("portfolio operation required");
+    const run = async () => {
+      const tx = {
+        writes: new Map(),
+        put: (namespace, id, value) => this.put(namespace, id, value),
+        get: (namespace, id) => this.get(namespace, id),
+        lock: async () => {},
+        lockPortfolio: async () => {}
+      };
+      tx.nextPaperSequence = () => nextPaperSequence(tx);
+      this._activeTx = tx;
+      let result;
+      try {
+        result = await operation(tx);
+      } finally {
+        this._activeTx = null;
+      }
+      const committed = clone(result);
+      for (const [key, value] of tx.writes) this.state.set(key, value);
+      return clone(committed);
+    };
+    const next = this._queue.then(run, run);
+    this._queue = next.then(() => {}, () => {});
+    return next;
+  }
+
   appendAudit(entry) {
     return appendJournalEntry(this.journal, clone(entry));
   }

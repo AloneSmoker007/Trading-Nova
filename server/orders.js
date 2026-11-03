@@ -539,6 +539,46 @@ export function createPaperOrderService({
     return error;
   }
 
+  async function persistMarkedPortfolio(snapshot, marketState) {
+    if (typeof store.withPortfolioLock !== "function") {
+      throw new Error("paper portfolio transaction lock required");
+    }
+    return store.withPortfolioLock(async tx => {
+      const revision = await readPortfolioRevision(tx);
+      const saved = await tx.get("paper-portfolio", "current");
+      let current;
+      if (saved) {
+        try {
+          current = validatePortfolioState(saved);
+        } catch {
+          return null;
+        }
+      } else {
+        if (revision !== snapshot.revision) return null;
+        current = snapshot.portfolio;
+      }
+      if (!current || !marketState.fresh || !Number.isFinite(marketState.freshUntil)
+          || now() > marketState.freshUntil) return null;
+      const symbols = (current.positions || []).map(position => position.symbol);
+      if (!symbols.every(symbol => marketState.marks.has(symbol))) return null;
+      try {
+        const marked = buildPortfolioState({
+          cash: current.cash,
+          positions: (current.positions || []).map(position => ({
+            ...position,
+            markPrice: marketState.marks.get(position.symbol)
+          })),
+          startingEquity: current.equity - current.dailyPnl,
+          peakEquity: current.peakEquity ?? current.equity
+        });
+        await tx.put("paper-portfolio", "current", marked);
+        return marked;
+      } catch {
+        return null;
+      }
+    });
+  }
+
   async function authorizePortfolioFill(tx, {snapshot, marketState, gatedOrder, fill}) {
     if (typeof tx.lockPortfolio !== "function") {
       throw new Error("paper portfolio transaction lock required");
@@ -761,7 +801,17 @@ export function createPaperOrderService({
       let portfolio = snapshot.portfolio;
       if (!portfolio) return fail(500, "paper-portfolio-invalid", "paper portfolio state is invalid");
       const marketState = await freshPortfolio(portfolio, order.symbol);
-      if (marketState.fresh) portfolio = marketState.portfolio;
+      if (marketState.fresh) {
+        try {
+          const marked = await persistMarkedPortfolio(snapshot, marketState);
+          if (!marked) return unavailable("paper-portfolio-changing", "paper portfolio changed while market marks were being refreshed; retry the order");
+          portfolio = marked;
+          marketState.portfolio = marked;
+        } catch {
+          storeError ||= "paper-order-state-unavailable";
+          return fail(500, "paper-order-state-unavailable", "paper portfolio marks could not be safely persisted");
+        }
+      }
 
       if (order.type !== "MARKET") {
         return placePendingOrder(order, base, portfolio, marketState);

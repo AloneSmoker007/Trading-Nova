@@ -53,6 +53,11 @@ auditRun("PostgreSQL distinct paper orders re-read and gate the latest portfolio
     get: (namespace, id) => store.get(prefix + namespace, id),
     put: (namespace, id, value) => store.put(prefix + namespace, id, value),
     list: namespace => store.list(prefix + namespace),
+    withPortfolioLock: operation => store.withPortfolioLock(tx => operation({
+      get: (namespace, id) => tx.get(prefix + namespace, id),
+      put: (namespace, id, value) => tx.put(prefix + namespace, id, value),
+      lockPortfolio: () => tx.lockPortfolio()
+    })),
     transactIdempotent: (key, operation) => store.transactIdempotent(prefix + key, tx => operation({
       get: (namespace, id) => tx.get(prefix + namespace, id),
       put: (namespace, id, value) => tx.put(prefix + namespace, id, value),
@@ -133,6 +138,11 @@ auditRun("PostgreSQL cancel and trigger fill are linearized across independent s
     get: (namespace, id) => store.get(prefix + namespace, id),
     put: (namespace, id, value) => store.put(prefix + namespace, id, value),
     list: namespace => store.list(prefix + namespace),
+    withPortfolioLock: operation => store.withPortfolioLock(tx => operation({
+      get: (namespace, id) => tx.get(prefix + namespace, id),
+      put: (namespace, id, value) => tx.put(prefix + namespace, id, value),
+      lockPortfolio: () => tx.lockPortfolio()
+    })),
     transactIdempotent: (key, operation) => store.transactIdempotent(prefix + key, tx => operation({
       get: (namespace, id) => tx.get(prefix + namespace, id),
       put: (namespace, id, value) => tx.put(prefix + namespace, id, value),
