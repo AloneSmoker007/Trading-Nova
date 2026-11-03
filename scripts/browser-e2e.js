@@ -1017,7 +1017,7 @@ async function main() {
 
         depthMode = "stale";
         await page.waitForTimeout(1100);
-        await page.waitForFunction(() => document.querySelector("#depth-badge")?.dataset.state === "stale");
+        await page.waitForFunction(() => globalThis.document.querySelector("#depth-badge")?.dataset.state === "stale");
         assert.equal(await page.locator("#depth-bids-body tr").count(), 0, "stale depth rows must not be presented as usable");
 
         const requestCount = depthRequests.length;
