@@ -27,6 +27,8 @@ const tutorRequests = [];
 let fixtureWatchlist = ["BTCUSDT", "ETHUSDT"];
 let fixtureWatchlistRevision = 0;
 let watchlistWriteMode = "ok";
+let depthMode = "ready";
+const depthRequests = [];
 const watchlistWrites = [];
 const fixtureThesisHash = "a".repeat(64);
 const fixtureLossAutopsies = [];
@@ -131,6 +133,26 @@ async function installApiFixtures(page) {
             publishedAt: 1793358000000, publicationFreshness: "within-window"},
           {title: "Undated publisher item", url: "https://blog.kraken.com/fixture-undated", publishedAt: null, publicationFreshness: "unknown"}
         ], note: "Publisher-reported dates. Single-source context; no effect on Council scores."
+      }})});
+      return;
+    }
+
+    if (/^\/api\/market\/[A-Z0-9]{2,24}\/depth$/.test(pathname)) {
+      const symbol = pathname.split("/")[3];
+      depthRequests.push(symbol);
+      if (depthMode === "offline") {await route.abort("failed"); return;}
+      const stale = depthMode === "stale";
+      await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({ok: true, data: {
+        source: "binance-spot", symbol, status: stale ? "degraded" : "ready",
+        transportState: stale ? "degraded" : "ready", state: stale ? "stale" : "ok",
+        executionEligible: false, isUsable: !stale, freshness: stale ? "stale" : "fresh",
+        ageMs: stale ? 5000 : 120, updateId: 12345, snapshotLimit: 100, coverage: "snapshot-limited",
+        sourceEventTime: 1793365199880, eventReceivedAt: 1793365200000,
+        bestBid: 99, bestAsk: 101, spread: 2,
+        bids: stale ? [] : [{price: 99, quantity: 2}],
+        asks: stale ? [] : [{price: 101, quantity: 3}],
+        lastError: stale ? "stream-idle" : null,
+        note: "Bounded fixture depth. Analysis-only; never used for paper fills or the Risk Gate."
       }})});
       return;
     }
@@ -970,6 +992,40 @@ async function main() {
         assert.equal(await page.locator("#structured-research-result a").count(), 0);
       } finally {
         structuredResearchMode = "ok"; tutorSetupMode = "unconfigured"; councilMode = "unavailable";
+        await page.close();
+      }
+    });
+
+    await run("live depth is opt-in, source-labelled, symbol-aware and analysis-only", async () => {
+      depthMode = "ready";
+      depthRequests.length = 0;
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#depth-toggle").waitFor();
+        assert.equal(depthRequests.length, 0, "depth must remain off until the user opts in");
+        await page.locator("#depth-toggle").click();
+        await page.locator("#depth-bids-body tr").first().waitFor();
+        assert.equal(await page.locator("#depth-symbol").innerText(), "BTCUSDT");
+        assert.equal(depthRequests[0], "BTCUSDT");
+        assert.match(await page.locator("#depth-note").innerText(), /analysis-only/i);
+        assert.equal(await page.locator("#depth-bids-body tr").count(), 1);
+
+        await page.locator("#symbol-input").fill("ETHUSDT");
+        await page.waitForFunction(() => globalThis.document.querySelector("#depth-symbol")?.textContent === "ETHUSDT"
+          && globalThis.document.querySelector("#depth-bids-body tr")?.textContent?.includes("99"));
+        assert.ok(depthRequests.includes("ETHUSDT"), "selected symbol changes the shared subscription key");
+
+        depthMode = "stale";
+        await page.waitForTimeout(1100);
+        await page.waitForFunction(() => globalThis.document.querySelector("#depth-badge")?.dataset.state === "stale");
+        assert.equal(await page.locator("#depth-bids-body tr").count(), 0, "stale depth rows must not be presented as usable");
+
+        const requestCount = depthRequests.length;
+        await page.locator("#depth-toggle").click();
+        await page.waitForTimeout(1200);
+        assert.equal(depthRequests.length, requestCount, "disconnect stops browser polling");
+      } finally {
+        depthMode = "ready";
         await page.close();
       }
     });

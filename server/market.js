@@ -120,6 +120,11 @@ export function createMarketService({
   }
 
   return {
+    // Creating a stream is inert; the shared depth service starts it on first read.
+    createDepthStream(symbol, options = {}) {
+      return provider.createDepthStream(symbol, options);
+    },
+
     // Wall-clock time of the last successful upstream read (for /api/health).
     lastSuccessAt: () => lastSuccessAt,
 

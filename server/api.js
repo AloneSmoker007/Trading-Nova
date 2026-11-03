@@ -56,6 +56,7 @@ function unpackJournalSnapshot(value) {
 
 export function createApi({
   market,
+  depth,
   publisherNews,
   structuredResearch,
   stateFile,
@@ -160,6 +161,35 @@ export function createApi({
         changePct24h: num(t.changePct24h)
       },
       note: res.state === "stale" ? `Upstream unavailable — serving data that is ${res.ageMs}ms old.` : paperNote
+    });
+  }
+
+  function marketDepth(_query, symbolRaw) {
+    const sym = parseSymbol(symbolRaw);
+    if (!sym.ok) return fail(400, "error", sym.code, sym.message);
+    if (!depth || typeof depth.read !== "function") {
+      return fail(503, "unavailable", "depth-unavailable", "public depth transport is not configured");
+    }
+    const result = depth.read(sym.symbol);
+    if (!result?.ok || !result.data) {
+      const capacity = result?.reason === "capacity";
+      return fail(503, "unavailable", capacity ? "depth-capacity" : "depth-unavailable",
+        capacity
+          ? "All bounded depth subscriptions are in use; retry after an idle subscription expires."
+          : "Public depth stream is unavailable.", result?.reason);
+    }
+    const view = result.data;
+    if (view.symbol !== sym.symbol || view.executionEligible !== false) {
+      return fail(503, "unavailable", "depth-invalid-view", "depth view failed its analysis-only contract");
+    }
+    const state = view.isUsable === true ? "ok"
+      : view.transportState === "degraded" ? "stale"
+        : ["connecting", "syncing"].includes(view.transportState) ? "connecting"
+          : view.transportState === "reconnecting" ? "reconnecting" : "unavailable";
+    return ok({
+      ...view,
+      state,
+      note: "Bounded Binance Spot depth snapshot: top 20 of at most 100 snapshot levels. Levels outside the snapshot are unknown. Analysis-only; never used for paper fills or the Risk Gate."
     });
   }
 
@@ -815,7 +845,7 @@ export function createApi({
     }
   }
 
-  return {health, marketData, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, amendPaperOrder, cancelPaperOrder, processPaperOrders, markets, watchlist, researchNews, researchContext, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
+  return {health, marketData, marketDepth, indicators, portfolio, journal, backtest, submitPaperOrder, paperOrders, amendPaperOrder, cancelPaperOrder, processPaperOrders, markets, watchlist, researchNews, researchContext, saveWatchlist, aiCouncil, orders, learningOutcomes, riskStatus, strategyLab, addJournalEntry};
 }
 
 export {FRESH_MAX_AGE_MS, ok, fail, num};

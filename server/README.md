@@ -14,6 +14,7 @@ npm run serve                 # http://127.0.0.1:7411/  (NOVA_PORT or PORT overr
 |---|---|---|
 | `GET /api/health` | `src/observability/health.js` | honest `ok`/`degraded`; mode + wiring state |
 | `GET /api/market/:symbol` | `src/market-data/providers/crypto.js` | real ticker; `stale` / `unavailable` honesty |
+| `GET /api/market/:symbol/depth` | `src/market-data/depth-stream.js` via `server/market-depth.js` | opt-in shared public Binance Spot stream; bounded snapshot, idle cleanup, analysis-only; never used for fills or Risk Gate |
 | `GET /api/indicators/:symbol?interval&limit` | `src/indicators/*` over real candles | `null` = not computable, never a guess |
 | `GET /api/portfolio` | `src/risk/portfolio.js`, `src/risk/limits.js` | paper state snapshot, read-only |
 | `GET /api/journal` | `src/journal/journal.js` (`verifyJournal`) | hash-chain integrity surfaced honestly |

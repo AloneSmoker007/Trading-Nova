@@ -3,6 +3,7 @@ import {createServer} from "node:http";
 import {join, dirname} from "node:path";
 import {fileURLToPath, URLSearchParams} from "node:url";
 import {createMarketService} from "./market.js";
+import {createMarketDepthService} from "./market-depth.js";
 import {createApi} from "./api.js";
 import {readStatic} from "./static.js";
 import {getBoundedTokenBucket} from "../src/security/client-rate-limiters.js";
@@ -34,6 +35,7 @@ function matchApi(pathname){
   if(researchMatch)return{name:"researchContext",params:{symbol:researchMatch[1]}};
   if(pathname==="/api/markets")return{name:"markets",params:{}};
   if(pathname==="/api/watchlist")return{name:"watchlist",params:{}};
+  let depthMatch=/^\/api\/market\/([^/]+)\/depth$/.exec(pathname);if(depthMatch)return{name:"marketDepth",params:{symbol:depthMatch[1]}};
   let m=/^\/api\/market\/([^\/]+)$/.exec(pathname);if(m)return{name:"marketData",params:{symbol:m[1]}};
   m=/^\/api\/indicators\/([^\/]+)$/.exec(pathname);if(m)return{name:"indicators",params:{symbol:m[1]}};
   m=/^\/api\/ai\/council\/([^\/]+)$/.exec(pathname);if(m)return{name:"aiCouncil",params:{symbol:m[1]}};
@@ -51,14 +53,14 @@ function matchApi(pathname){
   return null;
 }
 
-export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),stateFile=join(REPO_ROOT,"db","paper-state.json"),executionStateFile=join(REPO_ROOT,"db","paper-orders.json"),store,webRoot=join(REPO_ROOT,"web"),tradingMode="paper",log=null,paperFeeRate,paperSlippageBps}={}){
+export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),stateFile=join(REPO_ROOT,"db","paper-state.json"),executionStateFile=join(REPO_ROOT,"db","paper-orders.json"),store,webRoot=join(REPO_ROOT,"web"),tradingMode="paper",log=null,paperFeeRate,paperSlippageBps,WebSocketImpl=globalThis.WebSocket}={}){
   if(tradingMode!=="paper")throw new Error("Trading Nova web server is paper-only; non-paper modes are blocked.");
   const environmentCosts=paperExecutionCostConfigFromEnv();
   const executionCosts=validatePaperExecutionCostConfig({
     feeRate:paperFeeRate===undefined?environmentCosts.feeRate:paperFeeRate,
     slippageBps:paperSlippageBps===undefined?environmentCosts.slippageBps:paperSlippageBps
   });
-  const market=createMarketService({fetchImpl,now});const publisherNews=createPublisherNewsService({fetchImpl,now});const structuredResearch=createStructuredResearchService({fetchImpl,now,primaryPublisher:publisherNews});const startedAt=now();const api=createApi({market,publisherNews,structuredResearch,stateFile,executionStateFile,store,now,tradingMode:"paper",startedAt,paperFeeRate:executionCosts.feeRate,paperSlippageBps:executionCosts.slippageBps});const orderLimiters=new Map();const tutorLimiters=new Map();const watchlistLimiters=new Map();const tutorChat=createTradingTutor({fetchImpl,now});const accessGuard=createAccessGuard({password:process.env.NOVA_ACCESS_PASSWORD,secret:process.env.NOVA_SESSION_SECRET,production:process.env.NODE_ENV==="production",now});
+  const market=createMarketService({fetchImpl,now});const depthService=createMarketDepthService({createStream:(symbol)=>market.createDepthStream(symbol,{WebSocketImpl,now}),now,maxSessions:4,idleMs:15000});const publisherNews=createPublisherNewsService({fetchImpl,now});const structuredResearch=createStructuredResearchService({fetchImpl,now,primaryPublisher:publisherNews});const startedAt=now();const api=createApi({market,depth:depthService,publisherNews,structuredResearch,stateFile,executionStateFile,store,now,tradingMode:"paper",startedAt,paperFeeRate:executionCosts.feeRate,paperSlippageBps:executionCosts.slippageBps});const orderLimiters=new Map();const tutorLimiters=new Map();const watchlistLimiters=new Map();const depthLimiters=new Map();const tutorChat=createTradingTutor({fetchImpl,now});const accessGuard=createAccessGuard({password:process.env.NOVA_ACCESS_PASSWORD,secret:process.env.NOVA_SESSION_SECRET,production:process.env.NODE_ENV==="production",now});
   const server=createServer(async(req,res)=>{const method=req.method||"GET";try{
     if(typeof req.url!=="string"||req.url.length===0||req.url.length>MAX_URL_LENGTH){sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
     let url;try{url=new URL(req.url,"http://127.0.0.1");}catch{sendJson(res,400,{ok:false,state:"error",error:{code:"bad-request",message:"malformed request target"}},{omitBody:method==="HEAD"});return;}
@@ -68,15 +70,21 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
     if(pathname.startsWith("/api/")){
       const route=matchApi(pathname);
       if(!route){sendJson(res,404,{ok:false,state:"error",error:{code:"not-found",message:"unknown API route"}},{omitBody:method==="HEAD"});return;}
-      const allowed=route.name==="paperOrders"?["GET","HEAD","POST"]
+      const allowed=route.name==="marketDepth"?["GET"]
+        :(route.name==="paperOrders"?["GET","HEAD","POST"]
         :(route.name==="watchlist"?["GET","HEAD","PUT"]
-        :(["cancelPaperOrder","amendPaperOrder","addJournalEntry","tutorChat"].includes(route.name)?["POST"]:["GET","HEAD"]));
+        :(["cancelPaperOrder","amendPaperOrder","addJournalEntry","tutorChat"].includes(route.name)?["POST"]:["GET","HEAD"])));
       if(!allowed.includes(method)){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:allowed.join(", ")});return;}
       if(route.name==="watchlist"&&method==="PUT"){
         const limiter=getBoundedTokenBucket(watchlistLimiters,req.socket.remoteAddress||"unknown",{capacity:30,refillPerSecond:0.5,now});
         if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"Watchlist edits are temporarily rate limited."}},{"Retry-After":"2"});return;}
         const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"Watchlist request is too large."}},{Connection:"close"});return;}
         const out=await api.saveWatchlist(request.body);sendJson(res,out.status,out.body);return;
+      }
+      if(route.name==="marketDepth"){
+        const limiter=getBoundedTokenBucket(depthLimiters,req.socket.remoteAddress||"unknown",{capacity:12,refillPerSecond:2,now});
+        if(!limiter.consume()){sendJson(res,429,{ok:false,state:"error",error:{code:"rate-limited",message:"Depth requests are temporarily rate limited."}},{"Retry-After":"1"});return;}
+        const out=api.marketDepth(url.searchParams,route.params.symbol);sendJson(res,out.status,out.body);return;
       }
       if(route.name==="tutorStatus"){
         sendJson(res,200,{ok:true,data:tutorConfigurationStatus()},{omitBody:method==="HEAD"});return;
@@ -236,13 +244,13 @@ export function createNovaServer({fetchImpl=globalThis.fetch,now=()=>Date.now(),
         const request=await readRequestBody(req);if(request.tooLarge){res.shouldKeepAlive=false;sendJson(res,413,{ok:false,state:"error",error:{code:"body-too-large",message:"request body exceeds the allowed size"}},{Connection:"close"});return;}
         const out=await api.addJournalEntry(request.body);sendJson(res,out.status,out.body);return;
       }
-      let out;if(route.name==="marketData"||route.name==="indicators"||route.name==="aiCouncil"||route.name==="researchContext")out=await api[route.name](url.searchParams,route.params.symbol);else out=await api[route.name](url.searchParams);sendJson(res,out.status,out.body,{omitBody:method==="HEAD"});return;}
+      let out;if(route.name==="marketData"||route.name==="marketDepth"||route.name==="indicators"||route.name==="aiCouncil"||route.name==="researchContext")out=await api[route.name](url.searchParams,route.params.symbol);else out=await api[route.name](url.searchParams);sendJson(res,out.status,out.body,{omitBody:method==="HEAD"});return;}
     if(method!=="GET"&&method!=="HEAD"){sendJson(res,405,{ok:false,state:"error",error:{code:"method-not-allowed",message:"method not allowed"}},{Allow:"GET, HEAD"});return;}
     const file=await readStatic(webRoot,pathname);res.writeHead(file.status,{...SECURITY_HEADERS,"Content-Type":file.type,"Cache-Control":"no-cache","Content-Length":Buffer.byteLength(file.body)});res.end(method==="HEAD"?undefined:file.body);
   }catch(err){if(log)log("request-error",{message:err&&err.message?String(err.message):"unknown"});if(!res.headersSent)sendJson(res,500,{ok:false,state:"error",error:{code:"internal-error",message:"internal error"}});else res.end();}});
   const orderProcessingTimer=setInterval(()=>{void api.processPaperOrders().catch(()=>{});},5000);
   orderProcessingTimer.unref?.();
-  server.on("close",()=>clearInterval(orderProcessingTimer));
+  server.on("close",()=>{clearInterval(orderProcessingTimer);depthService.close();});
   server.on("clientError",(_err,socket)=>{if(socket.writable)socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");});return server;
 }
 export {SECURITY_HEADERS,REPO_ROOT,matchApi};

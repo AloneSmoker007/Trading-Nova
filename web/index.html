@@ -180,6 +180,44 @@
         <p class="panel-note" id="market-note"></p>
       </section>
 
+      <!-- Opt-in, shared, read-only public order-book depth -->
+      <section class="card depth-card" aria-labelledby="depth-title">
+        <div class="card-head">
+          <h2 id="depth-title">Live Spot Order Book</h2>
+          <span class="badge" id="depth-badge" data-state="idle">OFF</span>
+        </div>
+        <div class="depth-controls">
+          <span class="field-label">Selected market</span>
+          <strong id="depth-symbol">BTCUSDT</strong>
+          <button type="button" id="depth-toggle" aria-pressed="false">Connect depth</button>
+        </div>
+        <div class="depth-grid">
+          <div class="depth-side">
+            <h3>Bids</h3>
+            <div class="table-wrap">
+              <table>
+                <caption>Top 20 bids · highest first</caption>
+                <thead><tr><th scope="col">Price</th><th scope="col">Quantity</th></tr></thead>
+                <tbody id="depth-bids-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="depth-side">
+            <h3>Asks</h3>
+            <div class="table-wrap">
+              <table>
+                <caption>Top 20 asks · lowest first</caption>
+                <thead><tr><th scope="col">Price</th><th scope="col">Quantity</th></tr></thead>
+                <tbody id="depth-asks-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <dl class="values" id="depth-values" aria-live="polite" aria-busy="false"></dl>
+        <p class="panel-note" id="depth-note" role="status" aria-live="polite">Off by default. Connect to open a shared public Binance Spot depth stream.</p>
+        <p class="panel-note">Bounded snapshot coverage only; levels outside the snapshot are unknown. Analysis-only context: never used for paper fills, sizing or the deterministic Risk Gate. The server releases idle streams after 15 seconds without readers.</p>
+      </section>
+
       <!-- Multi-Brain AI Council Panel -->
       <section class="card" aria-labelledby="ai-title">
         <div class="card-head">
