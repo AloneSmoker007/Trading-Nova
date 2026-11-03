@@ -326,6 +326,7 @@ export class BinanceSpotDepthBook {
       ageMs,
       freshness,
       isUsable: reason === null,
+      executionEligible: false,
       bestBid,
       bestAsk,
       spread: twoSided ? bestAsk - bestBid : null,
