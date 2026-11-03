@@ -210,6 +210,97 @@ auditRun("PostgreSQL cancel and trigger fill are linearized across independent s
   }
 });
 
+auditRun("PostgreSQL pending order amendment fences a stale trigger snapshot across independent connections", async () => {
+  const prefix = "order-amend-race-" + randomUUID() + ":";
+  const first = await createPostgresStore({
+    connectionString: process.env.POSTGRES_URL, max: 2, schema: process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  const second = await createPostgresStore({
+    connectionString: process.env.POSTGRES_URL, max: 2, schema: process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  const scoped = store => ({
+    health: store.health.bind(store),
+    get: (namespace, id) => store.get(prefix + namespace, id),
+    put: (namespace, id, value) => store.put(prefix + namespace, id, value),
+    list: namespace => store.list(prefix + namespace),
+    withPortfolioLock: operation => store.withPortfolioLock(tx => operation({
+      get: (namespace, id) => tx.get(prefix + namespace, id),
+      put: (namespace, id, value) => tx.put(prefix + namespace, id, value),
+      lockPortfolio: () => tx.lockPortfolio()
+    })),
+    transactIdempotent: (key, operation) => store.transactIdempotent(prefix + key, tx => operation({
+      get: (namespace, id) => tx.get(prefix + namespace, id),
+      put: (namespace, id, value) => tx.put(prefix + namespace, id, value),
+      lock: key => tx.lock(prefix + key),
+      lockPortfolio: () => tx.lockPortfolio(),
+      nextPaperSequence: () => tx.nextPaperSequence()
+    }))
+  });
+  const stateFile = join(tmpdir(), prefix + "state.json");
+  const executionStateFile = join(tmpdir(), prefix + "orders.json");
+  const initialQuote = {state: "ok", ageMs: 0, data: {last: 42000.5, bid: 42000, ask: 42001}};
+  let markQuoteStarted;
+  const quoteStarted = new Promise(resolve => { markQuoteStarted = resolve; });
+  let releaseQuote;
+  let quoteReleased = false;
+  let processing;
+  const delayedQuote = new Promise(resolve => { releaseQuote = resolve; });
+  const release = value => {
+    if (!quoteReleased && releaseQuote) {
+      quoteReleased = true;
+      releaseQuote(value);
+    }
+  };
+  const firstService = createPaperOrderService({
+    market: {getTicker: async () => initialQuote},
+    stateFile, executionStateFile, store: scoped(first)
+  });
+  const key = "pending-amend-race";
+  try {
+    const accepted = await firstService.submit({
+      symbol: "BTCUSDT", side: "BUY", quantity: 0.01, price: 41000,
+      idempotencyKey: key, type: "LIMIT"
+    });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.data.order.status, "PENDING");
+    assert.equal(accepted.body.data.order.revision, 1);
+
+    const secondService = createPaperOrderService({
+      market: {getTicker: async () => { markQuoteStarted(); return delayedQuote; }},
+      stateFile, executionStateFile, store: scoped(second)
+    });
+    processing = secondService.processPendingOrders();
+    await quoteStarted;
+
+    const amended = await firstService.amendOrder(accepted.body.data.order.orderId, {
+      price: 39000, expectedRevision: 1
+    });
+    assert.equal(amended.status, 200);
+    assert.equal(amended.body.data.order.revision, 2);
+
+    release({state: "ok", ageMs: 0, data: {last: 40000, bid: 39999, ask: 40000}});
+    const processed = await processing;
+    assert.equal(processed.state, "ok");
+    assert.equal(processed.processed, 0);
+    const saved = await scoped(second).get("paper-orders", key);
+    assert.equal(saved.status, "PENDING");
+    assert.equal(saved.price, 39000);
+    assert.equal(saved.revision, 2);
+    assert.equal(await scoped(second).get("paper-fills", key), null);
+  } finally {
+    release(initialQuote);
+    await processing?.catch(() => {});
+    await first.withTransaction(client => client.query(
+      `DELETE FROM ${first.table("trading_state")} WHERE left(namespace,length($1))=$1`, [prefix]
+    ));
+    await first.withTransaction(client => client.query(
+      `DELETE FROM ${first.table("trading_idempotency")} WHERE left(idempotency_key,length($1))=$1`, [prefix]
+    ));
+    await first.pool.end();
+    await second.pool.end();
+  }
+});
+
 auditRun("PostgreSQL paper sequence serializes concurrent clients and rolls back with failed fills", async()=>withStore(async store=>{
   const batch=randomUUID();
   const before=await store.get("paper-sequence","global");
