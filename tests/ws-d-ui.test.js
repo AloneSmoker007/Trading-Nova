@@ -136,6 +136,15 @@ test("AI Council visibly discloses proxy inputs and disconnected research feeds"
   assert.match(app, /r\.basis/);
 });
 
+test("publisher research separates publication freshness from publisher modification time", () => {
+  const app = read("web/app.js");
+  assert.match(app, /Publication freshness:/);
+  assert.match(app, /Published UTC:/);
+  assert.match(app, /Publisher modified UTC:/);
+  assert.match(app, /timestamp integrity:/);
+  assert.match(app, /modificationDateStatus/);
+});
+
 test("Order history exposes accessible bounded pagination controls", () => {
   const html = read("web/index.html");
   const app = read("web/app.js");

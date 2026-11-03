@@ -1422,9 +1422,13 @@
         var link = el("a", null, item.id + " · " + item.title);
         link.href = url.href; link.target = "_blank"; link.rel = "noopener noreferrer";
         li.appendChild(link);
-        li.appendChild(el("p", "muted", (item.eligible ? "Eligible dated headline" : "Stale / undated / unavailable-source headline")
+        li.appendChild(el("p", "muted", (item.eligible ? "Eligible dated headline" : "Not eligible: stale / undated / timestamp anomaly / unavailable source")
           + (candidates.has(item.id) ? " · COUNTER-EVIDENCE CANDIDATE (headline cue only)" : "")
-          + " · Published UTC: " + (Number.isFinite(item.publishedAt) ? new Date(item.publishedAt).toISOString() : "unknown")));
+          + " · Publication freshness: " + (item.publicationFreshness || "unknown")
+          + " · Published UTC: " + (Number.isFinite(item.publishedAt) ? new Date(item.publishedAt).toISOString() : "unknown")
+          + " · Publisher modified UTC: " + (Number.isFinite(item.modifiedAt) ? new Date(item.modifiedAt).toISOString() : "unknown")
+          + " (publisher-reported; modification date: " + (item.modificationDateStatus || "unknown")
+          + "; timestamp integrity: " + (item.temporalIntegrity || "not-assessed") + ")"));
         links.appendChild(li);
       } catch (_err) { /* No unsafe source links. */ }
     });
