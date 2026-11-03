@@ -801,6 +801,9 @@ export function createPaperOrderService({
       let portfolio = snapshot.portfolio;
       if (!portfolio) return fail(500, "paper-portfolio-invalid", "paper portfolio state is invalid");
       const marketState = await freshPortfolio(portfolio, order.symbol);
+      if (marketState.fresh && !marketState.quotes.has(order.symbol)) {
+        return unavailable("execution-quote-unavailable", "fresh bid/ask data is required before a paper order can be evaluated");
+      }
       if (marketState.fresh) {
         try {
           const marked = await persistMarkedPortfolio(snapshot, marketState);
