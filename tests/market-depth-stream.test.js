@@ -189,6 +189,7 @@ test("depth stream opens before snapshot fetch and bridges the first buffered ev
   assert.equal(snapshotCalls, 0);
 
   sockets[0].message(JSON.stringify(event(99, 102)));
+  await flush();
   assert.equal(snapshotCalls, 1);
   assert.equal(session.getView().transportState, "syncing");
 

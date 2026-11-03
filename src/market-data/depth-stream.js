@@ -1,3 +1,4 @@
+import {TextDecoder, TextEncoder} from "node:util";
 import {DEPTH_SNAPSHOT_LIMITS, BinanceSpotDepthBook} from "./order-book.js";
 
 const SYMBOL_RE = /^[A-Z0-9]{2,24}$/;
