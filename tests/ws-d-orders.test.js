@@ -1091,3 +1091,30 @@ test("a trigger snapshot superseded by an amendment cannot commit a stale fill",
     rmSync(dir, {recursive: true, force: true});
   }
 });
+
+
+test("amendment updates the correct trigger field for STOP_LOSS and TAKE_PROFIT", async () => {
+  for (const scenario of [
+    {type: "STOP_LOSS", initialPrice: 43000, nextPrice: 44000, field: "stopPrice"},
+    {type: "TAKE_PROFIT", initialPrice: 41000, nextPrice: 40000, field: "takeProfitPrice"}
+  ]) {
+    await withServer(async ({srv}) => {
+      const accepted = await post(srv.base, {
+        ...validOrder("pending-amend-" + scenario.type.toLowerCase()),
+        type: scenario.type, price: scenario.initialPrice
+      });
+      assert.equal(accepted.status, 200);
+      assert.equal(accepted.body.data.order.status, "PENDING");
+      const response = await fetch(srv.base + "/api/paper/orders/" + accepted.body.data.order.orderId + "/amend", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({price: scenario.nextPrice, expectedRevision: 1})
+      });
+      assert.equal(response.status, 200);
+      const amended = (await response.json()).data.order;
+      assert.equal(amended[scenario.field], scenario.nextPrice);
+      assert.equal(amended.price, scenario.nextPrice);
+      assert.equal(amended.revision, 2);
+      assert.equal(amended.status, "PENDING");
+    });
+  }
+});
