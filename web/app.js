@@ -1270,9 +1270,9 @@
         var summary = data.summary || {};
         verifiedLearningOutcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
         syncLossAutopsyControl();
-        setBadge("learning-badge", data.state === "empty" ? "empty" : "ok",
-          data.state === "empty" ? "NO RECONCILED FILLS"
-            : data.state === "open" ? "OPEN PAPER CYCLES" : "SERVER-DERIVED");
+        var learningBadgeLabel = data.state === "empty" ? "NO RECONCILED FILLS" : "SERVER-DERIVED";
+        if (data.state === "open") learningBadgeLabel = "OPEN PAPER CYCLES";
+        setBadge("learning-badge", data.state === "empty" ? "empty" : "ok", learningBadgeLabel);
         row(dl, "Accounting", String(data.accounting || "—") + " · " + String(data.currency || "—"));
         row(dl, "Realized outcomes", String(summary.outcomeCount || 0));
         row(dl, "Thesis-linked", String(summary.linkedOutcomeCount || 0));
