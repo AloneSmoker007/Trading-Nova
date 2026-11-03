@@ -1134,3 +1134,35 @@ test("amendment updates the correct trigger field for STOP_LOSS and TAKE_PROFIT"
     });
   }
 });
+
+
+test("malformed legacy order revisions fail closed for amendment and trigger execution", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-order-revision-invalid-"));
+  try {
+    const store = new DurableStore();
+    let quote = {state: "ok", ageMs: 0, data: {last: 42000.5, bid: 42000, ask: 42001}};
+    const service = createPaperOrderService({
+      market: {getTicker: async () => quote},
+      stateFile: join(dir, "state.json"),
+      executionStateFile: join(dir, "orders.json"),
+      store
+    });
+    const accepted = await service.submit({...validOrder("invalid-order-revision"), type: "LIMIT", price: 41000});
+    assert.equal(accepted.body.data.order.status, "PENDING");
+    const saved = await store.get("paper-orders", "invalid-order-revision");
+    await store.put("paper-orders", "invalid-order-revision", {...saved, revision: -1});
+
+    const amended = await service.amendOrder(accepted.body.data.order.orderId, {price: 39000, expectedRevision: 0});
+    assert.equal(amended.status, 409);
+    assert.equal(amended.body.error.code, "order-revision-invalid");
+
+    quote = {state: "ok", ageMs: 0, data: {last: 40000, bid: 39999, ask: 40000}};
+    const processed = await service.processPendingOrders();
+    assert.equal(processed.state, "ok");
+    assert.equal(processed.processed, 0);
+    assert.equal((await store.get("paper-orders", "invalid-order-revision")).status, "PENDING");
+    assert.equal(await store.get("paper-fills", "invalid-order-revision"), null);
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
