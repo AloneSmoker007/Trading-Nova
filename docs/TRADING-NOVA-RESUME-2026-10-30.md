@@ -14,7 +14,13 @@ Acceptance passed on exact PR head: a same-count replacement during paginated re
 
 Exact implementation-code-head validation: CI run `41605679125` passed all enabled jobs; test job reports **725 tests, 716 pass, 0 fail, 9 expected skips** and includes lint, secret scan and `npm audit --audit-level=high`. PostgreSQL integration, PostgreSQL audit integration (9/9), Neon PostgreSQL, recovery drill, stress capacity and evidence-status passed. Chromium Browser E2E run `41605679111` passed. The opt-in `market-data-evidence` job was skipped by its workflow condition, not passed. Local clone/test execution was unavailable because this runtime could not resolve github.com; no local suite pass is claimed.
 
+Latest exact PR head `9a501c6f9824610132f7ae3f45be19eca2e89e28` also passed CI `41606354848` and Browser E2E `41606354849`. PR #114 merged as `9ce2aafaf1ba089b0270221fa3f7247d3029d09a`; merged-main CI `41606702088`, Browser E2E `41606702107` and lockfile `41606702133` passed all enabled checks. Merged-main test job again reports 725 total, 716 pass, 0 fail, 9 expected skips; PostgreSQL audit integration passed 9/9 including the real cross-connection replacement/rollback test; PostgreSQL integration, Neon, recovery, stress and evidence-status passed. `market-data-evidence` remained opt-in/skipped.
+
+
 Limitations: the revision fence covers current supported writes through the in-memory/PostgreSQL store adapters; raw SQL or an older writer that bypasses `store.put` can bypass it. All deployed writers must use the revision-aware release together. This is an application-level monotonic fence, not a PostgreSQL LSN or production certification. No live provider call, credential change, deployment, production-data mutation or risk-limit change occurred. Real-money remains OFF; every paper order still passes the mandatory server Risk Gate.
+
+Remaining product work: whole-trade/session aggregation and calibrated strategy revalidation; partial fills, amend/replace, queue priority and cross-process order-transition locking; advanced portfolio risk; independent claim/counter-claim verification, publication freshness, wider independent news/fundamental/social inputs and live Gemini runtime evidence; then deployment, sustained market-data soak, real DR and independent security evidence. Do not treat skipped opt-in evidence or CI mocks as production proof. The current revision fence is complete for supported store writes, but raw SQL/older binaries remain outside its guarantee.
+
 
 ## Current task — isolate overlapping journal refreshes (3 November 2026 PKT)
 
