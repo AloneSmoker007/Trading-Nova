@@ -1000,7 +1000,10 @@ test("pending trigger orders can amend only their trigger price with optimistic 
       body: JSON.stringify({price: 39000, expectedRevision: 1})
     });
     assert.equal(replay.status, 200, "an unchanged retry remains idempotent while its revision is current");
-    assert.equal((await replay.json()).data.order.revision, 2);
+    const replayBody = await replay.json();
+    assert.equal(replayBody.data.order.revision, 2);
+    assert.equal(replayBody.data.verdict.decision, "REPLAYED");
+    assert.equal(replayBody.data.verdict.riskGateReevaluated, false);
 
     const secondAmend = await fetch(srv.base + "/api/paper/orders/" + amended.orderId + "/amend", {
       method: "POST",
