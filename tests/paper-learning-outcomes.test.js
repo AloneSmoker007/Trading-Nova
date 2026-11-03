@@ -159,9 +159,14 @@ test("HTTP learning report links an actual closed paper fill to its verified the
     });
     assert.equal(opened.status, 200);
     const stillOpen = await fetch(srv.base + "/api/learning/outcomes").then((response) => response.json());
-    assert.equal(stillOpen.data.state, "empty");
+    assert.equal(stillOpen.data.state, "open");
     assert.equal(stillOpen.data.outcomes.length, 0, "an open position must never be presented as a realized outcome");
     assert.equal(stillOpen.data.summary.openLotCount, 1);
+    assert.equal(stillOpen.data.tradeSummary.openTradeCount, 1);
+    assert.equal(stillOpen.data.tradeSummary.closedTradeCount, 0);
+    assert.equal(stillOpen.data.tradeSummary.closedTradeWinRate, null);
+    assert.equal(stillOpen.data.tradeSummaries[0].status, "OPEN");
+    assert.match(stillOpen.data.note, /Only open paper position cycles exist/);
 
     await srv.close();
     srv = await startTestServer({fetchImpl: tickerFetchAt(43000, 42999, 43001), stateFile, executionStateFile});
@@ -183,6 +188,13 @@ test("HTTP learning report links an actual closed paper fill to its verified the
     assert.ok(Math.abs(data.outcomes[0].netPnl - (data.outcomes[0].grossPnl - data.outcomes[0].fees)) < 1e-10);
     assert.equal(data.summary.linkedOutcomeCount, 1);
     assert.equal(data.summary.openLotCount, 0);
+    assert.equal(data.tradeSummary.closedTradeCount, 1);
+    assert.equal(data.tradeSummary.openTradeCount, 0);
+    assert.equal(data.tradeSummary.closedTradeWins, 1);
+    assert.equal(data.tradeSummary.closedTradeWinRate, 1);
+    assert.equal(data.tradeSummaries[0].status, "CLOSED");
+    assert.equal(data.tradeSummaries[0].result, "WIN");
+    assert.equal(data.tradeSummaries[0].realizedNetPnl, data.outcomes[0].netPnl);
     assert.match(data.note, /server-derived/i);
     assert.match(data.note, /paper/i);
   } finally {
