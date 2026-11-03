@@ -234,7 +234,7 @@ test("depth book caps retained levels while preserving the best prices", () => {
     bids: [["99", "1"], ["98", "2"]],
     asks: [["101", "1"], ["102", "2"]]
   });
-  const view = book.ingest(event(101, 101, {
+  const view = book.ingest(event(100, 101, {
     E: 950,
     b: [["100", "1"], ["97", "5"]],
     a: [["103", "1"]]
