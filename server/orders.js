@@ -1156,6 +1156,8 @@ export function createPaperOrderService({
   }
 
 
+  // Trigger-price-only amendment: portfolio lock -> order lock, then revision/intent checks
+  // prevent both stale clients and an in-flight old trigger snapshot from winning.
   async function amendOrder(orderId, body) {
     return serialize(async () => {
       if (tradingMode !== "paper") return fail(403, "trading-mode-not-paper", "order amendment only available in paper mode");
