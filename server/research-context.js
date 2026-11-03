@@ -98,10 +98,13 @@ export function relevantHeadlines(snapshot, symbol, assessedAt = snapshot.assess
   return (snapshot.items || []).filter(item => aliases.test(item.title)).map(item => {
     const age = Number.isFinite(item.publishedAt) ? assessedAt - item.publishedAt : null;
     const modificationAge = Number.isFinite(item.modifiedAt) ? assessedAt - item.modifiedAt : null;
+    const rawModificationStatus = item.modifiedDateStatus || (modificationAge === null ? "unknown" : "publisher-reported");
+    const modificationDateStatus = modificationAge !== null && modificationAge < 0 ? "future-date" : rawModificationStatus;
     const retrievalAge = Number.isFinite(snapshot.retrievedAt) ? assessedAt - snapshot.retrievedAt : null;
     const temporalIntegrity = age === null ? "publication-date-unknown" : age < 0 ? "future-publication-date"
-      : modificationAge === null ? "modified-date-unknown" : item.modifiedAt < item.publishedAt ? "modified-before-publication"
-        : modificationAge < 0 ? "future-modified-date" : "consistent";
+      : rawModificationStatus === "invalid" ? "invalid-modified-date"
+        : modificationAge === null ? "modified-date-unknown" : item.modifiedAt < item.publishedAt ? "modified-before-publication"
+          : modificationAge < 0 ? "future-modified-date" : "consistent";
     const temporallyEligible = temporalIntegrity === "consistent" || temporalIntegrity === "modified-date-unknown";
     const risks = item.title.match(/\b(?:hack\w*|breach\w*|lawsuit\w*|reject\w*|risk\w*|declin\w*|fall\w*|loss\w*|fraud\w*|outage\w*)\b/gi) || [];
     const positives = item.title.match(/\b(?:approv\w*|adopt\w*|launch\w*|upgrad\w*|growth|gain\w*|rally|record)\b/gi) || [];
@@ -109,7 +112,7 @@ export function relevantHeadlines(snapshot, symbol, assessedAt = snapshot.assess
     return {...item, publicationAgeMs: age !== null && age >= 0 ? age : null,
       publicationFreshness: age === null ? "unknown" : age < 0 ? "future-date" : age <= NEWS_PUBLICATION_WINDOW_MS ? "within-window" : "older-than-window",
       modificationAgeMs: modificationAge !== null && modificationAge >= 0 ? modificationAge : null,
-      modificationDateStatus: modificationAge === null ? "unknown" : modificationAge < 0 ? "future-date" : "publisher-reported",
+      modificationDateStatus,
       temporalIntegrity,
       sourceId: snapshot.publisher.id, publisher: snapshot.publisher.name,
       relevance: "headline-alias-match", eligible: snapshot.state === "ok" && retrievalAge !== null && retrievalAge >= 0 && retrievalAge <= 300000

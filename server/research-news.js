@@ -44,8 +44,11 @@ export function normalizePublisherPosts(payload, publisherId = "kraken-blog") {
       if (!title) throw new Error("empty title");
       if (urls.has(url.href) || ids.has(row.id)) throw new Error("duplicate post");
       urls.add(url.href); ids.add(row.id);
-      items.push({id: publisherId + ":" + row.id, title, url: url.href,
-        publishedAt: publicationTime(row.date_gmt), modifiedAt: publicationTime(row.modified_gmt),
+      const publishedAt = publicationTime(row.date_gmt);
+      const modifiedAt = publicationTime(row.modified_gmt);
+      const modifiedDateStatus = row.modified_gmt === null || row.modified_gmt === undefined
+        ? "unknown" : modifiedAt === null ? "invalid" : "publisher-reported";
+      items.push({id: publisherId + ":" + row.id, title, url: url.href, publishedAt, modifiedAt, modifiedDateStatus,
         dateAttribution: "publisher-reported", corroboration: "not-checked"});
     } catch { rejectedCount++; }
   }

@@ -73,6 +73,7 @@ test("publisher modification timestamps are separate from publication freshness 
     {id: "consistent", title: "Bitcoin upgrade", publishedAt: AT - 3600000, modifiedAt: AT - 1800000},
     {id: "unknown", title: "Bitcoin adoption", publishedAt: AT - 3600000},
     {id: "future-modified", title: "Bitcoin hack", publishedAt: AT - 3600000, modifiedAt: AT + 1},
+    {id: "invalid-modified", title: "Bitcoin fraud", publishedAt: AT - 3600000, modifiedDateStatus: "invalid"},
     {id: "modified-before-published", title: "Bitcoin launch", publishedAt: AT - 3600000, modifiedAt: AT - 7200000},
     {id: "future-published", title: "Bitcoin approval", publishedAt: AT + 1, modifiedAt: AT + 2}
   ]};
@@ -88,6 +89,9 @@ test("publisher modification timestamps are separate from publication freshness 
   assert.equal(byId["future-modified"].temporalIntegrity, "future-modified-date");
   assert.equal(byId["future-modified"].modificationAgeMs, null);
   assert.equal(byId["future-modified"].eligible, false);
+  assert.equal(byId["invalid-modified"].modificationDateStatus, "invalid");
+  assert.equal(byId["invalid-modified"].temporalIntegrity, "invalid-modified-date");
+  assert.equal(byId["invalid-modified"].eligible, false);
   assert.equal(byId["modified-before-published"].temporalIntegrity, "modified-before-publication");
   assert.equal(byId["modified-before-published"].eligible, false);
   assert.equal(byId["future-published"].publicationFreshness, "future-date");
