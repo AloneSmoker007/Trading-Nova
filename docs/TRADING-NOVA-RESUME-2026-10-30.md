@@ -2,6 +2,23 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — whole-trade position-cycle learning (3 November 2026 PKT)
+
+Starting remote main `6de4a63e82e90585d044f578f2191ef66b34bec4`; no open PRs and no applicable `AGENTS.md` were found. Locked product contract §21 and the current gap audit were reviewed. The earlier quote-currency contract fix was not duplicated.
+
+PR #115 (`feat: aggregate paper learning by whole position cycle`) implemented one whole trade as a **per-symbol net-position cycle from flat to flat**, matching the existing paper portfolio's netted position model. Session boundaries are not defined by the product/data contract, so session aggregation was deliberately not inferred.
+
+The learning engine still preserves each existing FIFO matched fragment and its outcome ID. It now assigns a deterministic cycle identity from the first opening fill and symbol/direction/time/sequence. Scale-ins and partial closes remain in one cycle; when a reversal closes the old cycle and the excess quantity opens the opposite side, the old cycle is closed and a distinct new cycle begins. Each cycle reports opening/closing order IDs, opened/closed/remaining quantity, open lot count, FIFO fragment count, realized gross P&L, allocated realized fees and realized net P&L. Only a flat-to-flat closed cycle receives WIN/LOSS/BREAKEVEN. An open cycle has no whole-trade result; realized partials are shown separately, and open exposure/unrealized P&L are excluded. Existing fragment/thesis outputs remain available.
+
+The API distinguishes an open-only report (`state: open`) from an empty history and discloses that no closed-trade result exists. The UI shows the latest 20 cycle rows, closed-cycle W/L/BE and win rate, closed-cycle net P&L, and open-cycle realized partial P&L. Labels explicitly distinguish whole cycles from FIFO fragments; the UI states that session grouping is not inferred and this is not a profitability certificate. No order write, Risk Gate, portfolio state, market provider, Gemini provider or execution path changed.
+
+Behavioral coverage: long scale-in/partial-close accounting, short scale-ins, reversals, simultaneous symbols, separate repeated cycles, same-time sequence ordering/replay, open partial cycles, HTTP open-only state, and UI contract. Chromium verifies the closed-cycle table and metrics and verifies the new table clears on offline/superseded refreshes. The first full test run caught an existing HTTP test that expected the previous `empty` state for a still-open position; that assertion was updated to the new explicit `open` state and the open-cycle contract. Final exact PR head `68bef924a7310d184c7c6be1a336dd6d1eb9e0e9`: CI run `41615396895` and Browser E2E `41615396928` passed all enabled checks. Test output: **734 total, 725 pass, 0 fail, 9 expected skips**. Lint, secret scan, `npm audit --audit-level=high`, PostgreSQL integration, PostgreSQL audit integration, Neon PostgreSQL, recovery drill, stress capacity and evidence-status passed. The opt-in `market-data-evidence` job was skipped, not passed.
+
+PR #115 merged as `2127c58f8e88f23c2862ecc76deb4c217bc73201`. Merged-main CI `41615767451`, Browser E2E `41615767546` and lockfile `41615767499` also passed all enabled jobs; merged-main test output again reports **734 total, 725 pass, 0 fail, 9 expected skips**. The opt-in market-data evidence job remained skipped. Local clone/full tests were not run because this runtime could not resolve github.com; no local suite pass is claimed.
+
+Remaining learning work: strategy calibration/revalidation, trustworthy attribution of thesis outcomes to independent evidence, and any session aggregation only after a session-boundary contract is defined. Other paper-V1 gaps remain partial fills, amend/replace, queue priority and cross-process order-transition locking; advanced portfolio risk; independent claim/counter-claim and publication freshness; wider fundamental/news/social data and live Gemini runtime evidence; then deployment, sustained market-data soak, real DR and independent security evidence. CI/mocks are not production certification. No live/paid provider call, credentials, deployment, production-data mutation or risk increase occurred. Real-money remains OFF; every paper order still requires the mandatory server Risk Gate.
+
+
 ## Current task — revision-fenced paper learning history (3 November 2026 PKT)
 
 Starting remote main: `f89207f040975cd6d0f28c292341abab2756d6f1`. No open PRs; no applicable `AGENTS.md` was found. Locked product contract §21, this resume document and the current gap audit were reviewed before work. Existing fill pagination/cardinality protections remain in place and were not duplicated.
