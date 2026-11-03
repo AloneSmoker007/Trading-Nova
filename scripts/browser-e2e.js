@@ -240,6 +240,15 @@ async function installApiFixtures(page) {
             reviewedLossCount: fixtureLossAutopsies.length ? 1 : 0,
             unreviewedLossCount: fixtureLossAutopsies.length ? 0 : 1},
           reviewState: "verified", lossAutopsies: fixtureLossAutopsies,
+          tradeSummary: {tradeCount: 1, closedTradeCount: 1, openTradeCount: 0,
+            closedTradeWins: 0, closedTradeLosses: 1, closedTradeBreakeven: 0,
+            closedTradeWinRate: 0, closedTradeNetPnl: -2, openTradeRealizedNetPnl: 0, realizedNetPnl: -2},
+          tradeSummaries: [{tradeId: "c".repeat(64), source: "paper-position-cycle-v1",
+            unit: "flat-to-flat-symbol-position-cycle", symbol: "BTCUSDT", direction: "LONG",
+            status: "CLOSED", result: "LOSS", openedAt: 1, closedAt: 2,
+            openingOrderIds: ["open"], closingOrderIds: ["close"], openedQuantity: 0.01,
+            closedQuantity: 0.01, openQuantity: 0, openLotCount: 0, matchedFragments: 1,
+            realizedGrossPnl: 0, realizedFees: 2, realizedNetPnl: -2}],
           thesisSummaries: [{thesisHash: fixtureThesisHash, title: "Thesis <img src=x onerror=alert(1)>", symbols: ["BTCUSDT"],
             matchedFragments: 1, wins: 0, losses: 1, breakeven: 0, fees: 2, netPnl: -2, openLotCount: 0}],
           outcomes: [{
@@ -559,11 +568,18 @@ async function main() {
         assert.equal(await thesisRow.locator("td").nth(1).innerText(), "1");
         assert.equal(await thesisRow.locator("td").nth(3).innerText(), "2 / -2");
         assert.match(await page.locator("#learning-values").innerText(), /FIFO · USDT/);
-        assert.match(await page.locator("#learning-values").innerText(), /Net paper P&L\s+\$-2/);
+        assert.match(await page.locator("#learning-values").innerText(), /All realized FIFO net P&L\s+\$-2/);
         const outcome = await page.locator("#learning-outcomes").innerText();
         assert.match(outcome, /Browser verified thesis/);
         assert.match(outcome, /LOSS/);
         assert.match(outcome, /after \$2 fees/);
+        const tradeRow = page.locator("#learning-trades-body tr");
+        assert.equal(await tradeRow.count(), 1);
+        assert.match(await tradeRow.innerText(), /BTCUSDT LONG/);
+        assert.match(await tradeRow.innerText(), /CLOSED · LOSS/);
+        assert.match(await tradeRow.innerText(), /0\.01 \/ 0\.01 \/ 0/);
+        assert.match(await page.locator("#learning-values").innerText(), /Closed whole trades\s+1/);
+        assert.match(await page.locator("#learning-values").innerText(), /Closed-trade win rate\s+0\.0%/);
       } finally {
         await page.close();
       }
@@ -590,6 +606,7 @@ async function main() {
         await page.reload();
         await page.locator("#learning-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
         assert.equal(await page.locator("#learning-theses-body tr").count(), 0);
+        assert.equal(await page.locator("#learning-trades-body tr").count(), 0);
       } finally {
         learningMode = "ok";
         await page.close();
@@ -607,6 +624,7 @@ async function main() {
         for (let tries = 0; tries < 100 && delayedLearning.length < 1; tries++) await new Promise(resolve => setTimeout(resolve, 10));
         assert.equal(delayedLearning.length, 1);
         assert.equal(await page.locator("#learning-theses-body tr").count(), 0);
+        assert.equal(await page.locator("#learning-trades-body tr").count(), 0);
         assert.equal(await page.locator("#learning-outcomes li").count(), 0);
         assert.equal(await page.locator("#learning-values").innerText(), "");
         assert.equal(await page.locator("#learning-values").getAttribute("aria-busy"), "true");
@@ -620,6 +638,7 @@ async function main() {
         await page.evaluate(() => new Promise(resolve => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))));
         assert.equal(await page.locator("#learning-badge").innerText(), "UNAVAILABLE");
         assert.equal(await page.locator("#learning-theses-body tr").count(), 0);
+        assert.equal(await page.locator("#learning-trades-body tr").count(), 0);
         assert.equal(await page.locator("#learning-outcomes li").count(), 0);
         assert.equal(await page.locator("#learning-values").innerText(), "");
         assert.equal(await page.locator("#journal-outcome-select").isDisabled(), true);

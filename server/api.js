@@ -1,7 +1,7 @@
 // server/api.js — JSON API over the real engine modules (src/).
 //
 // Envelope convention (every response is JSON):
-//   success: {ok: true,  data: {...}}                  — data.state: "ok" | "stale" | "empty"
+//   success: {ok: true,  data: {...}}                  — data.state: "ok" | "stale" | "empty" | "open"
 //   failure: {ok: false, state: "error" | "unavailable" | "not-implemented",
 //             error: {code, message, reason?}}
 //
@@ -9,6 +9,7 @@
 //   "stale"       = a cached value is being served past its freshness window
 //   "unavailable" = upstream/state genuinely cannot provide data right now (HTTP 503)
 //   "error"       = bad request (400) or server-side failure (500) — never leaks internals
+//   "open"        = reconciled paper fills exist, but only an open position cycle remains
 //
 // GOLDEN SAFETY RULE: Paper/shadow only. Real money OFF.
 // POST /api/paper/orders is GATED by Risk Gate enforcement. No execution without an ALLOW artifact.
@@ -625,6 +626,12 @@ export function createApi({
     }
     const reviewedLosses = new Set(lossAutopsies.map((review) => review.outcomeId));
     const losses = report.outcomes.filter((outcome) => outcome.result === "LOSS");
+    let learningNote = "Server-derived FIFO fragments and flat-to-flat paper trade cycles from reconciled fills, including simulated fees. Loss autopsies are hash-chained user reviews, not execution facts or profitability evidence.";
+    if (report.state === "empty") {
+      learningNote = "No reconciled paper fills yet. No trade outcome is inferred. Real money OFF.";
+    } else if (report.state === "open") {
+      learningNote = "Only open paper position cycles exist. Any displayed realized partials are not closed-trade results; open exposure and unrealized P&L are excluded. Real money OFF.";
+    }
     return ok({
       ...report,
       reviewState,
@@ -636,9 +643,7 @@ export function createApi({
         unreviewedLossCount: reviewState === "verified"
           ? losses.filter((outcome) => !reviewedLosses.has(outcome.outcomeId)).length : null
       },
-      note: report.state === "empty"
-        ? "No realized paper outcomes yet. Open positions and unmatched fills are not invented as outcomes. Real money OFF."
-        : "Server-derived FIFO outcomes from reconciled paper fills, including simulated fees. Loss autopsies are hash-chained user reviews, not execution facts or profitability evidence."
+      note: learningNote
     });
   }
 
