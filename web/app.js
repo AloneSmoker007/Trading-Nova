@@ -1253,7 +1253,8 @@
             + fmtNum(trade.closedQuantity, 8) + " / " + fmtNum(trade.openQuantity, 8)));
           tr.appendChild(el("td", null, String(trade.matchedFragments)));
           tr.appendChild(el("td", null, fmtNum(trade.realizedFees, 4) + " / " + fmtNum(trade.realizedNetPnl, 4)));
-          tr.appendChild(el("td", null, Number.isFinite(trade.closedAt) ? new Date(trade.closedAt).toISOString() : "Open"));
+          tr.appendChild(el("td", null, Number.isFinite(trade.closedAt) && Number.isFinite(new Date(trade.closedAt).getTime())
+            ? new Date(trade.closedAt).toISOString() : "Open"));
           $("learning-trades-body").appendChild(tr);
         });
         var groups = Array.isArray(data.thesisSummaries) ? data.thesisSummaries : [];
@@ -1279,6 +1280,8 @@
         row(dl, "Net paper P&L", "$" + fmtNum(summary.realizedNetPnl, 4));
         row(dl, "Open FIFO lots", String(summary.openLotCount || 0));
         row(dl, "Closed whole trades", String(tradeSummary.closedTradeCount || 0));
+        row(dl, "Closed trade W / L / BE", String(tradeSummary.closedTradeWins || 0) + " / "
+          + String(tradeSummary.closedTradeLosses || 0) + " / " + String(tradeSummary.closedTradeBreakeven || 0));
         row(dl, "Closed-trade win rate", Number.isFinite(tradeSummary.closedTradeWinRate)
           ? (tradeSummary.closedTradeWinRate * 100).toFixed(1) + "% · descriptive paper history"
           : "N/A — no closed trade cycles");
