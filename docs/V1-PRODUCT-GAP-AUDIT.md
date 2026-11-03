@@ -5,6 +5,9 @@
 **Scope:** locked Product Contract in docs/TRADING-NOVA-MASTER-ROADMAP.md, section 21 (lines 242–283), actual browser UI, HTTP routes, API handlers, engines, persistence, tests, and the external-evidence runbook.  
 **Not a certification:** this document does not claim production deployment, profitability, or V1 release approval. Real-money execution must remain disabled.
 
+Journal refresh ownership update (3 November 2026 PKT): web/app.js now gives each journal refresh a request generation. Only the latest response/error/finally may publish, and stale verified thesis choices are cleared while loading/unavailable; a still-present verified thesis selection is restored after a successful refresh. Five deferred-controller tests and a real Chromium stale-response regression passed on code head ad24c0b0ea95ebb7d7250c24cd0252a5b694b664. Exact-head CI runs 41602449526 and 41602503940 passed (722 total, 714 pass, 0 fail, 8 expected external-DB skips); Chromium runs 41602449589 and 41602503978 passed. PostgreSQL/Neon, recovery, stress, lint, secret scan and high-severity audit checks passed; the opt-in market-data soak was skipped. This is browser response ownership, not a server/database snapshot or cross-process consistency guarantee.
+
+
 Learning refresh ownership update (3 November 2026 PKT): the browser learning panel now uses a request generation so only the latest refresh may publish data, failure or loading completion. It clears stale totals, outcomes, thesis rows and verified loss-review choices while refreshing. Four actual-controller deferred-transport regressions and a real Chromium delayed-response regression passed on code commit `1f64fc9248d96723850170d5b359eb500450c50d`; exact-head CI `41591576542` and Chromium `41591576538` passed (717 tests: 709 pass, 0 fail, 8 external-DB skips). This does not cancel server work or certify an atomic DB snapshot; journal refresh ownership and snapshot consistency remain open. The opt-in market-data evidence job was skipped, not passed.
 
 Thesis summary update (30 October 2026 PKT): server derives per-thesis FIFO fragment counts, fees/net, open lots and descriptive means from complete validated history. Separate unlinked/open-only groups and symbol scope stay explicit. Browser shows bounded safe rows; tutor receives only bounded server groups linked to recent verified-note hashes. This is descriptive aggregation, not whole-trade win rate, calibrated prediction, thesis correctness or autonomous model training. Whole-trade/session aggregation/revalidation remain open. See `tests/thesis-learning-summary.test.js`, tutor/Chromium regressions and matching PR for exact-head results.
@@ -80,10 +83,10 @@ Priorities: **P0** = correctness/safety mismatch to block before representing th
 
 ## Prioritized next-task queue
 
-### P0 — Correct paper order semantics before extending the terminal
-1. Choose and document the supported paper-order state machine. For each order type either implement its declared trigger/lifecycle faithfully or return a clear unsupported-type rejection. Never immediately fill a LIMIT/STOP_LOSS/TAKE_PROFIT order as if it were MARKET.
-2. Add deterministic, configurable simulated spread, fees and slippage, and define how partial fills, cancel/reject, latency and restart replay are represented. Keep market-data freshness and Risk Gate approval mandatory at every eligible execution/trigger point.
-3. Add tests covering non-triggered and triggered orders, invalid trigger prices, cancel/replay, restart recovery, fee-adjusted portfolio/P&L, duplicate submission and risk rejection.
+### P0 — Remaining paper execution realism
+1. COMPLETED: MARKET, LIMIT, STOP_LOSS and TAKE_PROFIT have distinct trigger/lifecycle semantics. MARKET uses fresh executable bid/ask; LIMIT waits for crossing and enforces price protection; stop/target orders persist pending, trigger from a fresh executable-side quote, re-run Risk Gate and fill or reject. Pending cancellation, restart recovery and duplicate-fill prevention are covered in tests/ws-d-orders.test.js. Do not reimplement this state machine.
+2. Remaining: partial fills, amend/replace, venue queue priority, realistic latency and cross-process pending-order transition locking. Keep market freshness and server Risk Gate mandatory at every eligible execution/trigger point.
+3. Extend behavioral tests for each remaining lifecycle state, fee-adjusted portfolio/P&L, idempotent replay and Risk Gate rejection. Deterministic spread/slippage/fees are already implemented; their configured values are simulation assumptions, not venue-specific accuracy.
 
 ### P1 — Complete truthful data/research and validation paths
 4. Keep proxy labels and disconnected-feed status explicit. Connect source-attributed public news/research, company-fundamentals and sentiment only when real feed data, source timestamps, source trust, freshness, counter-evidence and failure/stale states are implemented and tested.

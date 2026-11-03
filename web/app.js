@@ -1151,12 +1151,24 @@
     }
   }
 
+  var journalRequestId = 0;
+  var journalSelectedThesisHash = "";
+
   function renderJournal() {
+    var requestId = ++journalRequestId;
+    var thesisSelect = $("order-thesis");
+    if (thesisSelect && thesisSelect.value) journalSelectedThesisHash = thesisSelect.value;
+    var dl = $("journal-values");
+    var list = $("journal-entries");
+    verifiedJournalRecords = [];
+    clear(dl);
+    clear(list);
+    syncOrderThesisOptions();
+    note("journal-note", "Refreshing verified journal…");
     setBadge("journal-badge", "loading");
     setBusy("journal-values", true);
     return api("/api/journal").then(function (result) {
-      var dl = $("journal-values");
-      var list = $("journal-entries");
+      if (requestId !== journalRequestId) return;
       clear(dl);
       clear(list);
       var body = result.body;
@@ -1165,6 +1177,13 @@
         var broken = d.integrity === "broken";
         verifiedJournalRecords = !broken && d.verified === true && Array.isArray(d.entries) ? d.entries : [];
         syncOrderThesisOptions();
+        thesisSelect = $("order-thesis");
+        if (journalSelectedThesisHash && thesisSelect
+            && Array.prototype.some.call(thesisSelect.options, function (option) { return option.value === journalSelectedThesisHash; })) {
+          thesisSelect.value = journalSelectedThesisHash;
+        } else {
+          journalSelectedThesisHash = "";
+        }
         setBadge("journal-badge", broken ? "error" : (d.state === "empty" ? "empty" : "ok"),
           broken ? "INTEGRITY BROKEN" : (d.state === "empty" ? "EMPTY" : "HASH CHAIN VERIFIED"));
         row(dl, "Total entries", String(d.total));
@@ -1180,17 +1199,23 @@
         note("journal-note", d.note);
       } else {
         verifiedJournalRecords = [];
+        journalSelectedThesisHash = "";
         syncOrderThesisOptions();
         var f = failureState(result);
         setBadge("journal-badge", f.state);
         note("journal-note", f.message);
       }
     }).catch(function (err) {
+      if (requestId !== journalRequestId) return;
       verifiedJournalRecords = [];
+      journalSelectedThesisHash = "";
+      clear(dl);
+      clear(list);
       syncOrderThesisOptions();
       setBadge("journal-badge", "unavailable");
       note("journal-note", err.message);
     }).finally(function () {
+      if (requestId !== journalRequestId) return;
       setBusy("journal-values", false);
     });
   }
