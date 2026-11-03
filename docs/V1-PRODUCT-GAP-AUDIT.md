@@ -1,3 +1,21 @@
+## Latest verified executable main — PR #127 merged (3 November 2026 PKT)
+
+Current main: `5be9ea6907fd9fc85ad7e066c03ee1df83f99b1f`, squash merge of PR #127. Starting main was `3f746db2324a6972da5d42386b3e88f13d179060`; no open PRs existed. No applicable root/nested `AGENTS.md` was found. Product Contract §21, resume checkpoint and this audit were re-read.
+
+PR #127 implements a transport-injected Binance Spot depth session around the PR #125 sequence-aware book. It opens the stream before requesting the snapshot, buffers the first diff event, bounds frame bytes and pre-snapshot events, and adds connection/snapshot/idle deadlines plus capped jittered reconnect backoff. Sequence gaps, overflow, malformed frames, disconnects and timeouts clear the local book and resynchronize; lifecycle tokens fence late snapshot responses. The provider exposes an inert `createDepthStream` factory. No new runtime dependency was added.
+
+Depth remains strictly analysis-only: every view has `executionEligible: false`; no order/fill/Risk Gate path consumes it. The session is not yet wired into a server API or dashboard depth panel. WebSocket runtime availability and real public-feed behavior remain unverified; no live WebSocket soak was run.
+
+Exact PR head `cc5aaea6e336cbf8000010bdf3aa21931424cd2c`: CI `41690720501` plus duplicate push CI `41690711602` passed all enabled jobs; tests **780 / 768 pass / 0 fail / 12 expected skips**; lint, secret scan and high-severity npm audit passed. PostgreSQL integration **12 / 5 / 0 / 7**, separate audit integration **12/12**, Neon integration/readiness, loopback stress, recovery job and Chromium Browser E2E `41690720488` / `41690711610` passed. Opt-in market-data evidence was skipped. Five moderate dependency advisories remain; no forced downgrade.
+
+Merged-main CI `41691359060`, Browser E2E `41691359061`, and lockfile workflow `41691358970` passed on `5be9ea6907fd9fc85ad7e066c03ee1df83f99b1f`; tests remained **780 / 768 / 0 / 12**, PostgreSQL/Neon, recovery rollback and stress checks passed. The backup/restore record remains **BLOCKED** because it measures a local environment (main RTO 147 ms / RPO 119 ms, not production DR); server-crash injection was skipped because `PG_CRASH_CMD` was unset. The opt-in market-data evidence job was skipped, not passed. Local full-suite execution was unavailable in this runtime.
+
+Remaining depth gaps: bounded shared subscription/API/UI integration, real WebSocket soak, source/freshness telemetry under reconnect and long-duration behavior. Partial fills remain blocked until independent market-data soak and a defensible participation/queue/latency contract exist. Do not use 24-hour volume as depth. Next correctness investigation is the paper API quote-currency contract (USDT watchlist vs broader symbol parser); reproduce before changing. Broader open gaps remain strategy calibration/revalidation, independent publisher diversity and claim-level counter-evidence, fundamentals/news/social inputs, live Gemini runtime proof, production deployment, real backup/restore/RTO/RPO, production observability and independent security evidence. Real-money remains OFF; mandatory server Risk Gate and all risk limits are unchanged.
+
+Official sequence reference: https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md
+
+---
+
 ## Latest verified executable main — PR #125 merged (3 November 2026 PKT)
 
 Current executable main: `94f11c173f88662392cf4f76f2599929170035ac`, squash merge of PR #125. Starting main was `8b7b216d2c747cf2d380c80a375c96a5b64fc88e`; PR #125 was resumed as the existing open implementation. No applicable root/nested `AGENTS.md` was present. Locked Product Contract §21, resume checkpoint and this audit were re-read.

@@ -1,3 +1,41 @@
+## Latest verified increment — Binance Spot depth WebSocket lifecycle (3 November 2026 PKT)
+
+Starting remote main: `3f746db2324a6972da5d42386b3e88f13d179060`; open PR count: **0**. No applicable root or nested `AGENTS.md` was found. Re-read this resume, locked Product Contract §21 in `docs/TRADING-NOVA-MASTER-ROADMAP.md`, and the current V1 gap audit before implementation.
+
+PR #127 adds `BinanceSpotDepthStream` around the existing sequence-aware book and exposes an inert `createDepthStream` factory through `createCryptoProvider`:
+- Opens the public Binance Spot WebSocket first, buffers the first diff event, then fetches the REST snapshot. This follows the official local-order-book sequence procedure; it avoids snapshot-first synchronization.
+- Bounded controls: 256-KiB UTF-8 frame cap, 1,000 pre-snapshot events, 10-second connection and snapshot deadlines, 5-second idle watchdog, and jittered exponential reconnect from 250 ms up to 10 seconds.
+- Sequence gap, buffer overflow, malformed/oversized frame, socket error/close, idle timeout or snapshot failure closes the connection, clears the book and schedules one reconnect. A lifecycle/connection token prevents a late snapshot response from publishing into a newer session.
+- `stop()` closes the socket and cancels retry/watchdog timers. Error+close cannot schedule duplicate retries. Socket event listeners are disposed on every invalidation.
+- WebSocket implementation is injected (or uses the runtime's global `WebSocket`); no new runtime package or paid service was added. The provider factory itself performs no network work.
+- Every depth view remains `executionEligible: false`. No order, fill, portfolio, Risk Gate or risk-limit path consumes this session.
+
+PR code head: `cc5aaea6e336cbf8000010bdf3aa21931424cd2c`; PR #127 squash merge/current executable main: `5be9ea6907fd9fc85ad7e066c03ee1df83f99b1f`.
+
+Exact-head verification:
+- CI `41690720501` and duplicate push CI `41690711602`: all enabled jobs passed.
+- Full suite: **780 total / 768 pass / 0 fail / 12 expected skips**. Lint, secret scan and `npm audit --audit-level=high` passed.
+- PostgreSQL integration: **12 total / 5 pass / 0 fail / 7 expected skips**; separate PostgreSQL audit integration: **12/12 pass**.
+- Neon PostgreSQL integration and Neon-backed readiness passed.
+- Loopback stress passed; Browser E2E `41690720488` and duplicate `41690711610` passed.
+- Opt-in `market-data-evidence` was **SKIPPED**, not passed.
+- Recovery job passed committed-write survival and aborted-write rollback. Backup/restore evidence remains **BLOCKED** because the measured environment is local (PR-head RTO 100 ms / RPO 105 ms are not production evidence); server-crash injection was skipped because `PG_CRASH_CMD` was unset.
+- Five moderate dependency advisories remain; no forced downgrade. This runtime could not run a local checkout/full suite, so the counts above are remote CI evidence only.
+
+Merged-main verification:
+- Main CI `41691359060`, Browser E2E `41691359061`, and lockfile workflow `41691358970`: all completed successfully on `5be9ea6907fd9fc85ad7e066c03ee1df83f99b1f`.
+- Merged-main tests remained **780 / 768 pass / 0 fail / 12 expected skips**; PostgreSQL integration **12 / 5 / 0 / 7**, audit integration **12/12**, Neon integration/readiness, loopback stress and recovery job passed.
+- Main recovery backup/restore remains **BLOCKED** as local-environment evidence (RTO 147 ms / RPO 119 ms are not production measurements); server-crash injection remains skipped. Opt-in market-data evidence remained skipped.
+- No open PRs remained after merge.
+
+Limits: this is a transport foundation, not a dashboard/API integration or live-feed certification. No live WebSocket soak was run. The session is not wired to order execution; depth is analysis-only and must not drive fills. No production deployment, production DR, profitability or independent security certification is claimed. Real-money stays OFF and every paper order still passes the mandatory server Risk Gate. No broker credentials, paid calls/resources, production-data deletion or risk increase occurred.
+
+Next work: (1) audit the paper API quote-currency contract before any new depth consumer; (2) integrate a bounded, shared, read-only depth subscription/API/UI with per-symbol ownership and disconnect cleanup; (3) run a separate opt-in public WebSocket soak; (4) only then review defensible participation, queue and latency semantics for partial fills. Continue independent claim-level corroboration/counter-evidence, strategy calibration/revalidation, live Gemini runtime proof, production deployment/DR/observability and independent security evidence as separate gates.
+
+Official sequence reference: https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md
+
+---
+
 ## Latest verified increment — sequence-aware Binance Spot depth foundation (3 November 2026 PKT)
 
 Starting remote main: `8b7b216d2c747cf2d380c80a375c96a5b64fc88e`. PR #125 was the only open implementation PR at task start; it was resumed, not duplicated. No applicable root or nested `AGENTS.md` was found. Re-read this resume document, locked Product Contract §21 in `docs/TRADING-NOVA-MASTER-ROADMAP.md`, and `docs/V1-PRODUCT-GAP-AUDIT.md`.
