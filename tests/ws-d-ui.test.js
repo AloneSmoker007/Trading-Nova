@@ -186,6 +186,9 @@ test("paper order ticket only targets the gated paper endpoint", () => {
   assert.match(app, /function updateOrderTypeFields/);
   assert.match(app, /function renderPaperOrders/);
   assert.match(app, /\/api\/paper\/orders\/.*\/cancel/);
+  assert.match(app, /\/api\/paper\/orders\/.*\/amend/);
+  assert.match(app, /New trigger price for /);
+  assert.match(app, /expectedRevision: Number\.isSafeInteger\(order\.revision\)/);
   assert.match(html, /cross the live bid\/ask and include configured slippage and fees/);
   assert.match(app, /var disabledControls = Array\.prototype\.map\.call/);
   assert.match(app, /entry\.control\.disabled = entry\.wasDisabled/);
