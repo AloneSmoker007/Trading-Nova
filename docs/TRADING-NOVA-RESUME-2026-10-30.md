@@ -1,6 +1,29 @@
 # Trading-Nova continuation — 30 October 2026 PKT
 
-## Completed increment — publisher modification timestamp integrity (3 November 2026 PKT)
+## Latest verified increment — Binance Spot quote timestamp honesty (3 November 2026 PKT)
+
+Starting remote main: `1b54b222822592403a5df1911145978a1e11b3e8` (PR #121's merged code plus its checkpoint). Open PR count at task start: **0**. No applicable `AGENTS.md` was found in the repository root or the touched `src`, `tests`, and `docs` paths. Re-read this resume, master roadmap Product Contract §21, and the current V1 gap audit before coding.
+
+Reproduced defect: Binance Spot `GET /api/v3/ticker/bookTicker` returns `symbol`, `bidPrice`, `bidQty`, `askPrice`, and `askQty`, but no source event timestamp. Both `createCryptoProvider().getQuote()` and `BinancePublicConnector.getQuote()` substituted local `now()` as the quote `timestamp`, so the connector reported `ageMs: 0` even though the source event time was unknown. The test-only PR head `dd4595d9db488574182adac4b77f8a6de6ba9c2f` reproduced three failures in CI run `41674408458`: fabricated provider timestamp, fabricated connector timestamp, and rejection of a null source timestamp.
+
+PR #123 changes only the market-data quote metadata contract. `normalizeQuote` now marks a source-reported time as `timestampStatus: "source"`; when the source omits it, the output keeps `timestamp: null`, `timestampStatus: "not-provided"`, and `ageMs: null`. Local receipt time remains separately recorded in `receivedAt`. Both Binance adapters stop inventing source timestamps. Finite source timestamps still produce a computed age; malformed numeric timestamps remain rejected. No paper order, fill, cash, portfolio, execution, Risk Gate or risk-limit code changed.
+
+Exact PR code head `2ce19b9dcd696aa470352a8f454f7cdef31e1044`:
+- CI runs `41674619810` and `41674629194`: **752 tests / 740 pass / 0 fail / 12 expected skips**. Lint, sequential secret scan and `npm audit --audit-level=high` passed.
+- PostgreSQL integration: **12 total / 5 pass / 0 fail / 7 expected skips**; separate PostgreSQL audit integration: **12/12 pass**. Real Neon integration and Neon-backed server startup/readiness passed.
+- Recovery job completed: committed-write survival and aborted-write rollback passed. Its backup/restore artifact remains **BLOCKED** because the environment is local (RTO 103 ms / RPO 87 ms are not production evidence); server-crash injection was skipped because `PG_CRASH_CMD` was unset.
+- Loopback stress passed at 100 requests/sec and concurrency 20; health/portfolio/journal P95 was approximately 1.1–1.2 ms in this run.
+- Chromium runs `41674619515` and `41674629978`: **PASS**. The opt-in `market-data-evidence` job was **SKIPPED**, not passed.
+- Five moderate `minimatch` advisories remain; the forced fix would downgrade ESLint and was not applied. Local full-suite execution was unavailable because this runtime could not resolve `github.com`; all test counts above are remote CI results.
+
+PR #123 was squash-merged as `c31afc6b49bd407a15ad3ee3d516e7266008e452`. Merged-main CI `41675393634`, Browser E2E `41675393736`, and lockfile workflow `41675393637` passed; merged-main test totals remained **752 / 740 / 0 / 12**. PostgreSQL integration remained **12 / 5 / 0 / 7**, separate audit integration **12/12**, Neon, recovery rollback and loopback stress passed. The market-data evidence job remained skipped. Open PR count after merge: **0**.
+
+Scope and remaining limit: Binance Spot bookTicker has no source event timestamp, so its source age remains unknown by design. Receipt time must not be substituted. The separate market-service cache age is retrieval age, not proof of exchange event age. A future executable-depth/partial-fill feature needs a timestamped, sequence-aware depth stream and defensible participation/queue semantics; 24-hour volume is not depth. Real-money remains OFF; the mandatory server Risk Gate and all risk limits are unchanged. No credentials, paid resources, production data, broker connection or deployment were used.
+
+Remaining priorities: sequence-aware market depth before partial fills; full replace and venue queue/latency modeling; strategy calibration/revalidation; independent publisher diversity and claim-level corroboration/counter-evidence; broader fundamentals/news/social evidence; live Gemini runtime proof; deployment, sustained market-data soak, production backup/restore and measured RTO/RPO, and independent security evidence.
+
+
+## Previous verified increment — publisher modification timestamp integrity (3 November 2026 PKT)
 
 Starting remote main: `721c25e8bb3f14b9aa0eea3e66ea6ac20835a881` (PR #120, the PostgreSQL CI skip-accounting correction, was merged immediately before this task). The refreshed repository had no open PRs at task start. No root or nested `AGENTS.md` was present. Re-read this resume file, master roadmap Product Contract §21, and the current V1 gap audit.
 
