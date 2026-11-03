@@ -208,12 +208,25 @@ async function installApiFixtures(page) {
           message: missingClaims ? "Sources mile lekin valid text mapping nahi mili; jawab rok diya gaya." : "Web sources nahi mile; current answer unavailable."}
       } : {ok: true, data: {answer: "Source-backed fixture explanation.", research: "grounded", researchMode: tutorInput.researchMode,
         ...(tutorInput.includeResearchContext ? {structuredResearch: researchFixture()} : {}),
-        sources: [{title: "Fixture research", url: "https://example.com/research"}],
+        sources: [{title: "Reuters fixture", url: "https://www.reuters.com/fixture"},
+          {title: "SEC fixture", url: "https://www.sec.gov/fixture"}],
         evidence: {state: tutorReplyMode === "sources-only" ? "sources-only" : "claim-attributed",
           coveredCharacters: tutorReplyMode === "sources-only" ? 0 : "Source-backed".length,
           answerCharacters: "Source-backed fixture explanation.".length,
-          sourceDetails: [{id: "S1", sourceIndex: 0, retrievedAt: 123, publishedAt: null}],
-          claims: tutorReplyMode === "sources-only" ? [] : [{text: "Source-backed", start: 0, end: "Source-backed".length, sourceIds: ["S1"]}]}, note: "Returned fixture sources; no paper order submitted."}})});
+          sourceDetails: [
+            {id: "S1", sourceIndex: 0, retrievedAt: 123, publishedAt: null, publisherGroupId: "reuters",
+              publisherLabel: "Reuters", publisherClass: "editorial", diversityEligible: true},
+            {id: "S2", sourceIndex: 1, retrievedAt: 123, publishedAt: null, publisherGroupId: "us-sec",
+              publisherLabel: "U.S. SEC", publisherClass: "regulator", diversityEligible: true}
+          ],
+          claims: tutorReplyMode === "sources-only" ? [] : [{text: "Source-backed", start: 0, end: "Source-backed".length,
+            sourceIds: ["S1", "S2"], publisherGroups: [
+              {id: "reuters", label: "Reuters", type: "editorial", diversityEligible: true},
+              {id: "us-sec", label: "U.S. SEC", type: "regulator", diversityEligible: true}
+            ], diversityGroupCount: 2, sourceDiversity: "multiple-editorial-regulatory-groups",
+            independentCorroboration: "not-established"}],
+          publisherDiversity: {state: "multiple-editorial-regulatory-groups", diversityGroupCount: 2,
+            independentCorroboration: "not-established"}}, note: "Returned fixture sources; no paper order submitted."}})});
       return;
     }
 
@@ -913,8 +926,10 @@ async function main() {
         await page.locator("#tutor-send-btn").click();
         await page.locator("#tutor-badge").getByText("WEB SOURCES", {exact: true}).waitFor();
         const source = page.locator("#tutor-messages .tutor-source-link");
-        assert.equal(await source.getAttribute("href"), "https://example.com/research");
-        assert.equal(await source.getAttribute("rel"), "noopener noreferrer");
+        assert.equal(await source.count(), 2);
+        assert.equal(await source.nth(0).getAttribute("href"), "https://www.reuters.com/fixture");
+        assert.equal(await source.nth(1).getAttribute("href"), "https://www.sec.gov/fixture");
+        assert.equal(await source.nth(0).getAttribute("rel"), "noopener noreferrer");
         assert.equal(tutorRequests.length, 2);
         assert.deepEqual(tutorRequests[1].history, [], "a failed research answer must not become model history");
 
@@ -922,8 +937,11 @@ async function main() {
         await evidence.locator("summary").click();
         await evidence.getByText(/Publication date\/freshness unknown/).waitFor();
         assert.equal(await evidence.locator(".tutor-evidence-claim").count(), 1);
-        assert.equal(await evidence.locator("a").getAttribute("href"), "https://example.com/research");
-        assert.equal(await evidence.locator("a").getAttribute("rel"), "noopener noreferrer");
+        const evidenceLinks = evidence.locator("a");
+        assert.equal(await evidenceLinks.count(), 2);
+        assert.equal(await evidenceLinks.nth(0).getAttribute("href"), "https://www.reuters.com/fixture");
+        assert.equal(await evidenceLinks.nth(1).getAttribute("href"), "https://www.sec.gov/fixture");
+        assert.equal(await evidenceLinks.nth(0).getAttribute("rel"), "noopener noreferrer");
         tutorReplyMode = "sources-only";
         await page.locator("#tutor-input").fill("Research without claim mapping");
         await page.locator("#tutor-send-btn").click();
@@ -948,6 +966,9 @@ async function main() {
         await strictEvidence.locator("summary").click();
         await strictEvidence.locator(".tutor-evidence-coverage").getByText(/Text mapping: 13 \/ 34 characters\. Baqi 21 characters unmapped\. Yeh confidence score nahi\./).waitFor();
         assert.equal(await strictEvidence.locator(".tutor-evidence-claim").count(), 1);
+        await strictEvidence.locator(".tutor-evidence-diversity").getByText(
+          "Publisher groups: Reuters, U.S. SEC. Diversity-eligible groups: 2. Independent fact-check not established."
+        ).waitFor();
 
         tutorSetupMode = "web-off";
         await page.locator("#tutor-check-status-btn").click();

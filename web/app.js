@@ -1961,7 +1961,7 @@
     if (!messages || !evidence) return;
     var panel = el("details", "tutor-evidence");
     panel.appendChild(el("summary", null, evidence.state === "claim-attributed" ? "Claim evidence — provider attribution" : "Claim evidence unavailable"));
-    panel.appendChild(el("p", "panel-note", "Source milna correctness ka proof nahi. Publication date/freshness unknown; retrieval time publication time nahi. Unmapped text ke liye claim citation nahi mili."));
+    panel.appendChild(el("p", "panel-note", "Source milna correctness ka proof nahi. Publication date/freshness unknown; retrieval time publication time nahi. Publisher grouping sirf domain hint hai, independence ya sachai ka proof nahi. Unmapped text ke liye claim citation nahi mili."));
     if (Number.isSafeInteger(evidence.coveredCharacters) && evidence.coveredCharacters >= 0
         && evidence.answerCharacters === data.answer.length && evidence.coveredCharacters <= evidence.answerCharacters) {
       panel.appendChild(el("p", "tutor-evidence-coverage", "Text mapping: " + evidence.coveredCharacters + " / " + evidence.answerCharacters +
@@ -1974,6 +1974,17 @@
           || data.answer.slice(claim.start, claim.end) !== claim.text) return;
       var item = el("li", "tutor-evidence-claim");
       item.appendChild(el("p", null, claim.text));
+      var publisherGroups = Array.isArray(claim.publisherGroups) ? claim.publisherGroups.slice(0, 8) : [];
+      var publisherNames = publisherGroups.map(function (group) {
+        return group && typeof group.label === "string" ? group.label.slice(0, 80) : "";
+      }).filter(Boolean).join(", ");
+      var diversityCount = Number.isSafeInteger(claim.diversityGroupCount)
+        ? Math.max(0, Math.min(8, claim.diversityGroupCount)) : null;
+      var diversityText = diversityCount === null
+        ? "Publisher diversity unavailable; independent fact-check not established."
+        : "Publisher groups: " + (publisherNames || "unclassified") + ". Diversity-eligible groups: "
+          + diversityCount + ". Independent fact-check not established.";
+      item.appendChild(el("p", "tutor-evidence-diversity", diversityText));
       (Array.isArray(claim.sourceIds) ? claim.sourceIds : []).slice(0, 8).forEach(function (id) {
         var detail = (evidence.sourceDetails || []).find(function (entry) { return entry.id === id; });
         var source = detail && Number.isSafeInteger(detail.sourceIndex) && data.sources && data.sources[detail.sourceIndex];
