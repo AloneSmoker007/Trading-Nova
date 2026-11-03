@@ -48,6 +48,39 @@ test("scale-ins and multiple partial closes aggregate into one fee-reconciled wh
   assert.equal(report.tradeSummary.realizedNetPnl, report.summary.realizedNetPnl);
 });
 
+test("short scale-ins and partial closes use the same fee-adjusted whole-trade accounting", () => {
+  const report = derivePaperOutcomes([
+    fill({id: "short-open-one", side: "SELL", quantity: 1, price: 100, fee: 1, timestamp: 1}),
+    fill({id: "short-open-two", side: "SELL", quantity: 1, price: 90, fee: 1, timestamp: 2}),
+    fill({id: "short-close", side: "BUY", quantity: 2, price: 80, fee: 2, timestamp: 3})
+  ]);
+  assert.equal(report.tradeSummaries.length, 1);
+  const [trade] = report.tradeSummaries;
+  assert.equal(trade.direction, "SHORT");
+  assert.equal(trade.status, "CLOSED");
+  assert.equal(trade.result, "WIN");
+  assert.equal(trade.openedQuantity, 2);
+  assert.equal(trade.closedQuantity, 2);
+  assert.equal(trade.realizedGrossPnl, 30);
+  assert.equal(trade.realizedFees, 4);
+  assert.equal(trade.realizedNetPnl, 26);
+  assert.equal(report.tradeSummary.closedTradeWins, 1);
+});
+
+test("simultaneous symbol positions form independent whole-trade cycles", () => {
+  const report = derivePaperOutcomes([
+    fill({id: "btc-open", side: "BUY", quantity: 1, price: 100, timestamp: 1, symbol: "BTCUSDT"}),
+    fill({id: "eth-open", side: "BUY", quantity: 2, price: 50, timestamp: 2, symbol: "ETHUSDT"}),
+    fill({id: "btc-close", side: "SELL", quantity: 1, price: 110, timestamp: 3, symbol: "BTCUSDT"}),
+    fill({id: "eth-close", side: "SELL", quantity: 2, price: 45, timestamp: 4, symbol: "ETHUSDT"})
+  ]);
+  assert.equal(report.tradeSummaries.length, 2);
+  assert.deepEqual(report.tradeSummaries.map(trade => trade.symbol).sort(), ["BTCUSDT", "ETHUSDT"]);
+  assert.equal(report.tradeSummary.closedTradeWins, 1);
+  assert.equal(report.tradeSummary.closedTradeLosses, 1);
+  assert.equal(report.tradeSummary.closedTradeCount, 2);
+});
+
 test("a partially realized but still open position is not classified as a whole-trade win or loss", () => {
   const report = derivePaperOutcomes([
     fill({id: "open", side: "BUY", quantity: 1, price: 100, fee: 1, timestamp: 1}),
