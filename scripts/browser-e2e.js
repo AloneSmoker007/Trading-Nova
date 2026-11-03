@@ -1011,8 +1011,8 @@ async function main() {
         assert.equal(await page.locator("#depth-bids-body tr").count(), 1);
 
         await page.locator("#symbol-input").fill("ETHUSDT");
-        await page.waitForFunction(() => document.querySelector("#depth-symbol")?.textContent === "ETHUSDT"
-          && document.querySelector("#depth-bids-body tr")?.textContent?.includes("99"));
+        await page.waitForFunction(() => globalThis.document.querySelector("#depth-symbol")?.textContent === "ETHUSDT"
+          && globalThis.document.querySelector("#depth-bids-body tr")?.textContent?.includes("99"));
         assert.ok(depthRequests.includes("ETHUSDT"), "selected symbol changes the shared subscription key");
 
         depthMode = "stale";
