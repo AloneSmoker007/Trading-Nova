@@ -29,6 +29,8 @@ const fixtureThesisHash = "a".repeat(64);
 const fixtureLossAutopsies = [];
 let learningMode = "ok";
 const delayedLearning = [];
+let journalMode = "ok";
+const delayedJournal = [];
 let publisherNewsMode = "ok";
 let publisherNewsRequests = 0;
 let releasePublisherNews = null;
@@ -191,15 +193,20 @@ async function installApiFixtures(page) {
     }
 
     if (pathname === "/api/journal" && request.method() === "GET") {
+      const mode = journalMode;
+      if (mode === "offline") {await route.abort("failed"); return;}
+      if (mode === "delayed") await new Promise(resolve => delayedJournal.push(resolve));
+      const empty = mode === "empty";
       await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify({
         ok: true,
         data: {
-          state: "ok", verified: true, integrity: "verified", total: 1, returned: 1,
-          entries: [{
+          state: empty ? "empty" : "ok", verified: true, integrity: "verified", total: empty ? 0 : 1, returned: empty ? 0 : 1,
+          entries: empty ? [] : [{
             index: 0, previousHash: "GENESIS", hash: fixtureThesisHash,
-            entry: {timestamp: 123, type: "thesis", symbol: "BTCUSDT", title: "Browser verified thesis", text: "Fixture only"}
+            entry: {timestamp: 123, type: "thesis", symbol: "BTCUSDT",
+              title: mode === "delayed" ? "Delayed stale journal thesis" : "Browser verified thesis", text: "Fixture only"}
           }],
-          note: "Verified browser fixture journal."
+          note: mode === "delayed" ? "Delayed older journal response." : "Verified browser fixture journal."
         }
       })});
       return;
@@ -502,6 +509,41 @@ async function main() {
         assert.match(await page.locator("#order-note").innerText(), /No order was placed\./);
         assert.match(await page.locator("#paper-banner").innerText(), /real money OFF/i);
       } finally {
+        await page.close();
+      }
+    });
+
+    await run("superseded journal refresh cannot revive stale thesis records after the latest request fails", async () => {
+      const page = await openDashboard(browser, baseUrl);
+      try {
+        await page.locator("#journal-badge").getByText("HASH CHAIN VERIFIED", {exact: true}).waitFor();
+        await page.locator("#order-thesis option", {hasText: "Browser verified thesis"}).waitFor({state: "attached"});
+        assert.equal(await page.locator("#order-thesis").isDisabled(), false);
+
+        journalMode = "delayed";
+        await page.locator("#refresh-btn").click();
+        for (let tries = 0; tries < 100 && delayedJournal.length < 1; tries++) await new Promise(resolve => setTimeout(resolve, 10));
+        assert.equal(delayedJournal.length, 1);
+        assert.equal(await page.locator("#journal-entries li").count(), 0);
+        assert.equal(await page.locator("#journal-values").innerText(), "");
+        assert.equal(await page.locator("#journal-values").getAttribute("aria-busy"), "true");
+        assert.equal(await page.locator("#order-thesis").isDisabled(), true);
+
+        journalMode = "offline";
+        await page.locator("#refresh-btn").click();
+        await page.locator("#journal-badge").getByText("UNAVAILABLE", {exact: true}).waitFor();
+        const oldResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/journal");
+        delayedJournal.splice(0).forEach(resolve => resolve());
+        await (await oldResponse).finished();
+        await page.evaluate(() => new Promise(resolve => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))));
+
+        assert.equal(await page.locator("#journal-badge").innerText(), "UNAVAILABLE");
+        assert.equal(await page.locator("#journal-entries li").count(), 0);
+        assert.equal(await page.locator("#journal-values").innerText(), "");
+        assert.equal(await page.locator("#order-thesis").isDisabled(), true);
+      } finally {
+        journalMode = "ok";
+        delayedJournal.splice(0).forEach(resolve => resolve());
         await page.close();
       }
     });

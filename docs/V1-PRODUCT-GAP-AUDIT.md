@@ -80,10 +80,10 @@ Priorities: **P0** = correctness/safety mismatch to block before representing th
 
 ## Prioritized next-task queue
 
-### P0 — Correct paper order semantics before extending the terminal
-1. Choose and document the supported paper-order state machine. For each order type either implement its declared trigger/lifecycle faithfully or return a clear unsupported-type rejection. Never immediately fill a LIMIT/STOP_LOSS/TAKE_PROFIT order as if it were MARKET.
-2. Add deterministic, configurable simulated spread, fees and slippage, and define how partial fills, cancel/reject, latency and restart replay are represented. Keep market-data freshness and Risk Gate approval mandatory at every eligible execution/trigger point.
-3. Add tests covering non-triggered and triggered orders, invalid trigger prices, cancel/replay, restart recovery, fee-adjusted portfolio/P&L, duplicate submission and risk rejection.
+### P0 — Remaining paper execution realism
+1. COMPLETED: MARKET, LIMIT, STOP_LOSS and TAKE_PROFIT have distinct trigger/lifecycle semantics. MARKET uses fresh executable bid/ask; LIMIT waits for crossing and enforces price protection; stop/target orders persist pending, trigger from a fresh executable-side quote, re-run Risk Gate and fill or reject. Pending cancellation, restart recovery and duplicate-fill prevention are covered in tests/ws-d-orders.test.js. Do not reimplement this state machine.
+2. Remaining: partial fills, amend/replace, venue queue priority, realistic latency and cross-process pending-order transition locking. Keep market freshness and server Risk Gate mandatory at every eligible execution/trigger point.
+3. Extend behavioral tests for each remaining lifecycle state, fee-adjusted portfolio/P&L, idempotent replay and Risk Gate rejection. Deterministic spread/slippage/fees are already implemented; their configured values are simulation assumptions, not venue-specific accuracy.
 
 ### P1 — Complete truthful data/research and validation paths
 4. Keep proxy labels and disconnected-feed status explicit. Connect source-attributed public news/research, company-fundamentals and sentiment only when real feed data, source timestamps, source trust, freshness, counter-evidence and failure/stale states are implemented and tested.

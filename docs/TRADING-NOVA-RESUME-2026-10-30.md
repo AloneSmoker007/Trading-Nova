@@ -2,6 +2,18 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — isolate overlapping journal refreshes (3 November 2026 PKT)
+
+Starting remote main: 44729732230067cfc327d93cbe769e35c21abc5d. Main CI run 41592105569, Chromium 41592105541 and lockfile run 41592105555 passed all enabled checks; conditional market-data-evidence was skipped. No open PRs or applicable AGENTS.md existed. Locked product contract §21 and the current gap audit were reviewed. The audit already confirms MARKET/LIMIT/STOP_LOSS/TAKE_PROFIT state-machine behavior is implemented; remaining lifecycle gaps are partial fills, amend/replace, queue priority, cross-process transition locking and production soak.
+
+Reproduced journal UI race in web/app.js: renderJournal had no request ownership, did not clear old verified records while refreshing, and every response/error/finally could publish. An older successful GET could overwrite a newer verified journal; an older rejection could erase it; a late success could restore stale thesis choices after a newer failure; and an older finally could clear the latest busy state.
+
+The bounded fix gives each journal refresh a monotonically increasing generation. Only the latest request may publish entries, integrity state, verified thesis records, failure or busy completion. Refresh immediately clears old journal rows/values and disables stale thesis choices. A previously selected thesis hash is restored only if the newest response still contains that verified record; unavailable/broken/empty data never preserves an invalid choice. Server order submission still re-verifies thesis provenance; the Risk Gate and execution code are unchanged.
+
+Behavioral acceptance: deferred-transport controller tests cover old success, old failure, late success after current failure, immediate clearing/loading ownership and restoration of a still-verified thesis. Chromium delays an old journal response, makes the newest refresh fail, then releases the old response and verifies the unavailable/empty state and disabled thesis selector remain. Exact remote CI and browser results must be recorded from the final PR head; no local suite is claimed because this runtime cannot clone the repository.
+
+No server accounting, journal writes, provider calls, credentials, deployment, production-data mutation or risk settings changed. Real-money remains OFF and every paper order still passes the mandatory server Risk Gate.
+
 ## Current task — isolate overlapping paper-learning refreshes (3 November 2026 PKT)
 
 Refreshed main `fe2033ead1f047fdde4b72281dde73c3c4dd4d74` is merged PR #112; merged-main CI run `41591360832` and Chromium run `41591360989` passed all enabled jobs (the opt-in market-data soak was skipped). Existing PR #105 was preserved and rebased onto that main without copying older files over newer work. Code commit `1f64fc9248d96723850170d5b359eb500450c50d` has current main as first parent and original PR candidate `9cfdbeb7bc223ec507a8212599f5f08b52b206f0` as second parent; compare against main is 2 commits ahead, 0 behind, with exactly three changed files: `web/app.js`, `scripts/browser-e2e.js`, and `tests/learning-ui-race.test.js`.
