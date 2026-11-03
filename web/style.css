@@ -400,6 +400,22 @@ caption { text-align: left; color: var(--muted); padding-bottom: 6px; font-size:
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--panel-border); font-variant-numeric: tabular-nums; }
 th { color: var(--muted); font-weight: 700; }
 
+.depth-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0;
+}
+.depth-controls strong { font-variant-numeric: tabular-nums; }
+.depth-controls button { margin-left: auto; min-height: 36px; padding: 6px 12px; }
+.depth-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.depth-side { min-width: 0; }
+.depth-side h3 { margin: 4px 0; font-size: 12px; color: var(--muted); }
+.depth-side:first-child tbody td:first-child { color: var(--bullish); }
+.depth-side:last-child tbody td:first-child { color: var(--bearish); }
+.depth-side td { overflow-wrap: anywhere; }
+
 .site-footer { padding-top: 20px; padding-bottom: 40px; color: var(--muted); font-size: 13px; }
 .site-footer ul { padding-left: 20px; }
 .muted { color: var(--muted); }
@@ -408,6 +424,7 @@ th { color: var(--muted); font-weight: 700; }
   .order-form-grid { grid-template-columns: 1fr; }
   .journal-form-row { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
+  .depth-grid { grid-template-columns: 1fr; }
 }
 
 

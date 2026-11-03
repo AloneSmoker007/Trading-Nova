@@ -37,6 +37,10 @@
   var liveKlineSocket = null;
   var liveKlineKey = null;
   var liveKlineReconnectTimer = null;
+  var depthEnabled = false;
+  var depthTimer = null;
+  var depthRequestId = 0;
+  var depthSymbol = null;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -295,6 +299,99 @@
     }).finally(function () {
       setBusy("market-values", false);
     });
+  }
+
+  function renderDepthRows(tbody, levels) {
+    clear(tbody);
+    if (!Array.isArray(levels)) return;
+    levels.slice(0, 20).forEach(function (level) {
+      if (!level || !Number.isFinite(level.price) || level.price <= 0
+          || !Number.isFinite(level.quantity) || level.quantity <= 0) return;
+      var tr = el("tr");
+      tr.appendChild(el("td", null, fmtNum(level.price, 8)));
+      tr.appendChild(el("td", null, fmtNum(level.quantity, 8)));
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderDepth() {
+    if (!depthEnabled || document.hidden) return Promise.resolve();
+    var symbol = readSymbol();
+    if (!symbol) return Promise.resolve();
+    var requestId = ++depthRequestId;
+    $("depth-symbol").textContent = symbol;
+    if (depthSymbol !== symbol) {
+      depthSymbol = symbol;
+      clear($("depth-bids-body"));
+      clear($("depth-asks-body"));
+      clear($("depth-values"));
+      note("depth-note", "Connecting to public Binance Spot depth for " + symbol + "…");
+    }
+    return api("/api/market/" + encodeURIComponent(symbol) + "/depth").then(function (result) {
+      if (requestId !== depthRequestId || !depthEnabled) return;
+      var body = result.body;
+      var data = body && body.ok === true ? body.data : null;
+      clear($("depth-values"));
+      if (result.status === 200 && data && data.symbol === symbol && data.executionEligible === false) {
+        var usable = data.isUsable === true;
+        var badgeState = usable ? "ok"
+          : data.transportState === "degraded" ? "stale"
+            : ["connecting", "syncing"].includes(data.transportState) ? "loading"
+              : data.transportState === "reconnecting" ? "stale" : "unavailable";
+        setBadge("depth-badge", badgeState, usable ? "LIVE" : String(data.transportState || "UNAVAILABLE").toUpperCase());
+        renderDepthRows($("depth-bids-body"), usable ? data.bids : []);
+        renderDepthRows($("depth-asks-body"), usable ? data.asks : []);
+        row($("depth-values"), "Source", "Binance Spot");
+        row($("depth-values"), "Transport", data.transportState || "unknown");
+        row($("depth-values"), "Source event time", fmtTime(data.sourceEventTime));
+        row($("depth-values"), "Local receipt time", fmtTime(data.eventReceivedAt));
+        row($("depth-values"), "Event age", fmtAge(data.ageMs));
+        row($("depth-values"), "Update ID", data.updateId);
+        row($("depth-values"), "Snapshot coverage", data.snapshotLimit
+          ? data.coverage + " · " + data.snapshotLimit + " levels" : data.coverage);
+        row($("depth-values"), "Spread", fmtNum(data.spread, 8));
+        note("depth-note", usable
+          ? "Fresh sequence-synced depth. " + (data.note || "Analysis-only; not used for execution.")
+          : "Depth " + String(data.transportState || "unavailable") + (data.lastError ? " · " + data.lastError : "")
+            + ". No usable book is being presented; paper execution is unchanged.");
+      } else {
+        var failure = failureState(result);
+        setBadge("depth-badge", "unavailable", "UNAVAILABLE");
+        clear($("depth-bids-body"));
+        clear($("depth-asks-body"));
+        note("depth-note", failure.message + " Paper execution and the Risk Gate do not use this panel.");
+      }
+    }).catch(function () {
+      if (requestId !== depthRequestId || !depthEnabled) return;
+      setBadge("depth-badge", "unavailable", "OFFLINE");
+      clear($("depth-bids-body"));
+      clear($("depth-asks-body"));
+      note("depth-note", "Depth API unavailable. No depth-based execution is enabled.");
+    });
+  }
+
+  function scheduleDepthPolling() {
+    if (!depthEnabled || document.hidden || depthTimer !== null) return;
+    renderDepth();
+    depthTimer = setInterval(renderDepth, 1000);
+  }
+
+  function pauseDepthPolling() {
+    if (depthTimer !== null) clearInterval(depthTimer);
+    depthTimer = null;
+    depthRequestId++;
+  }
+
+  function stopDepthPolling() {
+    depthEnabled = false;
+    pauseDepthPolling();
+    $("depth-toggle").textContent = "Connect depth";
+    $("depth-toggle").setAttribute("aria-pressed", "false");
+    setBadge("depth-badge", "idle", "OFF");
+    clear($("depth-bids-body"));
+    clear($("depth-asks-body"));
+    clear($("depth-values"));
+    note("depth-note", "Disconnected. The shared server stream expires after 15 seconds without readers.");
   }
 
   function renderChartAndIndicators() {
@@ -2046,6 +2143,7 @@
       syncOrderThesisOptions();
       $("order-price").value = "";
       delete $("order-price").dataset.edited;
+      if (depthEnabled && !document.hidden) renderDepth();
     });
     $("order-price").addEventListener("input", function () {
       this.dataset.edited = "true";
@@ -2067,6 +2165,29 @@
     $("chart-sma50").addEventListener("change", applyChartVisibility);
     $("chart-volume").addEventListener("change", applyChartVisibility);
     $("chart-fit-button").addEventListener("click", fitInteractiveChart);
+    $("depth-toggle").addEventListener("click", function () {
+      if (depthEnabled) {
+        stopDepthPolling();
+        return;
+      }
+      depthEnabled = true;
+      $("depth-toggle").textContent = "Disconnect depth";
+      $("depth-toggle").setAttribute("aria-pressed", "true");
+      if (document.hidden) {
+        note("depth-note", "Depth polling is paused while this tab is hidden.");
+      } else {
+        scheduleDepthPolling();
+      }
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (!depthEnabled) return;
+      if (document.hidden) {
+        pauseDepthPolling();
+        note("depth-note", "Polling paused while this tab is hidden; the server releases the stream after 15 seconds without readers.");
+      } else {
+        scheduleDepthPolling();
+      }
+    });
     $("walk-forward-input").addEventListener("input", invalidateStrategyLab);
     $("run-backtest-btn").addEventListener("click", renderStrategyLab);
 
