@@ -1,3 +1,35 @@
+## Latest verified increment — sequence-aware Binance Spot depth foundation (3 November 2026 PKT)
+
+Starting remote main: `8b7b216d2c747cf2d380c80a375c96a5b64fc88e`. PR #125 was the only open implementation PR at task start; it was resumed, not duplicated. No applicable root or nested `AGENTS.md` was found. Re-read this resume document, locked Product Contract §21 in `docs/TRADING-NOVA-MASTER-ROADMAP.md`, and `docs/V1-PRODUCT-GAP-AUDIT.md`.
+
+PR #125 adds a bounded, source-backed Binance Spot depth foundation:
+- Strict REST `/api/v3/depth` snapshot normalization, safe sequence IDs, sorted/unique positive levels, crossed-book rejection, receipt timestamp, and explicit unknown source timestamp.
+- Default snapshot limit 100; only supported request-weight limits `5, 10, 20, 50, 100, 500, 1000` are accepted. Provider and connector expose bounded snapshot reads and validated `@depth` / `@depth@100ms` stream URL builders.
+- Pure `BinanceSpotDepthBook` buffers events before the snapshot, applies absolute quantities and zero-quantity deletions, caps buffer and retained levels, validates event symbol/sequence/time, detects snapshot-behind-stream and later sequence gaps, and clears/invalidate on malformed, crossed, one-sided or stale/future states. Event time and local receipt time remain separate.
+- Every returned view keeps `executionEligible: false`; snapshot coverage is explicitly limited. This is a data/analysis foundation only.
+
+A test-first review found and fixed one additional sequence liveness edge. On test-only head `42bf2c886a59dce4ea42870e443b98302049655d`, CI `41682475760` reported **770 tests / 757 pass / 1 fail / 12 expected skips**: when the first pre-snapshot event had already been covered by the snapshot (`u <= lastUpdateId`), the next contiguous event beginning at `lastUpdateId + 1` was incorrectly rejected. The final implementation records whether the first buffered event was covered by the snapshot and allows only that contiguous next update; a first event arriving after the snapshot with no pre-snapshot event still requires resnapshot, and any later gap still invalidates the book.
+
+Final PR code head: `62383f5442fa47cfd6cb1f6c54f43c4842a674ef`.
+- Exact-head CI `41682957841`: **770 total / 758 pass / 0 fail / 12 expected skips**; lint, secret scan and `npm audit --audit-level=high` passed.
+- Exact-head Chromium `41682958613`: **PASS**.
+- PostgreSQL integration: **12 total / 5 pass / 0 fail / 7 expected skips**; separate PostgreSQL audit integration: **12/12 pass**.
+- Real Neon PostgreSQL integration and Neon-backed server startup/readiness: **PASS**.
+- Recovery job passed committed-write survival and aborted-write rollback. Its backup/restore evidence is **BLOCKED** because the environment is local (PR-head RTO 98 ms / RPO 88 ms are not production evidence); server-crash injection was skipped because `PG_CRASH_CMD` was unset.
+- Loopback stress on health/portfolio/journal: **PASS**, zero errors; P95 approximately 1.34–1.45 ms on the PR head.
+- Opt-in `market-data-evidence`: **SKIPPED**, not a live feed soak.
+- Five moderate `minimatch` advisories remain; forced remediation would downgrade ESLint, so it was not applied. Local full-suite execution was unavailable because this runtime could not resolve GitHub; no local pass is claimed.
+
+PR #125 was squash-merged as `94f11c173f88662392cf4f76f2599929170035ac`, current executable main at this checkpoint. Merged-main CI `41683710709`, Browser E2E `41683710524`, and lockfile workflow `41683710501` all passed. Merged-main test totals remained **770 / 758 pass / 0 fail / 12 expected skips**; PostgreSQL integration **12 / 5 / 0 / 7**, separate PostgreSQL audit **12/12**, Neon integration/readiness, recovery committed-write/rollback checks and loopback stress passed. Merged-main stress P95 was approximately 1.21–1.32 ms with zero errors. The opt-in market-data evidence job remained skipped. The merged-main backup/restore artifact is still **BLOCKED** because its environment is local (RTO 94 ms / RPO 105 ms are not production evidence); server-crash injection remains skipped because `PG_CRASH_CMD` is unset.
+
+Official sequence reference: https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md
+
+Scope and limits: this PR does not open or supervise a WebSocket connection, reconnect/resnapshot automatically, expose a depth API/UI, or integrate with order execution. The caller must open/buffer the stream before snapshot fetch and reset/refetch on invalidation. Snapshot depth is bounded; levels outside the snapshot are unknown until changed. No partial fills, queue priority, latency model, Risk Gate or paper order behavior changed. No live feed soak, production deployment, production DR, profitability or independent security certification is claimed. Real-money remains OFF; every paper order still passes the mandatory server Risk Gate. No broker credentials, paid calls/resources, production-data mutation or risk-limit change occurred.
+
+Next dependency: implement a separately reviewed WebSocket transport/reconnect/resnapshot lifecycle with bounded queues, heartbeat/staleness handling and sequence-reset tests. Only after that can executable depth/participation semantics be evaluated for partial fills; 24-hour volume must not be used as a depth proxy. Remaining broader work includes strategy calibration/revalidation, independent claim-level corroboration/counter-evidence, wider fundamentals/news/social evidence, live Gemini runtime proof, production deployment, sustained market-data soak, real backup/restore/RTO/RPO, observability and independent security evidence.
+
+---
+
 # Trading-Nova continuation — 30 October 2026 PKT
 
 ## Latest verified increment — Binance Spot quote timestamp honesty (3 November 2026 PKT)
