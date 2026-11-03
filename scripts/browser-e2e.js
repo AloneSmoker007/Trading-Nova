@@ -926,8 +926,10 @@ async function main() {
         await page.locator("#tutor-send-btn").click();
         await page.locator("#tutor-badge").getByText("WEB SOURCES", {exact: true}).waitFor();
         const source = page.locator("#tutor-messages .tutor-source-link");
-        assert.equal(await source.getAttribute("href"), "https://example.com/research");
-        assert.equal(await source.getAttribute("rel"), "noopener noreferrer");
+        assert.equal(await source.count(), 2);
+        assert.equal(await source.nth(0).getAttribute("href"), "https://www.reuters.com/fixture");
+        assert.equal(await source.nth(1).getAttribute("href"), "https://www.sec.gov/fixture");
+        assert.equal(await source.nth(0).getAttribute("rel"), "noopener noreferrer");
         assert.equal(tutorRequests.length, 2);
         assert.deepEqual(tutorRequests[1].history, [], "a failed research answer must not become model history");
 
@@ -935,8 +937,11 @@ async function main() {
         await evidence.locator("summary").click();
         await evidence.getByText(/Publication date\/freshness unknown/).waitFor();
         assert.equal(await evidence.locator(".tutor-evidence-claim").count(), 1);
-        assert.equal(await evidence.locator("a").getAttribute("href"), "https://example.com/research");
-        assert.equal(await evidence.locator("a").getAttribute("rel"), "noopener noreferrer");
+        const evidenceLinks = evidence.locator("a");
+        assert.equal(await evidenceLinks.count(), 2);
+        assert.equal(await evidenceLinks.nth(0).getAttribute("href"), "https://www.reuters.com/fixture");
+        assert.equal(await evidenceLinks.nth(1).getAttribute("href"), "https://www.sec.gov/fixture");
+        assert.equal(await evidenceLinks.nth(0).getAttribute("rel"), "noopener noreferrer");
         tutorReplyMode = "sources-only";
         await page.locator("#tutor-input").fill("Research without claim mapping");
         await page.locator("#tutor-send-btn").click();
