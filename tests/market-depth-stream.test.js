@@ -304,6 +304,42 @@ test("oversized and malformed WebSocket messages fail closed", () => {
   assert.equal(malformed.getView().lastError, "invalid-message");
 });
 
+test("pre-snapshot event buffer overflow invalidates and reconnects without applying a partial book", async () => {
+  const pending = deferred();
+  const provider = providerStub(() => pending.promise);
+  const {session, sockets} = createSession({provider, options: {maxBufferedEvents: 1}});
+  session.start();
+  sockets[0].open();
+  sockets[0].message(JSON.stringify(event(90, 100)));
+  await flush();
+  sockets[0].message(JSON.stringify(event(101, 101)));
+  assert.equal(session.getView().transportState, "reconnecting");
+  assert.equal(session.getView().lastError, "depth-buffer-overflow");
+  assert.equal(sockets[0].closed, true);
+
+  pending.resolve({ok: true, data: snapshot(100)});
+  await flush();
+  assert.notEqual(session.getView().status, "ready");
+  session.stop();
+});
+
+test("socket error and close share one reconnect attempt", () => {
+  const provider = providerStub(async () => ({ok: true, data: snapshot(100)}));
+  const {session, timers, sockets} = createSession({provider});
+  session.start();
+  sockets[0].open();
+  sockets[0].emit("error");
+  assert.equal(session.getView().transportState, "reconnecting");
+  assert.equal(session.getView().lastError, "stream-error");
+  assert.equal(session.reconnectAttempt, 1);
+  assert.equal(timers.nextDelay(), 100);
+
+  sockets[0].serverClose();
+  assert.equal(session.reconnectAttempt, 1);
+  assert.equal(timers.nextDelay(), 100);
+  session.stop();
+});
+
 test("repeated snapshot failures use bounded exponential backoff and one reconnect timer", async () => {
   const provider = providerStub(async () => ({ok: false, reason: "unavailable"}));
   const {session, timers, sockets} = createSession({provider});
