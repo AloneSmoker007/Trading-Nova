@@ -112,6 +112,8 @@ test("H3: a failing operation rolls back its writes and records no idempotency k
   );
   assert.ok(pool.calls.some(([sql]) => sql === "ROLLBACK"));
   assert.equal(pool.committed.has("paper-fills:1"), false);
+  assert.equal(pool.committed.has("paper-fill-revision:global"), false,
+    "fill history revision must roll back with the fill");
   assert.ok(!pool.calls.some(([sql]) => sql.includes("INSERT INTO trading_idempotency")));
 });
 
@@ -137,6 +139,7 @@ test("PersistentPaperEngine writes its fill through the transaction handle", asy
   const verdict = evaluateRiskGate({ order: { symbol: "BTC", side: "BUY", quantity: 1, price: 100 }, portfolio: p, riskConfig: config, approvedConfigHash: hash });
   const fill = await engine.submit(order, { markPrice: 100, gateArtifact: verdict.artifact });
   assert.equal(fill.status, "RECONCILED");
+  assert.deepEqual(pool.committed.get("paper-fill-revision:global"), {revision: 1});
   const beginAt = sqlIndex(pool.calls, "BEGIN");
   const writeAt = sqlIndex(pool.calls, "INSERT INTO trading_state");
   const idemAt = sqlIndex(pool.calls, "INSERT INTO trading_idempotency");

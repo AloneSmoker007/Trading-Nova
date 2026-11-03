@@ -21,7 +21,7 @@ async function fixture(transform, run, fills = history()) {
   store.listPage = (namespace, options) => {
     reads.push({...options});
     const page = original(namespace, options);
-    return transform ? transform(page, options) : page;
+    return transform ? transform(page, options, {store, reads}) : page;
   };
   let providerCalls = 0;
   const srv = await startTestServer({store, fetchImpl: async () => {
@@ -44,6 +44,7 @@ test("complete learning history spans pages and reproduces all FIFO losses", asy
     const expected = derivePaperOutcomes(fills);
     assert.deepEqual(data.outcomes, expected.outcomes);
     assert.equal(data.fillCount, 202);
+    assert.equal(data.historyRevision, 202);
     assert.equal(data.summary.losses, 101);
     assert.equal(data.summary.realizedNetPnl, expected.summary.realizedNetPnl);
     assert.deepEqual(reads, [{limit: 200, offset: 0}, {limit: 2, offset: 200}]);
@@ -57,8 +58,51 @@ test("an honestly empty learning history remains available", async () => {
     assert.equal(response.status, 200);
     assert.equal(data.state, "empty");
     assert.equal(data.fillCount, 0);
+    assert.equal(data.historyRevision, 0);
     assert.deepEqual(data.outcomes, []);
   }, []);
+});
+
+test("same-count fill replacement during a paged read fails closed for reports and autopsies", async () => {
+  let replacements = 0;
+  await fixture((page, options, {store}) => {
+    if (options.offset === 0) {
+      const current = store.get("paper-fills", "page-fill-201");
+      store.put("paper-fills", "page-fill-201", {...current, price: current.price + 1});
+      replacements++;
+    }
+    return page;
+  }, async ({base, store, fills}) => {
+    const response = await fetch(base + "/api/learning/outcomes");
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error.code, "paper-learning-unavailable");
+    const outcomeId = derivePaperOutcomes(fills).outcomes[0].outcomeId;
+    const review = await fetch(base + "/api/journal/entry", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({type: "loss-autopsy", outcomeId, title: "Changed history", text: "Must not be saved"})
+    });
+    assert.equal(review.status, 503);
+    assert.equal((await review.json()).error.code, "paper-learning-unavailable");
+    assert.equal(replacements, 2);
+    assert.equal(store.listPage("paper-fills", {limit: 200, offset: 0}).total, 202);
+    assert.equal(store.get("paper-journal", "main"), null);
+  });
+});
+
+test("paper-fill history revision advances on replacements and rolls back with a failed transaction", async () => {
+  const store = new DurableStore();
+  const fill = {idempotencyKey: "revision-fill", orderId: "revision-fill", status: "RECONCILED",
+    symbol: "BTCUSDT", side: "BUY", quantity: 1, price: 100, fee: 0.1, timestamp: 1};
+  store.put("paper-fills", fill.idempotencyKey, fill);
+  assert.deepEqual(store.get("paper-fill-revision", "global"), {revision: 1});
+  await assert.rejects(store.transactIdempotent("revision-rollback", async tx => {
+    tx.put("paper-fills", fill.idempotencyKey, {...fill, price: 101});
+    throw new Error("injected revision rollback");
+  }), /injected revision rollback/);
+  assert.deepEqual(store.get("paper-fill-revision", "global"), {revision: 1});
+  assert.equal(store.get("paper-fills", fill.idempotencyKey).price, 100);
+  store.put("paper-fills", fill.idempotencyKey, {...fill, price: 102});
+  assert.deepEqual(store.get("paper-fill-revision", "global"), {revision: 2});
 });
 
 test("inconsistent page lengths cannot publish incomplete learning or authorize an autopsy", async t => {

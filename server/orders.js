@@ -909,6 +909,15 @@ export function createPaperOrderService({
     return serialize(async () => {
       if (!(await initialize())) return {state: "error", reason: storeError};
       try {
+        const readHistoryRevision = async () => {
+          const record = await store.get("paper-fill-revision", "global");
+          if (record === null) return 0;
+          if (!record || !Number.isSafeInteger(record.revision) || record.revision < 0) {
+            throw new Error("invalid paper fill history revision");
+          }
+          return record.revision;
+        };
+        const startRevision = await readHistoryRevision();
         let fills;
         if (typeof store.listPage === "function") {
           const first = await store.listPage("paper-fills", {limit: 200, offset: 0});
@@ -932,8 +941,17 @@ export function createPaperOrderService({
           fills = await stateValues("paper-fills");
           if (fills.length > DEFAULT_MAX_FILLS) return {state: "error", reason: "paper-learning-history-too-large"};
         }
+        // Page cardinality and total-count checks cannot detect a same-count
+        // replacement. Every supported fill writer advances this revision in
+        // the same transaction as its fill write; a changed fence invalidates
+        // the entire report rather than mixing two histories.
+        const endRevision = await readHistoryRevision();
+        if (endRevision !== startRevision) {
+          return {state: "error", reason: "paper-learning-history-changed"};
+        }
         const report = derivePaperOutcomes(fills);
-        return {state: report.outcomes.length ? "ok" : "empty", fillCount: fills.length, ...report};
+        return {state: report.outcomes.length ? "ok" : "empty",
+          historyRevision: endRevision, fillCount: fills.length, ...report};
       } catch {
         return {state: "error", reason: "paper-learning-history-invalid"};
       }

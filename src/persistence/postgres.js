@@ -52,7 +52,26 @@ export class PostgresStore {
   }
   async put(namespace,id,value,client=this.pool){
     if(!namespace||!id) throw new Error("namespace and id required");
+    // A direct pooled fill write must keep the fill and its history revision
+    // in one transaction. Transaction-handle writes already share the caller's
+    // transaction (including rollback/replay paths).
+    if(namespace==="paper-fills" && client===this.pool){
+      return this.withTransaction(tx=>this.put(namespace,id,value,tx));
+    }
+    let nextRevision=null;
+    if(namespace==="paper-fills"){
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",["trading_nova:paper-fill-revision:"+(this.schema??"public")]);
+      const current=await this.get("paper-fill-revision","global",client);
+      const revision=current===null?0:current?.revision;
+      if(!Number.isSafeInteger(revision)||revision<0||revision>=Number.MAX_SAFE_INTEGER){
+        throw new Error("invalid paper fill history revision");
+      }
+      nextRevision=revision+1;
+    }
     await client.query(`INSERT INTO ${this.table("trading_state")}(namespace,state_id,value) VALUES($1,$2,$3::jsonb) ON CONFLICT(namespace,state_id) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`,[namespace,id,JSON.stringify(value)]);
+    if(nextRevision!==null){
+      await this.put("paper-fill-revision","global",{revision:nextRevision},client);
+    }
     return structuredClone(value);
   }
   async get(namespace,id,client=this.pool){
