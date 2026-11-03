@@ -18,7 +18,7 @@ const PUBLISHER_GROUPS = Object.freeze([
 ]);
 
 function assessPublisher(url) {
-  const hostname = new URL(url).hostname.toLowerCase().replace(/\\.$/, "");
+  const hostname = new URL(url).hostname.toLowerCase();
   const group = PUBLISHER_GROUPS.find(item => hostname === item.domain || hostname.endsWith("." + item.domain));
   return group ? {
     publisherGroupId: group.id,
