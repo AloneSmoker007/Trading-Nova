@@ -78,6 +78,18 @@ test("WS-B: BinancePublicConnector request rejects with a timeout error on stall
   await assert.rejects(() => c.getCandles("BTCUSDT", {limit: 1}), /timeout/);
 });
 
+test("BinancePublicConnector keeps missing bookTicker event time unknown", async () => {
+  const c = new BinancePublicConnector({
+    fetchImpl: async () => okJson({symbol: "BTCUSDT", bidPrice: "10", askPrice: "11"}),
+    now: () => 5000
+  });
+  const quote = await c.getQuote("BTCUSDT");
+  assert.equal(quote.timestamp, null);
+  assert.equal(quote.timestampStatus, "not-provided");
+  assert.equal(quote.ageMs, null);
+  assert.equal(quote.receivedAt, 5000);
+});
+
 test("WS-B: withBackoff is deadline-aware and never sleeps past the budget", async () => {
   let calls = 0;
   let slept = 0;
@@ -105,6 +117,13 @@ test("WS-B M5: normalizeCandle enforces schema parity (OHLC bounds, finite times
   assert.throws(() => normalizeCandle({...base, openTime: Infinity}), Error);
   assert.throws(() => normalizeCandle({...base, closeTime: -1}), Error); // closeTime < openTime
   assert.throws(() => normalizeQuote({source: "t", symbol: "BTCUSDT", bid: 1, ask: 2, timestamp: NaN, receivedAt: 100}), Error);
+  const receiptOnly = normalizeQuote({source: "t", symbol: "BTCUSDT", bid: 1, ask: 2, timestamp: null, receivedAt: 100});
+  assert.equal(receiptOnly.timestamp, null);
+  assert.equal(receiptOnly.timestampStatus, "not-provided");
+  assert.equal(receiptOnly.ageMs, null);
+  const sourceTimed = normalizeQuote({source: "t", symbol: "BTCUSDT", bid: 1, ask: 2, timestamp: 90, receivedAt: 100});
+  assert.equal(sourceTimed.timestampStatus, "source");
+  assert.equal(sourceTimed.ageMs, 10);
 });
 
 test("WS-B: getKlines flags continuity gaps instead of hiding them", async () => {
