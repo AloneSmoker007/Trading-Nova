@@ -43,7 +43,8 @@ function asyncStore({healthy = true} = {}) {
     transactIdempotent: (key, operation) => durable.transactIdempotent(key, (tx) => operation({
       get: async (...args) => tx.get(...args),
       put: async (...args) => tx.put(...args),
-      nextPaperSequence: async () => tx.nextPaperSequence()
+      nextPaperSequence: async () => tx.nextPaperSequence(),
+      lock: async key => tx.lock(key)
     }))
   };
 }
@@ -119,6 +120,85 @@ test("LIMIT orders remain pending until crossed, can be canceled, and never crea
     const fillsAfterCancel = await fetch(srv.base + "/api/orders").then((r) => r.json());
     assert.equal(fillsAfterCancel.data.total, 0);
   });
+});
+
+test("a cancel that wins after a trigger snapshot prevents the pending order from filling", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-order-transition-"));
+  let releaseQuote;
+  let processing;
+  let quoteReleased = false;
+  const untriggered = {state: "ok", ageMs: 0, data: {last: 42000.5, bid: 42000, ask: 42001}};
+  const release = value => {
+    if (!quoteReleased && releaseQuote) {
+      quoteReleased = true;
+      releaseQuote(value);
+    }
+  };
+  try {
+    const store = new DurableStore();
+    const stateFile = join(dir, "paper-state.json");
+    const executionStateFile = join(dir, "paper-orders.json");
+    const first = createPaperOrderService({
+      market: {getTicker: async () => untriggered}, stateFile, executionStateFile, store
+    });
+    const key = "pending-cancel-race";
+    const accepted = await first.submit({...validOrder(key), type: "LIMIT", price: 41000});
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.data.order.status, "PENDING");
+
+    let markQuoteStarted;
+    const quoteStarted = new Promise(resolve => { markQuoteStarted = resolve; });
+    const delayedQuote = new Promise(resolve => { releaseQuote = resolve; });
+    const second = createPaperOrderService({
+      market: {getTicker: async () => { markQuoteStarted(); return delayedQuote; }},
+      stateFile, executionStateFile, store
+    });
+    processing = second.processPendingOrders();
+    await quoteStarted;
+
+    const canceled = await first.cancelOrder(accepted.body.data.order.orderId);
+    assert.equal(canceled.status, 200);
+    assert.equal(canceled.body.data.order.status, "CANCELED");
+
+    release({state: "ok", ageMs: 0, data: {last: 40000, bid: 39999, ask: 40000}});
+    const processed = await processing;
+    assert.equal(processed.state, "ok");
+    assert.equal(processed.processed, 0);
+    assert.equal((await store.get("paper-orders", key)).status, "CANCELED");
+    assert.equal(await store.get("paper-fills", key), null);
+  } finally {
+    release(untriggered);
+    await processing?.catch(() => {});
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
+
+test("a legacy fill prevents a stale pending record from being canceled", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-order-transition-fill-"));
+  try {
+    const store = new DurableStore();
+    const key = "pending-record-with-fill";
+    await store.put("paper-orders", key, {
+      orderId: "legacy-filled-order", idempotencyKey: key, symbol: "BTCUSDT",
+      side: "BUY", type: "LIMIT", quantity: 0.01, price: 41000, status: "PENDING"
+    });
+    await store.put("paper-fills", key, {
+      orderId: "legacy-filled-order", idempotencyKey: key, symbol: "BTCUSDT",
+      side: "BUY", quantity: 0.01, price: 40000, status: "RECONCILED", timestamp: 1
+    });
+    const service = createPaperOrderService({
+      market: {getTicker: async () => ({state: "ok", ageMs: 0, data: {last: 42000, bid: 41999, ask: 42000}})},
+      stateFile: join(dir, "paper-state.json"),
+      executionStateFile: join(dir, "paper-orders.json"),
+      store
+    });
+    const result = await service.cancelOrder("legacy-filled-order");
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error.reason, "FILLED");
+    assert.equal((await store.get("paper-orders", key)).status, "PENDING");
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
 });
 
 test("crossed LIMIT executes at or better than its limit with simulated costs", async () => {

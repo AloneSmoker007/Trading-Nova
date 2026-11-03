@@ -92,6 +92,13 @@ export class PostgresStore {
       // The operation must write through `tx` so its writes join THIS
       // transaction (H3): store.put on a pooled connection would escape it.
       const tx={client,put:(ns,id,value)=>this.put(ns,id,value,client),get:(ns,id)=>this.get(ns,id,client)};
+      tx.lock=async key=>{
+        if(typeof key!=="string"||!key.trim()||key.length>256) throw new Error("invalid transaction lock key");
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+          ["trading_nova:paper-order-transition:"+(this.schema??"public")+":"+key]
+        );
+      };
       tx.nextPaperSequence=async()=>{
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",["trading_nova:paper-sequence:"+(this.schema??"public")]);
         return nextPaperSequence(tx);
