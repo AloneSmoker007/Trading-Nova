@@ -898,7 +898,11 @@ test("concurrent pending fills that exhaust shared cash reject cleanly without p
   const initialPortfolio = buildPortfolioState({
     cash: 5000,
     startingEquity: 10000,
-    positions: [{symbol: "BTCUSDT", quantity: 0.1, markPrice: 50000}]
+    positions: [
+      {symbol: "BTCUSDT", quantity: 0.1, markPrice: 50000},
+      {symbol: "SOLUSDT", quantity: 0.001, markPrice: 50000},
+      {symbol: "XRPUSDT", quantity: 0.001, markPrice: 50000}
+    ]
   });
   store.put("paper-portfolio", "current", initialPortfolio);
   store.put("paper-portfolio-revision", "global", {revision: 0});
