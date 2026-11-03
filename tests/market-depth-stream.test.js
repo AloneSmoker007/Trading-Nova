@@ -151,11 +151,25 @@ function createSession({provider, timers = new FakeTimers(), sockets = [], optio
     reconnectMinMs: 100,
     reconnectMaxMs: 400,
     snapshotTimeoutMs: 500,
+    connectTimeoutMs: 500,
     idleTimeoutMs: 5000,
     ...options
   });
   return {session, timers, sockets};
 }
+
+test("connection handshake timeout reconnects when a socket never opens", () => {
+  const provider = providerStub(async () => ({ok: true, data: snapshot(100)}));
+  const {session, timers, sockets} = createSession({provider});
+  session.start();
+  assert.equal(session.getView().transportState, "connecting");
+  timers.advance(500);
+  assert.equal(session.getView().transportState, "reconnecting");
+  assert.equal(session.getView().lastError, "connect-timeout");
+  assert.equal(sockets[0].closed, true);
+  assert.equal(timers.nextDelay(), 100);
+  session.stop();
+});
 
 test("depth stream opens before snapshot fetch and bridges the first buffered event", async () => {
   const pending = deferred();

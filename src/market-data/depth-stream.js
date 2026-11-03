@@ -60,6 +60,7 @@ export class BinanceSpotDepthStream {
     maxBufferedEvents = 1000,
     maxMessageBytes = 256 * 1024,
     snapshotTimeoutMs = 10000,
+    connectTimeoutMs = 10000,
     idleTimeoutMs = 5000,
     maxAgeMs = 1000,
     reconnectMinMs = 250,
@@ -84,6 +85,7 @@ export class BinanceSpotDepthStream {
       throw new TypeError("invalid depth message limit");
     }
     if (!Number.isFinite(snapshotTimeoutMs) || snapshotTimeoutMs < 100 || snapshotTimeoutMs > 60000
+        || !Number.isFinite(connectTimeoutMs) || connectTimeoutMs < 100 || connectTimeoutMs > 120000
         || !Number.isFinite(idleTimeoutMs) || idleTimeoutMs < 100 || idleTimeoutMs > 120000
         || !Number.isFinite(maxAgeMs) || maxAgeMs < 0 || maxAgeMs > 60000
         || !Number.isFinite(reconnectMinMs) || reconnectMinMs < 10
@@ -101,6 +103,7 @@ export class BinanceSpotDepthStream {
     this.snapshotLimit = snapshotLimit;
     this.maxMessageBytes = maxMessageBytes;
     this.snapshotTimeoutMs = snapshotTimeoutMs;
+    this.connectTimeoutMs = connectTimeoutMs;
     this.idleTimeoutMs = idleTimeoutMs;
     this.maxAgeMs = maxAgeMs;
     this.reconnectMinMs = reconnectMinMs;
@@ -231,13 +234,13 @@ export class BinanceSpotDepthStream {
 
     const connection = ++this.connectionToken;
     this.socket = socket;
+    this.socketDisposers = [];
     try {
-      this.socketDisposers = [
-        subscribe(socket, "open", () => this._handleOpen(socket, lifecycle, connection)),
-        subscribe(socket, "message", (event) => this._handleMessage(socket, lifecycle, connection, event)),
-        subscribe(socket, "error", () => this._failConnection("stream-error", socket, lifecycle, connection)),
-        subscribe(socket, "close", () => this._failConnection("stream-closed", socket, lifecycle, connection))
-      ];
+      this.socketDisposers.push(subscribe(socket, "open", () => this._handleOpen(socket, lifecycle, connection)));
+      this.socketDisposers.push(subscribe(socket, "message", (event) => this._handleMessage(socket, lifecycle, connection, event)));
+      this.socketDisposers.push(subscribe(socket, "error", () => this._failConnection("stream-error", socket, lifecycle, connection)));
+      this.socketDisposers.push(subscribe(socket, "close", () => this._failConnection("stream-closed", socket, lifecycle, connection)));
+      this._armConnectTimer(socket, lifecycle, connection);
     } catch {
       this.socket = null;
       this.connectionToken++;
@@ -324,6 +327,16 @@ export class BinanceSpotDepthStream {
       this.state = "syncing";
     }
     this._emit();
+  }
+
+  _armConnectTimer(socket, lifecycle, connection) {
+    this._clearTimer("idleTimer");
+    this.idleTimer = this.setTimeoutImpl(() => {
+      this.idleTimer = null;
+      if (this._isCurrent(socket, lifecycle, connection)) {
+        this._failConnection("connect-timeout", socket, lifecycle, connection);
+      }
+    }, this.connectTimeoutMs);
   }
 
   _armIdleTimer(socket, lifecycle, connection) {
