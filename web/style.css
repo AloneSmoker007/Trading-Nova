@@ -72,7 +72,13 @@ main, .site-header, .paper-banner, .site-footer {
 .paper-orders-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--panel-border); }
 .compact-head { margin: 0 0 8px; }
 .cancel-paper-order { white-space: nowrap; border-color: var(--warn-fg); color: var(--warn-fg); background: transparent; }
-.cancel-paper-order:disabled { opacity: 0.55; cursor: not-allowed; }
+.cancel-paper-order:disabled, .amend-paper-order:disabled,
+.amend-paper-order-save:disabled { opacity: 0.55; cursor: not-allowed; }
+.amend-paper-order { margin-left: 6px; white-space: nowrap; }
+.amend-paper-order-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.amend-paper-order-form[hidden] { display: none !important; }
+.amend-paper-order-form input { width: 110px; min-width: 0; }
+.amend-paper-order-form button { padding: 5px 8px; }
 .logout-button[hidden] { display: none !important; }
 h1 { margin: 0 0 2px; font-size: 28px; font-weight: 800; tracking: -0.02em; }
 h2 { margin: 0; font-size: 16px; font-weight: 700; }
