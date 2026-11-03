@@ -637,8 +637,10 @@ export function createApi({
           ? losses.filter((outcome) => !reviewedLosses.has(outcome.outcomeId)).length : null
       },
       note: report.state === "empty"
-        ? "No realized paper outcomes yet. Open positions and unmatched fills are not invented as outcomes. Real money OFF."
-        : "Server-derived FIFO outcomes from reconciled paper fills, including simulated fees. Loss autopsies are hash-chained user reviews, not execution facts or profitability evidence."
+        ? "No reconciled paper fills yet. No trade outcome is inferred. Real money OFF."
+        : report.state === "open"
+          ? "Only open paper position cycles exist. Any displayed realized partials are not closed-trade results; open exposure and unrealized P&L are excluded. Real money OFF."
+          : "Server-derived FIFO fragments and flat-to-flat paper trade cycles from reconciled fills, including simulated fees. Loss autopsies are hash-chained user reviews, not execution facts or profitability evidence."
     });
   }
 
