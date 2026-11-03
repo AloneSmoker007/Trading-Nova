@@ -4,7 +4,7 @@ import {mkdir, readFile, rename, unlink, writeFile} from "node:fs/promises";
 import {dirname} from "node:path";
 import {createHash, randomUUID} from "node:crypto";
 import {PersistentPaperEngine} from "../src/execution/paper-persistent.js";
-import {DEFAULT_PAPER_FEE_RATE, DEFAULT_PAPER_SLIPPAGE_BPS, estimateMarketExecution, validatePaperExecutionCostConfig} from "../src/execution/costs.js";
+import {DEFAULT_PAPER_FEE_RATE, DEFAULT_PAPER_SLIPPAGE_BPS, estimateLimitDepthExecution, estimateMarketExecution, validatePaperExecutionCostConfig} from "../src/execution/costs.js";
 import {DurableStore} from "../src/persistence/store.js";
 import {buildPortfolioState, validatePortfolioState} from "../src/risk/portfolio.js";
 import {createRiskConfig, evaluateRiskGate, hashOrderPayload, normalizeSide} from "../src/risk/gate.js";
@@ -25,6 +25,9 @@ const DEFAULT_RISK_CONFIG = Object.freeze({
 const {config: RISK_CONFIG, hash: RISK_CONFIG_HASH} = createRiskConfig(DEFAULT_RISK_CONFIG);
 // This terminal has one USDT cash ledger; no FX conversion ledger exists.
 const supportsPaperQuote = (symbol) => typeof symbol === "string" && /^[A-Z0-9]{1,20}USDT$/.test(symbol);
+const MAX_PAPER_FILL_SLICES = 100;
+const PAPER_QUANTITY_EPSILON = 1e-12;
+const isActiveOrderStatus = (status) => status === "PENDING" || status === "PARTIALLY_FILLED";
 const ALLOWED_FIELDS = new Set(["symbol", "side", "quantity", "price", "idempotencyKey", "reduceOnly", "type", "stopPrice", "takeProfitPrice", "thesisHash"]);
 const fail = (status, code, message, reason) => ({
   status,
@@ -437,11 +440,14 @@ export function createPaperOrderService({
         if (typeof tx.lock === "function") await tx.lock("order:" + order.idempotencyKey);
         const current = await tx.get("paper-orders", order.idempotencyKey);
         if (!current) return {changed: false, order: current};
-        if (status !== "FILLED") {
+        const active = isActiveOrderStatus(current.status);
+        // A legacy PENDING row with any fill is inconsistent and cannot be
+        // canceled/rejected. PARTIALLY_FILLED is the explicit supported state.
+        if (status !== "FILLED" && current.status === "PENDING") {
           const existingFill = await tx.get("paper-fills", order.idempotencyKey);
           if (existingFill) return {changed: false, order: current, fillExists: true};
         }
-        if (current.status !== "PENDING") return {changed: false, order: current};
+        if (!active) return {changed: false, order: current};
         const next = buildRecord(current);
         await tx.put("paper-orders", order.idempotencyKey, next);
         return {changed: true, order: next};
@@ -460,13 +466,21 @@ export function createPaperOrderService({
       const key = fill?.idempotencyKey || fill?.orderId;
       if (!key || known.has(key)) continue;
       const type = fill.type || "MARKET";
+      const orderQuantity = Number.isFinite(fill.orderQuantity) ? fill.orderQuantity : fill.quantity;
+      const filledQuantity = Number.isFinite(fill.filledQuantity) ? fill.filledQuantity : fill.quantity;
+      const remainingQuantity = Number.isFinite(fill.remainingQuantity)
+        ? fill.remainingQuantity : Math.max(0, orderQuantity - filledQuantity);
+      const status = remainingQuantity <= PAPER_QUANTITY_EPSILON ? "FILLED" : "PARTIALLY_FILLED";
       const record = {
         orderId: fill.orderId || key,
         idempotencyKey: key,
         symbol: fill.symbol,
         side: fill.side,
         type,
-        quantity: fill.quantity,
+        quantity: orderQuantity,
+        filledQuantity,
+        remainingQuantity,
+        fillCount: Array.isArray(fill.executionSlices) ? fill.executionSlices.length : 1,
         price: type === "LIMIT" ? (fill.limitPrice ?? fill.price)
           : type === "STOP_LOSS" ? (fill.stopPrice ?? fill.price)
             : type === "TAKE_PROFIT" ? (fill.takeProfitPrice ?? fill.price) : fill.price,
@@ -476,11 +490,11 @@ export function createPaperOrderService({
         reduceOnly: fill.reduceOnly === true,
         orderIntentHash: fill.orderIntentHash || null,
         ...(fill.thesisRef ? {thesisRef: fill.thesisRef} : {}),
-        status: "FILLED",
-        createdAt: fill.timestamp || now(),
+        status,
+        createdAt: fill.executionSlices?.[0]?.timestamp || fill.timestamp || now(),
         updatedAt: fill.timestamp || now(),
         timestamp: fill.timestamp || now(),
-        filledAt: fill.timestamp || now(),
+        ...(status === "FILLED" ? {filledAt: fill.timestamp || now()} : {}),
         fillOrderId: fill.orderId || key,
         legacyRecovered: true
       };
@@ -502,6 +516,9 @@ export function createPaperOrderService({
       side: order.side,
       type: order.type,
       quantity: order.quantity,
+      filledQuantity: 0,
+      remainingQuantity: order.quantity,
+      fillCount: 0,
       price: order.price,
       limitPrice: order.limitPrice,
       stopPrice: order.stopPrice,
@@ -758,11 +775,9 @@ export function createPaperOrderService({
       await persist();
       await processPendingOrdersLocked({orderId: saved.orderId});
       const finalOrder = await store.get("paper-orders", order.idempotencyKey) || saved;
-      if (finalOrder.status === "FILLED") {
-        const fill = await store.get("paper-fills", order.idempotencyKey);
-        if (fill) return orderSuccess(finalOrder, fill, {decision: "ALLOW"}, false);
-      }
-      return pendingOrderSuccess(finalOrder, verdict, false);
+      const fill = await store.get("paper-fills", order.idempotencyKey);
+      if (finalOrder.status === "FILLED" && fill) return orderSuccess(finalOrder, fill, {decision: "ALLOW"}, false);
+      return pendingOrderSuccess(finalOrder, verdict, false, fill);
     } catch {
       storeError ||= "paper-order-state-unavailable";
       return fail(500, "paper-order-not-persisted", "pending paper order could not be safely persisted");
@@ -802,6 +817,12 @@ export function createPaperOrderService({
           : order.type === "MARKET" && prior.intentHash === hashOrderPayload({...order, price: 0});
         if (!matches) return fail(409, "idempotency-key-reused", "idempotencyKey was already used for a different order");
         const record = await store.get("paper-orders", order.idempotencyKey);
+        if (record && record.status !== "FILLED") {
+          return pendingOrderSuccess(record, {
+            decision: record.status === "REJECTED" ? "NO_TRADE" : "ALLOW",
+            reasons: record.rejectionReasons || [], replayed: true
+          }, true, prior);
+        }
         return orderSuccess(record || order, prior, {decision: "ALLOW", replayed: true}, true);
       }
       const existingOrder = await store.get("paper-orders", order.idempotencyKey);
@@ -813,7 +834,7 @@ export function createPaperOrderService({
           decision: existingOrder.status === "REJECTED" ? "NO_TRADE" : "ALLOW",
           reasons: existingOrder.rejectionReasons || [],
           replayed: true
-        }, true);
+        }, true, await store.get("paper-fills", order.idempotencyKey));
       }
 
       const base = await baseState();
@@ -959,7 +980,7 @@ export function createPaperOrderService({
     if (!(await initialize())) return {state: "error", reason: storeError, processed: 0};
     const records = await ensureOrderRecords();
     const pending = records
-      .filter((record) => record?.status === "PENDING" && (!orderId || record.orderId === orderId))
+      .filter((record) => isActiveOrderStatus(record?.status) && (!orderId || record.orderId === orderId))
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
       .slice(0, 100);
     let processed = 0;
@@ -967,9 +988,12 @@ export function createPaperOrderService({
       let snapshot = null;
       try {
         const alreadyFilled = await store.get("paper-fills", order.idempotencyKey);
-        if (alreadyFilled) {
+        if (alreadyFilled && order.status !== "PARTIALLY_FILLED") {
           const transition = await transitionPendingOrder(order, "FILLED", current => ({
             ...current, status: "FILLED", updatedAt: now(),
+            filledQuantity: alreadyFilled.filledQuantity ?? alreadyFilled.quantity,
+            remainingQuantity: 0,
+            fillCount: alreadyFilled.executionSlices?.length ?? 1,
             filledAt: alreadyFilled.timestamp, fillOrderId: alreadyFilled.orderId
           }));
           if (!transition.changed && transition.order?.status !== "FILLED") {
@@ -977,6 +1001,24 @@ export function createPaperOrderService({
             break;
           }
           processed++;
+          continue;
+        }
+        if ((order.fillCount || 0) >= MAX_PAPER_FILL_SLICES) {
+          const transition = await transitionPendingOrder(order, "REJECTED", current => ({
+            ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: ["PARTIAL_FILL_LIMIT_REACHED"], rejectionCode: "partial-fill-limit-reached"
+          }));
+          if (transition.changed) processed++;
+          continue;
+        }
+        const remainingQuantity = Number.isFinite(order.remainingQuantity)
+          ? order.remainingQuantity : order.quantity - (order.filledQuantity || 0);
+        if (!Number.isFinite(remainingQuantity) || remainingQuantity <= PAPER_QUANTITY_EPSILON) {
+          const transition = await transitionPendingOrder(order, "FILLED", current => ({
+            ...current, status: "FILLED", updatedAt: now(), remainingQuantity: 0,
+            filledAt: now()
+          }));
+          if (transition.changed) processed++;
           continue;
         }
         if (!supportsPaperQuote(order.symbol)) {
@@ -997,17 +1039,40 @@ export function createPaperOrderService({
         if (!quote || !isOrderTriggered(order, quote)) continue;
 
         let execution;
+        let bookUpdateId = null;
         try {
-          execution = estimateOrderExecution(order, quote, marketState.marks.get(order.symbol), executionCostConfig);
+          if (order.type === "LIMIT") {
+            if (typeof market.getOrderBook !== "function") continue;
+            const depthResult = await market.getOrderBook(order.symbol, {limit: 100});
+            if (depthResult?.state !== "ok" || !Number.isFinite(depthResult.ageMs)
+                || depthResult.ageMs > maxMarketAgeMs || !depthResult.data
+                || !Number.isSafeInteger(depthResult.data.lastUpdateId)
+                || depthResult.data.lastUpdateId < 1
+                || order.lastBookUpdateId === depthResult.data.lastUpdateId) continue;
+            execution = estimateLimitDepthExecution({
+              side: order.side,
+              quantity: remainingQuantity,
+              limitPrice: order.limitPrice,
+              referencePrice: marketState.marks.get(order.symbol),
+              book: depthResult.data,
+              feeRate: executionCostConfig.feeRate,
+              slippageBps: executionCostConfig.slippageBps
+            });
+            if (!execution) continue;
+            bookUpdateId = depthResult.data.lastUpdateId;
+          } else {
+            execution = estimateOrderExecution({...order, quantity: remainingQuantity}, quote,
+              marketState.marks.get(order.symbol), executionCostConfig);
+          }
         } catch {
           continue;
         }
         const gatedOrder = {
-          symbol: order.symbol, side: order.side, quantity: order.quantity,
+          symbol: order.symbol, side: order.side, quantity: execution.quantity,
           price: execution.executionPrice, reduceOnly: order.reduceOnly === true
         };
         if (gatedOrder.side === "BUY"
-            && gatedOrder.quantity * gatedOrder.price + execution.fee > marketState.portfolio.cash) {
+            && execution.notional + execution.fee > marketState.portfolio.cash) {
           const transition = await transitionPendingOrder(order, "REJECTED", current => ({
             ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
             rejectionReasons: ["INSUFFICIENT_CASH"], rejectionCode: "risk-gate-rejected"
@@ -1018,7 +1083,7 @@ export function createPaperOrderService({
         let projectedPortfolio;
         try {
           projectedPortfolio = applyFill(marketState.portfolio, {
-            symbol: order.symbol, side: order.side, quantity: order.quantity,
+            symbol: order.symbol, side: order.side, quantity: execution.quantity,
             price: execution.executionPrice, markPrice: execution.referencePrice, fee: execution.fee
           });
         } catch {
@@ -1044,6 +1109,8 @@ export function createPaperOrderService({
         const fill = await engine.submit(
           {
             ...gatedOrder, id: order.orderId, orderId: order.orderId,
+            quantity: order.quantity, fillQuantity: execution.quantity,
+            ...(bookUpdateId !== null ? {executionKey: "depth:" + bookUpdateId} : {}),
             idempotencyKey: order.idempotencyKey, type: order.type,
             limitPrice: order.limitPrice, stopPrice: order.stopPrice,
             takeProfitPrice: order.takeProfitPrice, orderIntentHash: order.orderIntentHash,
@@ -1058,8 +1125,13 @@ export function createPaperOrderService({
             }),
             onFill: async (tx, committedFill, context) => {
               const currentOrder = await tx.get("paper-orders", order.idempotencyKey);
-              if (currentOrder?.status !== "PENDING") {
-                const error = new Error("paper order is no longer pending");
+              if (!currentOrder || !isActiveOrderStatus(currentOrder.status)) {
+                const error = new Error("paper order is no longer active");
+                error.code = "PAPER_ORDER_NOT_PENDING";
+                throw error;
+              }
+              if (bookUpdateId !== null && currentOrder.lastBookUpdateId === bookUpdateId) {
+                const error = new Error("paper depth snapshot was already consumed for this order");
                 error.code = "PAPER_ORDER_NOT_PENDING";
                 throw error;
               }
@@ -1067,13 +1139,28 @@ export function createPaperOrderService({
                   || context.revision >= Number.MAX_SAFE_INTEGER) {
                 throw new Error("paper portfolio authorization context is invalid");
               }
+              const filledQuantity = (currentOrder.filledQuantity || 0) + committedFill.quantity;
+              const remaining = Math.max(0, currentOrder.quantity - filledQuantity);
+              if (!Number.isFinite(filledQuantity) || filledQuantity > currentOrder.quantity + PAPER_QUANTITY_EPSILON) {
+                throw new Error("paper order cumulative fill quantity is invalid");
+              }
+              const status = remaining <= PAPER_QUANTITY_EPSILON ? "FILLED" : "PARTIALLY_FILLED";
               await tx.put("paper-portfolio", "current", applyFill(context.portfolio, committedFill));
               await tx.put("paper-portfolio-revision", "global", {revision: context.revision + 1});
               await tx.put("paper-orders", order.idempotencyKey, {
-                ...currentOrder, status: "FILLED", updatedAt: now(),
-                filledAt: committedFill.timestamp, fillOrderId: committedFill.orderId,
+                ...currentOrder,
+                status,
+                updatedAt: now(),
+                filledQuantity,
+                remainingQuantity: status === "FILLED" ? 0 : remaining,
+                fillCount: (currentOrder.fillCount || 0) + 1,
+                ...(status === "FILLED" ? {filledAt: committedFill.timestamp} : {}),
+                fillOrderId: committedFill.orderId,
+                lastFillAt: committedFill.timestamp,
+                ...(bookUpdateId !== null ? {lastBookUpdateId: bookUpdateId} : {}),
                 lastTriggerQuote: {bid: quote.bid, ask: quote.ask},
-                actualFillPrice: committedFill.price
+                actualFillPrice: committedFill.price,
+                actualFillQuantity: committedFill.quantity
               });
             }
           }
@@ -1131,8 +1218,8 @@ export function createPaperOrderService({
         state: storeError ? "error" : "ok",
         orders,
         total: records.length,
-        pendingCount: records.filter((record) => record.status === "PENDING").length,
-        note: "Paper/shadow only. Trigger orders are simulated from fresh public bid/ask quotes; real money OFF."
+        pendingCount: records.filter((record) => isActiveOrderStatus(record.status)).length,
+        note: "Paper/shadow only. LIMIT fills use fresh public Binance depth snapshots with a 10% visible-size participation cap; queue priority and market impact are not modeled. Real money OFF."
       };
     });
   }
@@ -1146,12 +1233,10 @@ export function createPaperOrderService({
       const order = records.find((record) => record.orderId === orderId);
       if (!order) return fail(404, "order-not-found", "paper order was not found");
       if (order.status === "CANCELED") {
-        const existingFill = await store.get("paper-fills", order.idempotencyKey);
-        if (existingFill) return fail(409, "order-not-cancelable", "a filled paper order cannot be canceled", "FILLED");
-        return {status: 200, body: {ok: true, data: {order, state: "replayed", note: "Order was already canceled. Real money OFF."}}};
+        return {status: 200, body: {ok: true, data: {order, state: "replayed", note: "Remaining paper quantity was already canceled; prior partial fills remain recorded. Real money OFF."}}};
       }
-      if (order.status !== "PENDING") {
-        return fail(409, "order-not-cancelable", "only pending paper orders can be canceled", order.status);
+      if (!isActiveOrderStatus(order.status)) {
+        return fail(409, "order-not-cancelable", "only active pending paper orders can be canceled", order.status);
       }
       try {
         const transition = await transitionPendingOrder(order, "CANCELED", current => ({
@@ -1168,8 +1253,13 @@ export function createPaperOrderService({
           }
           return fail(409, "order-not-cancelable", "only pending paper orders can be canceled", transition.order?.status || "missing");
         }
+        const hadPartialFill = (transition.order.filledQuantity || 0) > 0;
         return {status: 200, body: {ok: true, data: {
-          order: transition.order, state: "ok", note: "Pending paper order canceled. No fill was created; real money OFF."
+          order: transition.order,
+          state: "ok",
+          note: hadPartialFill
+            ? "Remaining paper quantity canceled. Earlier partial fills and portfolio effects remain recorded; real money OFF."
+            : "Pending paper order canceled. No fill was created; real money OFF."
         }}};
       } catch {
         storeError ||= "paper-order-state-unavailable";
@@ -1264,15 +1354,16 @@ export function createPaperOrderService({
 }
 
 
-function pendingOrderSuccess(order, verdict, replayed) {
+function pendingOrderSuccess(order, verdict, replayed, fill = null) {
   const rejected = order.status === "REJECTED";
   const reasons = rejected
     ? (order.rejectionReasons || [])
     : (verdict.reasons || []);
   const decision = rejected ? "NO_TRADE" : "ALLOW";
   const state = order.status === "PENDING" ? "pending"
-    : rejected ? "rejected"
-      : replayed ? "replayed" : "terminal";
+    : order.status === "PARTIALLY_FILLED" ? "partially-filled"
+      : rejected ? "rejected"
+        : replayed ? "replayed" : "terminal";
   return {
     status: 200,
     body: {
@@ -1280,14 +1371,19 @@ function pendingOrderSuccess(order, verdict, replayed) {
       data: {
         state,
         order,
-        fill: null,
+        fill: fill ? {...fill, tier: "paper"} : null,
         verdict: {decision, replayed: Boolean(replayed), reasons},
         reconciliation: {state: String(order.status || "PENDING").toLowerCase()},
         note: rejected
-          ? "Pending order triggered but the Risk Gate refused execution. No fill was created; real money OFF."
+          ? (fill ? "The Risk Gate rejected the remaining quantity; earlier partial fills remain recorded. Real money OFF."
+            : "Pending order triggered but the Risk Gate refused execution. No fill was created; real money OFF.")
           : order.status === "CANCELED"
-            ? "Paper order canceled. No fill was created; real money OFF."
-            : "Paper order accepted and waiting for its trigger. Execution will re-check fresh quotes and the Risk Gate; real money OFF."
+            ? ((order.filledQuantity || 0) > 0
+              ? "Remaining paper quantity canceled; earlier partial fills remain recorded. Real money OFF."
+              : "Paper order canceled. No fill was created; real money OFF.")
+            : order.status === "PARTIALLY_FILLED"
+              ? "Paper order partially filled from a fresh public depth snapshot. Remaining quantity stays active and is rechecked against fresh depth and the Risk Gate; real money OFF."
+              : "Paper order accepted and waiting for its trigger. Execution will re-check fresh quotes and the Risk Gate; real money OFF."
       }
     }
   };

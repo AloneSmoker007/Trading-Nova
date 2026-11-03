@@ -838,6 +838,7 @@
           tr.appendChild(el("td", null, f.symbol));
           tr.appendChild(el("td", null, f.side));
           tr.appendChild(el("td", null, fmtNum(f.quantity, 6)));
+          tr.appendChild(el("td", null, fmtNum(Array.isArray(f.executionSlices) ? f.executionSlices.length : 1, 0)));
           tr.appendChild(el("td", null, "$" + fmtNum(f.price)));
           tr.appendChild(el("td", null, fillCostSummary(f)));
           tr.appendChild(el("td", null, f.status || "RECONCILED"));
@@ -908,12 +909,15 @@
         tr.appendChild(el("td", null, paperOrderTriggerLabel(order)));
         tr.appendChild(el("td", null, order.side || "—"));
         tr.appendChild(el("td", null, fmtNum(order.quantity, 6)));
+        tr.appendChild(el("td", null, fmtNum(order.filledQuantity || 0, 6) + " / "
+          + fmtNum(order.remainingQuantity ?? order.quantity, 6)));
         tr.appendChild(el("td", null, order.status || "UNKNOWN"));
         var action = el("td");
-        if (order.status === "PENDING" && typeof order.orderId === "string") {
+        if ((order.status === "PENDING" || order.status === "PARTIALLY_FILLED")
+            && typeof order.orderId === "string") {
           var cancel = el("button", "cancel-paper-order", "Cancel");
           cancel.type = "button";
-          cancel.setAttribute("aria-label", "Cancel pending " + order.type + " order for " + order.symbol);
+          cancel.setAttribute("aria-label", "Cancel remaining " + order.type + " paper order quantity for " + order.symbol);
           cancel.addEventListener("click", function () {
             cancel.disabled = true;
             note("paper-orders-note", "Canceling pending paper order…");

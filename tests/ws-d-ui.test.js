@@ -185,6 +185,12 @@ test("paper order ticket only targets the gated paper endpoint", () => {
   assert.match(html, /id="order-take-profit-price-field" hidden/);
   assert.match(app, /function updateOrderTypeFields/);
   assert.match(app, /function renderPaperOrders/);
+  assert.match(app, /order\.filledQuantity/);
+  assert.match(app, /order\.remainingQuantity/);
+  assert.match(app, /order\.status === "PARTIALLY_FILLED"/);
+  assert.match(app, /executionSlices\) \? f\.executionSlices\.length : 1/);
+  assert.match(html, /Filled \/ Remaining/);
+  assert.match(html, /<th scope="col">Slices<\/th>/);
   assert.match(app, /\/api\/paper\/orders\/.*\/cancel/);
   assert.match(html, /cross the live bid\/ask and include configured slippage and fees/);
   assert.match(app, /var disabledControls = Array\.prototype\.map\.call/);

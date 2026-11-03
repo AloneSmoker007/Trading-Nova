@@ -75,7 +75,39 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
   }
   if (fills.length > maxFills) throw new Error("paper fill history exceeds the outcome limit");
 
-  const ordered = fills.map(validatedFill).sort((a, b) => a.timestamp - b.timestamp
+  const expanded = [];
+  for (const fill of fills) {
+    if (fill?.executionSlices === undefined) {
+      expanded.push(validatedFill(fill));
+      continue;
+    }
+    if (!Array.isArray(fill.executionSlices) || fill.executionSlices.length < 1
+        || fill.executionSlices.length > 100) {
+      throw new Error("invalid paper execution slice history");
+    }
+    for (const slice of fill.executionSlices) {
+      if (!slice || typeof slice !== "object" || Array.isArray(slice)
+          || !Number.isSafeInteger(slice.executionSequence) || slice.executionSequence < 1) {
+        throw new Error("invalid paper execution slice");
+      }
+      const sliceId = typeof slice.idempotencyKey === "string" && slice.idempotencyKey
+        ? slice.idempotencyKey
+        : typeof slice.fillId === "string" && slice.fillId
+          ? slice.fillId : fill.idempotencyKey + ":" + slice.executionSequence;
+      expanded.push(validatedFill({
+        ...fill,
+        ...slice,
+        idempotencyKey: sliceId,
+        orderId: fill.orderId,
+        symbol: fill.symbol,
+        side: fill.side,
+        thesisRef: slice.thesisRef ?? fill.thesisRef,
+        status: "RECONCILED"
+      }));
+    }
+  }
+  if (expanded.length > maxFills) throw new Error("paper fill history exceeds the outcome limit");
+  const ordered = expanded.sort((a, b) => a.timestamp - b.timestamp
     || (a.executionSequence ?? Infinity) - (b.executionSequence ?? Infinity) || a.id.localeCompare(b.id));
   const ids = new Set();
   const sequences = new Set();

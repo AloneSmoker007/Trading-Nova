@@ -177,6 +177,12 @@ export function createMarketService({
       return {...result, stale: false, ageMs: sourceAgeMs};
     },
 
+    getOrderBook(symbol, {limit = 100} = {}) {
+      const sym = typeof symbol === "string" ? symbol.toUpperCase() : "";
+      if (!sym) return Promise.resolve({state: "unavailable", reason: "invalid-symbol"});
+      return read(`depth:${sym}:${limit}`, () => provider.getOrderBook(sym, {limit}));
+    },
+
     getCandles(symbol, {interval, limit} = {}) {
       return read(`candles:${symbol}:${interval}:${limit}`, () => provider.getCandles(symbol, {interval, limit}));
     },

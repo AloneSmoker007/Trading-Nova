@@ -10,7 +10,9 @@
 //        -> {symbol,lastPrice,bidPrice,askPrice,highPrice,lowPrice,volume,quoteVolume,priceChangePercent,...}
 //   3. GET https://api.binance.com/api/v3/ticker/bookTicker?symbol
 //        -> {symbol,bidPrice,bidQty,askPrice,askQty}  (public best bid/ask)
-//   4. GET https://stats-data.hyperliquid.xyz/Mainnet/leaderboard
+//   4. GET https://api.binance.com/api/v3/depth?symbol&limit
+//        -> {lastUpdateId,bids,asks} (public bounded depth snapshot)
+//   5. GET https://stats-data.hyperliquid.xyz/Mainnet/leaderboard
 //        -> {leaderboardRows:[...]}  (public leaderboard; see ./hyperliquid.js)
 //   5. POST https://api.hyperliquid.xyz/info   body {"type":"clearinghouseState","user":"0x…"}
 //        (read-only on-chain query; see ./hyperliquid.js)
@@ -132,6 +134,42 @@ function normaliseBinanceBookTicker(raw) {
   return {symbol, bid, ask};
 }
 
+// Binance depth is a snapshot, not a sequenced WebSocket diff stream. Keep
+// its update ID and receive time explicit; callers must not infer queue position.
+export function normaliseBinanceDepth(raw, {symbol, receivedAt, limit = 100} = {}) {
+  const allowedLimits = new Set([5, 10, 20, 50, 100, 500, 1000]);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)
+      || !Number.isSafeInteger(raw.lastUpdateId) || raw.lastUpdateId < 1
+      || !allowedLimits.has(limit) || !Number.isFinite(receivedAt) || receivedAt <= 0
+      || !Array.isArray(raw.bids) || !Array.isArray(raw.asks)
+      || raw.bids.length > limit || raw.asks.length > limit
+      || (raw.bids.length === 0 && raw.asks.length === 0)) return null;
+  const parseLevels = (levels, descending) => {
+    const parsed = [];
+    for (const row of levels) {
+      if (!Array.isArray(row) || row.length < 2) return null;
+      const price = toFiniteNumber(row[0]);
+      const quantity = toFiniteNumber(row[1]);
+      if (price === null || price <= 0 || quantity === null || quantity <= 0) return null;
+      const previous = parsed[parsed.length - 1];
+      if (previous && (descending ? previous.price <= price : previous.price >= price)) return null;
+      parsed.push(Object.freeze({price, quantity}));
+    }
+    return Object.freeze(parsed);
+  };
+  const bids = parseLevels(raw.bids, true);
+  const asks = parseLevels(raw.asks, false);
+  if (!bids || !asks || (bids.length && asks.length && bids[0].price > asks[0].price)) return null;
+  return Object.freeze({
+    source: "binance-public",
+    symbol: typeof symbol === "string" ? symbol : null,
+    lastUpdateId: raw.lastUpdateId,
+    receivedAt,
+    bids,
+    asks
+  });
+}
+
 // Internal: GET url builder with query string (no URLSearchParams dependency).
 function buildUrl(base, path, params) {
   const qs = Object.entries(params)
@@ -230,6 +268,17 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
     }
   }
 
+  async function getOrderBook(symbol, {limit = 100} = {}) {
+    const sym = validateSymbol(symbol);
+    const allowedLimits = new Set([5, 10, 20, 50, 100, 500, 1000]);
+    if (!sym) return {ok: false, reason: "invalid-symbol"};
+    if (!allowedLimits.has(limit)) return {ok: false, reason: "invalid-limit"};
+    const res = await requestJson(fetchImpl, buildUrl(cfg.binance.baseUrl, "/api/v3/depth", {symbol: sym, limit}), undefined, httpOpts);
+    if (!res.ok) return res;
+    const data = normaliseBinanceDepth(res.data, {symbol: sym, receivedAt: now(), limit});
+    return data ? {ok: true, data} : {ok: false, reason: "invalid-payload"};
+  }
+
   // Interface-compatible candles (see connectors/interface.js), fail-closed envelope.
   // closeTime is derived as ts + intervalMs - 1 (the same convention Binance uses).
   async function getCandles(symbol, {interval = "1m", limit = 100} = {}) {
@@ -271,5 +320,5 @@ export function createCryptoProvider({fetchImpl = globalThis.fetch, sources, now
     return hyperliquid.getWalletPositions(address);
   }
 
-  return Object.freeze({getKlines, getTicker, getQuote, getCandles, getCoinPrice, getTopTraders, getWalletPositions});
+  return Object.freeze({getKlines, getTicker, getQuote, getOrderBook, getCandles, getCoinPrice, getTopTraders, getWalletPositions});
 }

@@ -264,6 +264,7 @@
                   <th scope="col">Type / Trigger</th>
                   <th scope="col">Side</th>
                   <th scope="col">Qty</th>
+                  <th scope="col">Filled / Remaining</th>
                   <th scope="col">Status</th>
                   <th scope="col">Action</th>
                 </tr>
@@ -271,7 +272,7 @@
               <tbody id="paper-orders-body"></tbody>
             </table>
           </div>
-          <p class="panel-note" id="paper-orders-note" role="status" aria-live="polite">Pending orders are monitored from fresh public quotes. Real money OFF.</p>
+          <p class="panel-note" id="paper-orders-note" role="status" aria-live="polite">LIMIT partial fills use fresh public Binance depth snapshots and a conservative 10% visible-size participation cap. Queue priority and market impact are not modeled. Real money OFF.</p>
         </section>
         <div class="table-wrap" id="orders-history-wrap">
           <table id="orders-history-table">
@@ -282,6 +283,7 @@
                 <th scope="col">Symbol</th>
                 <th scope="col">Side</th>
                 <th scope="col">Qty</th>
+                <th scope="col">Slices</th>
                 <th scope="col">Price</th>
                 <th scope="col">Costs</th>
                 <th scope="col">Status</th>
