@@ -13,7 +13,8 @@ Acceptance evidence on the executable code head `f6f7caa157420de8775991ab4ed619b
 - The recovery job's backup/restore artifact is still **BLOCKED** because its environment is `local` (recorded RTO 101 ms / RPO 83 ms are not production evidence); server-crash injection was skipped because `PG_CRASH_CMD` was unset. Do not call this production DR certification.
 - Five moderate `minimatch` advisories remain. The forced audit fix would downgrade ESLint; no forced downgrade was applied.
 - The local full suite was not run because this runtime cannot resolve `github.com`; the counts above are remote GitHub Actions results only.
-- The checkpoint-only documentation commit that follows this code head must receive its own exact-head CI/Chromium verification before merge.
+- Final PR head `99ac637dcae04f52373494f783e954c092da09de`: exact-head CI `41670456553` and Chromium `41670456525` passed.
+- PR #121 squash-merged as `45c38b7852f1d5559bee3646b85fabf026908692`; this is current main, parent `721c25e8bb3f14b9aa0eea3e66ea6ac20835a881`. Merged-main CI `41671008189`, Browser E2E `41671008131`, and lockfile workflow `41671008074` passed; merged-main test totals remained **751 / 739 / 0 / 12**. Open PR count after merge: **0**.
 
 Scope and limits: this increment changes only research timestamp normalization, structured-research eligibility metadata, UI display, tests and audit documentation. It does not add independent publishers, semantic claim verification, true counter-evidence, company fundamentals or social-sentiment data. Both publisher feeds are commercial exchange sources; headline keyword cues remain candidates only and research has no directional score impact. No live Gemini call, credentials, paid resource, production data, order state, Risk Gate or risk limit was touched. Real-money remains OFF.
 
