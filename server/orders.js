@@ -129,6 +129,11 @@ function orderIntentHash(order) {
   return createHash("sha256").update(JSON.stringify(intent)).digest("hex");
 }
 
+function orderRevision(order) {
+  if (order?.revision === undefined) return 0; // legacy pending records predate revisions
+  return Number.isSafeInteger(order.revision) && order.revision >= 0 ? order.revision : null;
+}
+
 function isOrderTriggered(order, quote) {
   if (!quote || !Number.isFinite(quote.bid) || !Number.isFinite(quote.ask)) return false;
   if (order.type === "LIMIT") {
@@ -1065,11 +1070,12 @@ export function createPaperOrderService({
                 error.code = "PAPER_ORDER_NOT_PENDING";
                 throw error;
               }
-              const currentRevision = Number.isSafeInteger(currentOrder.revision) ? currentOrder.revision : 0;
-              const expectedRevision = Number.isSafeInteger(order.revision) ? order.revision : 0;
+              const currentRevision = orderRevision(currentOrder);
+              const expectedRevision = orderRevision(order);
               const currentIntentHash = currentOrder.orderIntentHash || orderIntentHash(currentOrder);
               const expectedIntentHash = order.orderIntentHash || orderIntentHash(order);
-              if (currentRevision !== expectedRevision || currentIntentHash !== expectedIntentHash) {
+              if (currentRevision === null || expectedRevision === null
+                  || currentRevision !== expectedRevision || currentIntentHash !== expectedIntentHash) {
                 const error = new Error("paper order changed after trigger evaluation");
                 error.code = "PAPER_ORDER_CHANGED";
                 throw error;
@@ -1175,7 +1181,8 @@ export function createPaperOrderService({
       if (!["LIMIT", "STOP_LOSS", "TAKE_PROFIT"].includes(order.type)) {
         return fail(409, "order-not-amendable", "only pending trigger orders can be amended", order.type);
       }
-      const currentRevision = Number.isSafeInteger(order.revision) ? order.revision : 0;
+      const currentRevision = orderRevision(order);
+      if (currentRevision === null) return fail(409, "order-revision-invalid", "paper order revision is invalid; amendment is blocked");
       if (currentRevision !== body.expectedRevision) {
         return fail(409, "order-revision-conflict", "paper order changed; refresh before amending", String(currentRevision));
       }
@@ -1213,8 +1220,9 @@ export function createPaperOrderService({
             const existingFill = await tx.get("paper-fills", order.idempotencyKey);
             if (existingFill) return {state: "filled", order: current};
             if (current.status !== "PENDING") return {state: "not-pending", order: current};
-            const latestRevision = Number.isSafeInteger(current.revision) ? current.revision : 0;
+            const latestRevision = orderRevision(current);
             const latestIntentHash = current.orderIntentHash || orderIntentHash(current);
+            if (latestRevision === null) return {state: "revision-invalid"};
             if (latestRevision !== body.expectedRevision || latestIntentHash !== expectedIntentHash) {
               return {state: "revision-conflict", order: current};
             }
@@ -1319,6 +1327,7 @@ export function createPaperOrderService({
       if (result.state === "not-pending") return fail(409, "order-not-amendable", "only pending paper orders can be amended", result.order?.status || "UNKNOWN");
       if (result.state === "missing") return fail(404, "order-not-found", "paper order was not found");
       if (result.state === "revision-exhausted") return unavailable("order-revision-exhausted", "paper order revision is exhausted");
+      if (result.state === "revision-invalid") return fail(409, "order-revision-invalid", "paper order revision is invalid; amendment is blocked");
       if (result.state === "invalid-cost") return fail(400, "invalid-amendment-price", "replacement trigger price produces invalid execution costs");
       return unavailable("paper-portfolio-invalid", "latest paper portfolio could not be validated for amendment");
     });
