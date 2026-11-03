@@ -1296,11 +1296,18 @@ export function createPaperOrderService({
       }
 
       if (result.state === "ok") {
+        const committed = await store.get("paper-orders", order.idempotencyKey);
+        if (!committed || committed.status !== "PENDING") {
+          return fail(409, "order-not-amendable", "paper order is no longer pending", committed?.status || "MISSING");
+        }
+        if (committed.revision !== result.order.revision || committed.orderIntentHash !== result.order.orderIntentHash) {
+          return fail(409, "order-revision-conflict", "paper order changed after this amendment; refresh before retrying");
+        }
         try { await persist(); }
         catch { return fail(500, "paper-order-not-persisted", "paper order amendment could not be safely persisted"); }
         return {status: 200, body: {ok: true, data: {
-          state: "amended", order: result.order,
-          verdict: {decision: "ALLOW", orderNotional: result.verdict.orderNotional ?? result.order.quantity * nextPrice},
+          state: "amended", order: committed,
+          verdict: {decision: "ALLOW", orderNotional: result.verdict.orderNotional ?? committed.quantity * nextPrice},
           note: "Pending paper trigger amended. The next execution still requires a fresh quote and the server Risk Gate; real money OFF."
         }}};
       }
