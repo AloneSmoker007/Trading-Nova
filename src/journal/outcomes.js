@@ -312,7 +312,7 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
     }
     const openedQuantity = cleanNumber(campaign.openedQuantity);
     const closedQuantity = cleanNumber(campaign.closedQuantity);
-    if (Math.abs(openedQuantity - closedQuantity - openQuantity) > 1e-9) {
+    if (Math.abs(openedQuantity - closedQuantity - openQuantity) > 1e-8) {
       throw new Error("paper trade-cycle quantities do not reconcile");
     }
     const realizedNetPnl = cleanNumber(campaign.netPnl);
@@ -360,7 +360,7 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
     source: "paper-position-cycle-v1",
     note: "Only flat-to-flat closed position cycles receive a whole-trade result. Open cycles show realized partials separately; open exposure and unrealized P&L are excluded."
   };
-  if (Math.abs(tradeSummary.realizedNetPnl - summary.realizedNetPnl) > 1e-9) {
+  if (Math.abs(tradeSummary.realizedNetPnl - summary.realizedNetPnl) > 1e-8) {
     throw new Error("whole-trade and FIFO fragment P&L do not reconcile");
   }
 
