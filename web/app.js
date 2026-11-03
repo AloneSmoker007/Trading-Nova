@@ -937,6 +937,71 @@
               .finally(function () { cancel.disabled = false; });
           });
           action.appendChild(cancel);
+          if (["LIMIT", "STOP_LOSS", "TAKE_PROFIT"].includes(order.type)) {
+            var amend = el("button", "amend-paper-order", "Amend");
+            amend.type = "button";
+            amend.setAttribute("aria-label", "Amend pending " + order.type + " order for " + order.symbol);
+            var form = el("form", "amend-paper-order-form");
+            form.hidden = true;
+            form.setAttribute("aria-label", "Amend trigger for " + order.symbol);
+            var input = document.createElement("input");
+            input.type = "number";
+            input.min = "0";
+            input.step = "any";
+            input.required = true;
+            input.value = String(order.type === "LIMIT" ? (order.limitPrice ?? order.price)
+              : order.type === "STOP_LOSS" ? (order.stopPrice ?? order.price)
+                : (order.takeProfitPrice ?? order.price));
+            input.setAttribute("aria-label", "New trigger price for " + order.symbol);
+            var save = el("button", "amend-paper-order-save", "Save");
+            save.type = "submit";
+            var close = el("button", "amend-paper-order-close", "Close");
+            close.type = "button";
+            close.addEventListener("click", function () { form.hidden = true; });
+            form.addEventListener("submit", function (event) {
+              event.preventDefault();
+              var price = Number(input.value);
+              if (!Number.isFinite(price) || price <= 0) {
+                note("paper-orders-note", "Enter a positive finite trigger price.");
+                input.focus();
+                return;
+              }
+              save.disabled = true;
+              amend.disabled = true;
+              note("paper-orders-note", "Rechecking the server Risk Gate and amending the pending paper order…");
+              api("/api/paper/orders/" + encodeURIComponent(order.orderId) + "/amend", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({price: price, expectedRevision: Number.isSafeInteger(order.revision) ? order.revision : 0})
+              }).then(function (amendResult) {
+                var amendBody = amendResult.body;
+                if (amendResult.status === 200 && amendBody && amendBody.ok === true && amendBody.data) {
+                  note("paper-orders-note", amendBody.data.note || "Pending paper order amended.");
+                  renderPaperOrders();
+                  renderPortfolio();
+                  renderOrderHistory();
+                } else {
+                  var amendFailure = failureState(amendResult);
+                  note("paper-orders-note", amendFailure.message + ". Refresh to confirm the current order revision.");
+                  renderPaperOrders();
+                }
+              }).catch(function () {
+                note("paper-orders-note", "Amendment result could not be confirmed. Refresh order status before retrying.");
+              }).finally(function () {
+                save.disabled = false;
+                amend.disabled = false;
+              });
+            });
+            amend.addEventListener("click", function () {
+              form.hidden = !form.hidden;
+              if (!form.hidden) input.focus();
+            });
+            form.appendChild(input);
+            form.appendChild(save);
+            form.appendChild(close);
+            action.appendChild(amend);
+            action.appendChild(form);
+          }
         } else {
           action.textContent = "—";
         }
