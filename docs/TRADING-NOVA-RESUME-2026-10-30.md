@@ -1,3 +1,27 @@
+## Latest verified increment — claim-level publisher diversity (4 November 2026 PKT)
+
+PR #129 is merged. Starting executable main was `bd981e99bc914c39ec9ad585f321273763f6d961` (PR #128 had already merged the bounded Binance Spot depth lifecycle). PR #129 implementation head was `b77df1cdb73a4f50b1eac46b13679af2d1778db4`; squash merge/current code main at this checkpoint: `c87eaef36982d5747ea2530066df1ce7a5919842`.
+
+The tutor's Gemini grounding evidence now classifies known source domains into conservative publisher groups and adds per-claim diversity metadata:
+- Editorial/regulatory/intergovernmental groups are counted once per group; subdomains of one publisher do not inflate the count.
+- Kraken, Bitfinex and Binance are explicitly labelled commercial-exchange sources and excluded from editorial/regulatory diversity.
+- Unknown domains and lookalike suffix hosts are not classified.
+- The browser shows publisher groups and always says **independent fact-check not established**. This metadata does not affect Council direction, order submission, fills or Risk Gate.
+
+Exact-head validation for `b77df1cdb73a4f50b1eac46b13679af2d1778db4`:
+- CI `41703561290` and `41703570317`: all enabled jobs passed (unit/lint/secret scan, PostgreSQL integration/audit integration, Neon, recovery and stress).
+- Suite: **785 total / 773 pass / 0 fail / 12 expected skips**; the publisher-group regression passed.
+- Chromium Browser E2E `41703561048` and `41703569772` passed. An initial browser run exposed a stale assertion that assumed one source link; the fixture/assertions were corrected to verify both Reuters and SEC links, then both final runs passed.
+- Optional `market-data-evidence` was **SKIPPED**, not passed. No live WebSocket/feed soak is claimed.
+- `npm audit --audit-level=high` passed; five moderate findings remain in the existing ESLint dependency chain. No forced downgrade or audit suppression.
+- No local full suite was run in this runtime; counts above are remote CI evidence. No Gemini request, credential action, paid resource or deployment was used.
+
+PR #128 had merged as `a69dcfcc39e0c5d42f28dbac77db8a2e9248be78`; merged-main CI `41701739954`, Browser E2E `41701740546` and lockfile workflow `41701740565` passed on `bd981e99bc914c39ec9ad585f321273763f6d961`.
+
+Remaining research limits: semantic claim verification, publisher ownership/syndication verification, independently corroborated counter-evidence and Gemini grounding publication dates/freshness are still not established. Company fundamentals and independent social-sentiment feeds remain disconnected; Gemini live connectivity is unverified. Remaining paper-V1 work includes partial fills/full replace/queue-latency contract, strategy calibration/revalidation and shadow/challenger observability. External soak, production deployment, production backup/restore/DR and independent security evidence remain separate gates. Real-money OFF; mandatory server Risk Gate and existing risk limits unchanged.
+
+---
+
 ## Latest verified increment — Binance Spot depth WebSocket lifecycle (3 November 2026 PKT)
 
 Starting remote main: `3f746db2324a6972da5d42386b3e88f13d179060`; open PR count: **0**. No applicable root or nested `AGENTS.md` was found. Re-read this resume, locked Product Contract §21 in `docs/TRADING-NOVA-MASTER-ROADMAP.md`, and the current V1 gap audit before implementation.
