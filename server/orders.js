@@ -1184,6 +1184,21 @@ export function createPaperOrderService({
       const currentRevision = orderRevision(order);
       if (currentRevision === null) return fail(409, "order-revision-invalid", "paper order revision is invalid; amendment is blocked");
       if (currentRevision !== body.expectedRevision) {
+        const lastAmendment = Array.isArray(order.amendments) ? order.amendments[order.amendments.length - 1] : null;
+        const currentTriggerPrice = order.type === "LIMIT" ? order.limitPrice
+          : order.type === "STOP_LOSS" ? order.stopPrice : order.takeProfitPrice;
+        if (Number.isSafeInteger(body.expectedRevision + 1)
+            && currentRevision === body.expectedRevision + 1
+            && lastAmendment?.revision === currentRevision
+            && lastAmendment.price === body.price
+            && order.price === body.price
+            && currentTriggerPrice === body.price) {
+          return {status: 200, body: {ok: true, data: {
+            state: "replayed", order,
+            verdict: {decision: "ALLOW", replayed: true, orderNotional: order.quantity * body.price},
+            note: "This pending paper trigger amendment was already applied. The current order revision is shown; real money OFF."
+          }}};
+        }
         return fail(409, "order-revision-conflict", "paper order changed; refresh before amending", String(currentRevision));
       }
 
