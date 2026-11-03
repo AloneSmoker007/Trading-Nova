@@ -10,6 +10,14 @@ const LOGIN_MAX_ATTEMPTS = 8;
 const SATURATED_LOGIN_STATE = Object.freeze({saturated: true});
 const DEFAULT_MAX_TRACKED_IPS = 10000;
 
+function looksLikePlaceholder(value) {
+  if (typeof value !== "string") return true;
+  const text = value.trim();
+  if (text === "") return true;
+  return /^(?:\<.*\>|SET_IN_HOST_SECRET_MANAGER|REPLACE_WITH_|CHANGE_ME|YOUR_[A-Z0-9_]+|EXAMPLE|DUMMY|PLACEHOLDER|TEST_ONLY|replace-with-|example|dummy|placeholder|changeme|test-value)$/i.test(text)
+    || /(?:replace|example|dummy|placeholder|changeme|test-only)/i.test(text);
+}
+
 function getAttemptState(attempts, ip, now, maxTrackedIps, checks) {
   checks.count += 1;
   if (checks.count % 64 === 0 || attempts.size >= maxTrackedIps) {
@@ -19,9 +27,6 @@ function getAttemptState(attempts, ip, now, maxTrackedIps, checks) {
   }
   const existing = attempts.get(ip);
   if (existing) return existing;
-  // Do not evict an active IP: attacker-controlled key churn must not reset
-  // another client's failed-login counter. New IPs fail closed until capacity
-  // is freed by the normal window expiry or a successful login.
   if (attempts.size >= maxTrackedIps) return SATURATED_LOGIN_STATE;
   return undefined;
 }
@@ -36,7 +41,7 @@ function sign(value, secret) {
 }
 function hostMatchesOrigin(req) {
   const origin = req.headers.origin;
-  if (!origin) return true; // Non-browser clients may omit Origin; cookie SameSite and session still apply.
+  if (!origin) return true;
   try { return new URL(origin).host === req.headers.host; } catch { return false; }
 }
 function send(res, status, body, headers = {}) {
@@ -59,14 +64,14 @@ const LOGIN_PAGE = `<!doctype html>
 <label for="password">Access password</label><br>
 <input id="password" name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="256">
 <button type="submit">Sign in</button></form></main></body></html>`;
-const ERROR_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign-in failed</title></head><body><main><h1>Sign-in failed</h1><p>Check the password or wait before trying again.</p><a href="/">Try again</a></main></body></html>`;
+const ERROR_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign-in failed</title></head><body><main><h1>Sign-in failed</h1><p>Authentication required or the session was rejected.</p></main></body></html>`;
 
 export function validatePrivateAccessConfig({password, secret}) {
-  if (typeof password !== "string" || password.length < 12 || password.length > 256) {
-    throw new Error("NOVA_ACCESS_PASSWORD must be 12-256 characters in hosted mode");
+  if (typeof password !== "string" || password.trim() === "" || password.length < 12 || password.length > 256 || looksLikePlaceholder(password)) {
+    throw new Error("NOVA_ACCESS_PASSWORD must be a non-placeholder string between 12 and 256 characters in hosted mode");
   }
-  if (typeof secret !== "string" || Buffer.byteLength(secret) < 32) {
-    throw new Error("NOVA_SESSION_SECRET must be at least 32 bytes in hosted mode");
+  if (typeof secret !== "string" || secret.trim() === "" || Buffer.byteLength(secret) < 32 || looksLikePlaceholder(secret)) {
+    throw new Error("NOVA_SESSION_SECRET must be a non-placeholder value at least 32 bytes in hosted mode");
   }
 }
 

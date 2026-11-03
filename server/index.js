@@ -9,47 +9,54 @@
 //
 // The server exposes the dashboard, read API and Risk-Gate-protected paper orders.
 
-import {readConfig} from "../src/config.js";
+import {readConfig, validateProductionConfig} from "../src/config.js";
 import {createPostgresStore} from "../src/persistence/postgres.js";
 import {createNovaServer} from "./app.js";
 import {validatePrivateAccessConfig} from "./access-guard.js";
 
 function parsePort(raw) {
   if (raw === undefined || raw === "") return 7411;
-  const text = String(raw);
+  const text = String(raw).trim();
   if (!/^\d{1,5}$/.test(text)) {
-    console.error("Invalid port:", text);
+    console.error("Invalid port: expected an integer between 0 and 65535.");
     process.exit(2);
   }
   const port = Number(text);
-  if (port > 65535) {
-    console.error("Invalid port:", text);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    console.error("Invalid port: expected an integer between 0 and 65535.");
     process.exit(2);
   }
   return port;
 }
 
-const production = process.env.NODE_ENV === "production";
+const config = readConfig();
+const production = config.nodeEnv === "production";
+
 if (production) {
   try {
-    validatePrivateAccessConfig({password: process.env.NOVA_ACCESS_PASSWORD, secret: process.env.NOVA_SESSION_SECRET});
+    validateProductionConfig(process.env);
+    validatePrivateAccessConfig({
+      password: process.env.NOVA_ACCESS_PASSWORD,
+      secret: process.env.NOVA_SESSION_SECRET
+    });
   } catch (error) {
-    console.error(error.message);
+    console.error("Production startup configuration failed:");
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
-  if (!process.env.POSTGRES_URL) {
+  if (!process.env.POSTGRES_URL || !process.env.POSTGRES_URL.trim()) {
     console.error("POSTGRES_URL is required in hosted production; local-file persistence is disabled.");
     process.exit(1);
   }
 }
-const config = readConfig();
-const port = parsePort(process.env.NOVA_PORT ?? process.env.PORT);
+
+const port = parsePort(process.env.NOVA_PORT ?? process.env.PORT ?? "7411");
 const host = production ? "0.0.0.0" : "127.0.0.1";
 
 let store;
 let startupFailed = false;
 try {
-  if (process.env.POSTGRES_URL !== undefined) {
+  if (process.env.POSTGRES_URL !== undefined && process.env.POSTGRES_URL.trim() !== "") {
     store = await createPostgresStore({
       connectionString: process.env.POSTGRES_URL,
       schema: process.env.TRADING_NOVA_DB_SCHEMA
@@ -57,7 +64,7 @@ try {
     if (!(await store.health())) throw new Error("database health check failed");
     await store.assertReady();
   }
-} catch {
+} catch (error) {
   await store?.pool.end().catch(() => {});
   console.error("PostgreSQL persistence is unavailable or migrations are missing; server did not start.");
   process.exitCode = 1;

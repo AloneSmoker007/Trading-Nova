@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {URLSearchParams} from "node:url";
 import {createAccessGuard, validatePrivateAccessConfig} from "../server/access-guard.js";
 
-const passphrase = ["test-only","strong","password"].join("-");
+const passphrase = ["synthetic","strong","password"].join("-");
 const signingKey = "0123456789abcdef".repeat(3);
 
 function responseRecorder() {
