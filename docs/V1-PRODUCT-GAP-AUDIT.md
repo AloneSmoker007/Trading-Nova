@@ -1,4 +1,12 @@
-## Latest verified main — PR #118 merged (3 November 2026 PKT)
+## Current increment checkpoint — publisher timestamp integrity (3 November 2026 PKT)
+
+Task base main was `721c25e8bb3f14b9aa0eea3e66ea6ac20835a881` after PR #120; no open PRs remained at task start. PR #121 executable code head `f6f7caa157420de8775991ab4ed619b0eb13f082` adds publisher-reported modification-date status, separates modification age from original publication freshness, and marks future, malformed or pre-publication modification timestamps ineligible. Missing modification metadata remains explicitly unknown and does not replace publication time. The structured research UI now shows both timestamps and integrity state. Behavioral tests cover valid, unknown, malformed, future, pre-publication and future-publication cases; UI contract coverage verifies separate display.
+
+Exact code-head CI `41669698833`: **751 total / 739 pass / 0 fail / 12 skips**; PostgreSQL audit integration **12/12**, Neon integration/readiness, recovery job, stress, lint, secret scan and high-severity audit passed. PostgreSQL integration job **12 total / 5 pass / 7 skips**. Exact-head Chromium `41669698831` passed. The opt-in market-data soak was skipped. Recovery backup/restore artifact remains blocked as local-only and server crash injection was skipped; this is not production DR evidence. Five moderate minimatch advisories remain. Local full tests were not run because the runtime could not resolve GitHub.
+
+Research limits remain explicit: Kraken and Bitfinex are commercial exchange publishers, not independent corroboration. Asset matching and risk/opportunity cues are lexical headline candidates, not verified claims or semantic counter-evidence. Structured research has no directional score impact. Live Gemini, production feed soak, deployment and independent certification remain unproven.
+
+## Previous verified main — PR #118 merged (3 November 2026 PKT)
 
 Current main is `415913df6eb542db57f7eb25cc943d3e7f357d22`, the squash merge of PR #118, parent `f0c8057828252957566fb0b2ea49dd4e30af68fd`. PR #118 adds revision-fenced, trigger-price-only amendment for pending LIMIT/STOP_LOSS/TAKE_PROFIT paper orders; it preserves immutable order intent, requires an optimistic expected revision, re-evaluates the unchanged order through the mandatory server Risk Gate under portfolio-then-order locks, and prevents a delayed old trigger snapshot from committing after an amendment. A reproduced retry bug was fixed: non-committed conflict/stale-quote/Risk Gate outcomes now roll back rather than being cached by idempotency; an identical retry takes a fresh portfolio snapshot and re-runs the gate. PR #118 merged as `415913df6eb542db57f7eb25cc943d3e7f357d22`.
 

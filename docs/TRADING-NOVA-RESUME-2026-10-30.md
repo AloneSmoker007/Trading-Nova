@@ -1,5 +1,26 @@
 # Trading-Nova continuation — 30 October 2026 PKT
 
+## Completed increment — publisher modification timestamp integrity (3 November 2026 PKT)
+
+Starting remote main: `721c25e8bb3f14b9aa0eea3e66ea6ac20835a881` (PR #120, the PostgreSQL CI skip-accounting correction, was merged immediately before this task). The refreshed repository had no open PRs at task start. No root or nested `AGENTS.md` was present. Re-read this resume file, master roadmap Product Contract §21, and the current V1 gap audit.
+
+PR #121 code head: `f6f7caa157420de8775991ab4ed619b0eb13f082` on `fix/research-publisher-date-integrity-20261103`. The fixed Kraken/Bitfinex publisher parser now distinguishes a missing modification timestamp (`unknown`) from a malformed one (`invalid`) and a valid publisher-reported timestamp. Structured research separately retains original publication freshness and modification age. It labels future publication, future modification, malformed modification, and modification-before-publication states; only consistent or explicitly unknown modification metadata can qualify alongside the existing fresh publication/retrieval checks. A missing modification date does not invalidate a valid publication date. The structured-research UI shows publication freshness, Published UTC, Publisher modified UTC, and timestamp integrity separately. No source link is treated as proof of claim truth or content change.
+
+Acceptance evidence on the executable code head `f6f7caa157420de8775991ab4ed619b0eb13f082`:
+- Exact-head CI run `41669698833`: **751 total / 739 pass / 0 fail / 12 expected skips**. Lint, secret scan and `npm audit --audit-level=high` passed. PostgreSQL integration job: **12 total / 5 pass / 0 fail / 7 expected skips**; separate PostgreSQL audit integration: **12/12 pass**. Real Neon PostgreSQL integration tests and Neon-backed startup/readiness passed. Recovery drill job passed; loopback stress passed on health, portfolio and journal endpoints (3,000 requests each, zero errors, approximately 1.3 ms P95 in this run). The opt-in `market-data-evidence` job was **SKIPPED**, not passed.
+- Exact-head Chromium run `41669698831`: **PASS**.
+- Base-main CI `41669275034` and Browser E2E `41669275155` passed; lockfile workflow `41668761050` passed on base main `721c25e8bb3f14b9aa0eea3e66ea6ac20835a881`.
+- The recovery job's backup/restore artifact is still **BLOCKED** because its environment is `local` (recorded RTO 101 ms / RPO 83 ms are not production evidence); server-crash injection was skipped because `PG_CRASH_CMD` was unset. Do not call this production DR certification.
+- Five moderate `minimatch` advisories remain. The forced audit fix would downgrade ESLint; no forced downgrade was applied.
+- The local full suite was not run because this runtime cannot resolve `github.com`; the counts above are remote GitHub Actions results only.
+- The checkpoint-only documentation commit that follows this code head must receive its own exact-head CI/Chromium verification before merge.
+
+Scope and limits: this increment changes only research timestamp normalization, structured-research eligibility metadata, UI display, tests and audit documentation. It does not add independent publishers, semantic claim verification, true counter-evidence, company fundamentals or social-sentiment data. Both publisher feeds are commercial exchange sources; headline keyword cues remain candidates only and research has no directional score impact. No live Gemini call, credentials, paid resource, production data, order state, Risk Gate or risk limit was touched. Real-money remains OFF.
+
+Remaining priorities: independent source diversity and claim-level corroboration/counter-evidence; strategy calibration/revalidation; depth-backed partial fills (never use 24h volume as depth); full order replace; venue queue/latency modeling; broader fundamental/news/social inputs; live Gemini runtime proof; deployment, sustained market-data soak, production DR and independent security evidence.
+
+
+
 ## Completed increment — revision-safe pending paper-order trigger amendments (3 November 2026 PKT)
 
 Starting remote main: `f0c8057828252957566fb0b2ea49dd4e30af68fd`. There were no open PRs at the start of this increment and no applicable root/nested `AGENTS.md` were found. Re-read this resume file, locked Product Contract §21 in `docs/TRADING-NOVA-MASTER-ROADMAP.md`, and the current `docs/V1-PRODUCT-GAP-AUDIT.md`. PR #117 already implements the global cross-order portfolio lock/revalidation; this task did not duplicate it. PR #118 was opened from that main and is now merged.
