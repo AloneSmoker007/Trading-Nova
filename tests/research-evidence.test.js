@@ -12,7 +12,11 @@ test("maps UTF8 Urdu/emoji bytes to exact trimmed multipart answer offsets", () 
     support(text, 0, Buffer.byteLength(text), [0], 2)
   ]), 123);
   assert.equal(r.answer, "Intro. " + text);
-  assert.deepEqual(r.evidence.claims, [{text, start: 7, end: r.answer.length, sourceIds: ["S1"]}]);
+  assert.deepEqual(r.evidence.claims, [{
+    text, start: 7, end: r.answer.length, sourceIds: ["S1"], publisherGroups: [],
+    diversityGroupCount: 0, sourceDiversity: "commercial-or-unclassified-only",
+    independentCorroboration: "not-established"
+  }]);
   assert.equal(r.evidence.sourceDetails[0].retrievedAt, 123);
   assert.equal(r.evidence.sourceDetails[0].publishedAt, null);
   assert.equal(r.evidence.publicationFreshness, "unknown");
@@ -23,6 +27,39 @@ test("source filtering and dedup preserve original chunk indices without shiftin
     [web("javascript:bad"), web("https://example.com/a"), web("https://example.com/a"), web("https://example.com/b")]), 1);
   assert.equal(r.sources.length, 2);
   assert.deepEqual(r.evidence.claims[0].sourceIds, ["S1", "S2"]);
+});
+
+test("claim publisher diversity groups known domains conservatively and never claims independent verification", () => {
+  const chunks = [
+    web("https://www.reuters.com/article/a"),
+    web("https://api.reuters.com/article/b"),
+    web("https://www.sec.gov/filing/c"),
+    web("https://blog.kraken.com/post/d"),
+    web("https://blog.bitfinex.com/post/e"),
+    web("https://reuters.com.attacker.example/article/f"),
+    web("https://unknown.example/article/g")
+  ];
+  const r = researchEvidence([{text: "ABCD"}], grounding([
+    support("A", 0, 1, [0, 1]),
+    support("B", 1, 2, [0, 2]),
+    support("C", 2, 3, [3, 4]),
+    support("D", 3, 4, [5, 6])
+  ], chunks), 456);
+  const [sameGroup, diverseGroups, commercialOnly, unclassified] = r.evidence.claims;
+  assert.equal(sameGroup.diversityGroupCount, 1, "different subdomains of Reuters remain one publisher group");
+  assert.equal(sameGroup.sourceDiversity, "single-editorial-regulatory-group");
+  assert.deepEqual(diverseGroups.publisherGroups.map(group => group.id), ["reuters", "us-sec"]);
+  assert.equal(diverseGroups.diversityGroupCount, 2);
+  assert.equal(diverseGroups.sourceDiversity, "multiple-editorial-regulatory-groups");
+  assert.deepEqual(commercialOnly.publisherGroups.map(group => group.id), ["bitfinex", "kraken"]);
+  assert.equal(commercialOnly.diversityGroupCount, 0, "commercial exchange sources do not count as editorial/regulatory diversity");
+  assert.deepEqual(unclassified.publisherGroups, [], "suffix-spoofed and unknown domains are not classified");
+  assert.equal(r.evidence.publisherDiversity.diversityGroupCount, 2);
+  assert.equal(r.evidence.publisherDiversity.commercialSourceCount, 2);
+  assert.equal(r.evidence.publisherDiversity.unclassifiedSourceCount, 2);
+  assert.equal(r.evidence.publisherDiversity.independentCorroboration, "not-established");
+  assert.ok(r.evidence.claims.every(claim => claim.independentCorroboration === "not-established"));
+  assert.match(r.evidence.publisherDiversity.note, /not proof of common ownership, editorial independence, non-syndication/);
 });
 
 test("rejects malformed ranges, mismatched text, hidden parts and unsafe/absent references", () => {
