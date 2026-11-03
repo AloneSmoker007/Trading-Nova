@@ -1012,7 +1012,7 @@ test("pending trigger orders can amend only their trigger price with optimistic 
 
 test("amendment rejects malformed, extra-field, and terminal order requests", async () => {
   await withServer(async ({srv}) => {
-    const accepted = await post(srv.base, {...validOrder("pending-amend-invalid"), type: "STOP_LOSS", price: 39000});
+    const accepted = await post(srv.base, {...validOrder("pending-amend-invalid"), type: "STOP_LOSS", price: 43000});
     const orderId = accepted.body.data.order.orderId;
     const send = body => fetch(srv.base + "/api/paper/orders/" + orderId + "/amend", {
       method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
