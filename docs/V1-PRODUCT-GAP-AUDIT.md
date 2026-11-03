@@ -1,3 +1,21 @@
+## Latest verified executable main — PR #129 merged (4 November 2026 PKT)
+
+Current main at merge: `c87eaef36982d5747ea2530066df1ce7a5919842`, squash merge of PR #129. Starting main was `bd981e99bc914c39ec9ad585f321273763f6d961`; PR #128 had already merged the bounded Binance Spot depth lifecycle.
+
+PR #129 adds conservative claim-level publisher-group metadata to Gemini grounding evidence and renders it in the tutor:
+- Reviewed editorial/regulatory/intergovernmental domain groups count once per publisher group, including subdomain deduplication.
+- Kraken, Bitfinex and Binance are classified as commercial exchanges but do not count toward editorial/regulatory diversity.
+- Unknown and suffix-spoofed domains remain unclassified.
+- Every claim still says independent fact-check is **not established**. This is a diversity hint, not semantic verification, ownership proof, non-syndication proof or truth scoring. No Council directional score, paper order or Risk Gate input changed.
+
+Exact code head `b77df1cdb73a4f50b1eac46b13679af2d1778db4`: CI `41703561290` and `41703570317` passed all enabled jobs; suite **785 / 773 pass / 0 fail / 12 expected skips**; PostgreSQL integration/audit, Neon, recovery and stress passed. Browser E2E `41703561048` and `41703569772` passed after correcting the fixture's former single-source assertion. Optional market-data evidence was skipped. Five moderate ESLint dependency advisories remain; high-severity audit threshold passed. No local test count or live Gemini evidence is claimed.
+
+PR #128 merged as `a69dcfcc39e0c5d42f28dbac77db8a2e9248be78`; merged-main CI `41701739954`, Browser E2E `41701740546`, and lockfile workflow `41701740565` passed on `bd981e99bc914c39ec9ad585f321273763f6d961`.
+
+Next research gaps remain semantic claim verification, independently corroborated counter-evidence, publisher ownership/syndication verification and Gemini grounding publication freshness. Company fundamentals/social sentiment remain disconnected. Next paper execution gaps remain partial fills, full replace, queue priority and realistic latency; strategy calibration/revalidation and shadow/challenger observability also remain. External feed soak, production deployment/DR and independent security evidence are not certified. Real-money OFF; server Risk Gate unchanged.
+
+---
+
 ## Latest verified executable main — PR #127 merged (3 November 2026 PKT)
 
 Current main: `5be9ea6907fd9fc85ad7e066c03ee1df83f99b1f`, squash merge of PR #127. Starting main was `3f746db2324a6972da5d42386b3e88f13d179060`; no open PRs existed. No applicable root/nested `AGENTS.md` was found. Product Contract §21, resume checkpoint and this audit were re-read.
