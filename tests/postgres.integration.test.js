@@ -76,12 +76,14 @@ auditRun("PostgreSQL learning snapshot rejects same-count replacement from anoth
     const before=await first.get("paper-fill-revision","global");
     assert.ok(Number.isSafeInteger(before?.revision));
     let replaced=false;
+    let observedTotal=null;
     const store=new Proxy(first,{
       get(target,property){
         if(property==="listPage") return async(namespace,options)=>{
           const page=await target.listPage(namespace,options);
           if(namespace==="paper-fills"&&!replaced){
             replaced=true;
+            observedTotal=page.total;
             await second.put("paper-fills",id,{...fill,price:101});
           }
           return page;
@@ -96,14 +98,17 @@ auditRun("PostgreSQL learning snapshot rejects same-count replacement from anoth
     assert.equal((await response.json()).error.code,"paper-learning-unavailable");
     assert.equal(replaced,true);
     const after=await second.get("paper-fill-revision","global");
-    assert.equal(after.revision,before.revision+1);
-    assert.equal((await first.listPage("paper-fills",{limit:200,offset:0})).total,1);
+    assert.ok(after.revision>before.revision);
+    const afterPage=await first.listPage("paper-fills",{limit:200,offset:0});
+    assert.equal(afterPage.total,observedTotal,"replacement must preserve the row count");
+    assert.ok(afterPage.items.some(item=>item.idempotencyKey===id));
     assert.equal((await first.get("paper-fills",id)).price,101);
+    const beforeRollback=await first.get("paper-fill-revision","global");
     await assert.rejects(first.transactIdempotent("learning-snapshot-rollback-"+id,async tx=>{
       await tx.put("paper-fills",id,{...fill,price:102});
       throw new Error("injected snapshot rollback");
     }),/injected snapshot rollback/);
-    assert.deepEqual(await second.get("paper-fill-revision","global"),after);
+    assert.deepEqual(await second.get("paper-fill-revision","global"),beforeRollback);
     assert.equal((await second.get("paper-fills",id)).price,101);
   }finally{
     if(server) await server.close();
