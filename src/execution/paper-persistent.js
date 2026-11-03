@@ -46,6 +46,7 @@ export class PersistentPaperEngine {
 
     return this.store.transactIdempotent("paper:" + order.idempotencyKey, async (tx) => {
       const writer = tx ?? this.store;
+      if (typeof writer.lock === "function") await writer.lock("order:" + order.idempotencyKey);
       const prior = typeof writer.get === "function" ? await writer.get("paper-fills", order.idempotencyKey) : null;
       if (prior) {
         // Replay of an already-executed order returns its stored fill and costs;

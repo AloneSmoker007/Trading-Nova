@@ -393,10 +393,27 @@ export function createPaperOrderService({
     };
   }
 
-  async function saveOrderRecord(record) {
-    await store.put("paper-orders", record.idempotencyKey, record);
-    await persist();
-    return record;
+  async function transitionPendingOrder(order, status, buildRecord) {
+    const transition = await store.transactIdempotent(
+      `paper-order-transition:${order.idempotencyKey}:${status}`,
+      async (tx) => {
+        // PostgreSQL takes a transaction-scoped advisory lock shared across
+        // server processes. The in-memory adapter serializes all transactions.
+        if (typeof tx.lock === "function") await tx.lock("order:" + order.idempotencyKey);
+        const current = await tx.get("paper-orders", order.idempotencyKey);
+        if (!current) return {changed: false, order: current};
+        if (status !== "FILLED") {
+          const existingFill = await tx.get("paper-fills", order.idempotencyKey);
+          if (existingFill) return {changed: false, order: current, fillExists: true};
+        }
+        if (current.status !== "PENDING") return {changed: false, order: current};
+        const next = buildRecord(current);
+        await tx.put("paper-orders", order.idempotencyKey, next);
+        return {changed: true, order: next};
+      }
+    );
+    if (transition.changed) await persist();
+    return transition;
   }
 
   async function ensureOrderRecords() {
@@ -726,15 +743,23 @@ export function createPaperOrderService({
       try {
         const alreadyFilled = await store.get("paper-fills", order.idempotencyKey);
         if (alreadyFilled) {
-          await saveOrderRecord({...order, status: "FILLED", updatedAt: now(),
-            filledAt: alreadyFilled.timestamp, fillOrderId: alreadyFilled.orderId});
+          const transition = await transitionPendingOrder(order, "FILLED", current => ({
+            ...current, status: "FILLED", updatedAt: now(),
+            filledAt: alreadyFilled.timestamp, fillOrderId: alreadyFilled.orderId
+          }));
+          if (!transition.changed && transition.order?.status !== "FILLED") {
+            storeError ||= "paper-order-state-conflict";
+            break;
+          }
           processed++;
           continue;
         }
         if (!supportsPaperQuote(order.symbol)) {
-          await saveOrderRecord({...order, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
-            rejectionReasons: ["UNSUPPORTED_QUOTE_CURRENCY"], rejectionCode: "unsupported-quote-currency"});
-          processed++;
+          const transition = await transitionPendingOrder(order, "REJECTED", current => ({
+            ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: ["UNSUPPORTED_QUOTE_CURRENCY"], rejectionCode: "unsupported-quote-currency"
+          }));
+          if (transition.changed) processed++;
           continue;
         }
         const base = await baseState();
@@ -759,10 +784,11 @@ export function createPaperOrderService({
         };
         if (gatedOrder.side === "BUY"
             && gatedOrder.quantity * gatedOrder.price + execution.fee > marketState.portfolio.cash) {
-          const rejected = {...order, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
-            rejectionReasons: ["INSUFFICIENT_CASH"], rejectionCode: "risk-gate-rejected"};
-          await saveOrderRecord(rejected);
-          processed++;
+          const transition = await transitionPendingOrder(order, "REJECTED", current => ({
+            ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: ["INSUFFICIENT_CASH"], rejectionCode: "risk-gate-rejected"
+          }));
+          if (transition.changed) processed++;
           continue;
         }
         let projectedPortfolio;
@@ -772,10 +798,11 @@ export function createPaperOrderService({
             price: execution.executionPrice, markPrice: execution.referencePrice, fee: execution.fee
           });
         } catch {
-          const rejected = {...order, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
-            rejectionReasons: ["PROJECTED_PORTFOLIO_UNAVAILABLE"], rejectionCode: "risk-gate-rejected"};
-          await saveOrderRecord(rejected);
-          processed++;
+          const transition = await transitionPendingOrder(order, "REJECTED", current => ({
+            ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: ["PROJECTED_PORTFOLIO_UNAVAILABLE"], rejectionCode: "risk-gate-rejected"
+          }));
+          if (transition.changed) processed++;
           continue;
         }
         const verdict = gateResult({
@@ -783,10 +810,11 @@ export function createPaperOrderService({
           dataFresh: true, killSwitch: base.limits?.ok === false
         });
         if (gateRejected(verdict)) {
-          const rejected = {...order, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
-            rejectionReasons: verdict.reasons, rejectionCode: "risk-gate-rejected"};
-          await saveOrderRecord(rejected);
-          processed++;
+          const transition = await transitionPendingOrder(order, "REJECTED", current => ({
+            ...current, status: "REJECTED", updatedAt: now(), rejectedAt: now(),
+            rejectionReasons: verdict.reasons, rejectionCode: "risk-gate-rejected"
+          }));
+          if (transition.changed) processed++;
           continue;
         }
         const fill = await engine.submit(
@@ -803,9 +831,15 @@ export function createPaperOrderService({
             execution,
             gateArtifact: verdict.artifact,
             onFill: async (tx, committedFill) => {
+              const currentOrder = await tx.get("paper-orders", order.idempotencyKey);
+              if (currentOrder?.status !== "PENDING") {
+                const error = new Error("paper order is no longer pending");
+                error.code = "PAPER_ORDER_NOT_PENDING";
+                throw error;
+              }
               await tx.put("paper-portfolio", "current", applyFill(marketState.portfolio, committedFill));
               await tx.put("paper-orders", order.idempotencyKey, {
-                ...order, status: "FILLED", updatedAt: now(),
+                ...currentOrder, status: "FILLED", updatedAt: now(),
                 filledAt: committedFill.timestamp, fillOrderId: committedFill.orderId,
                 lastTriggerQuote: {bid: quote.bid, ask: quote.ask},
                 actualFillPrice: committedFill.price
@@ -815,7 +849,8 @@ export function createPaperOrderService({
         );
         await persist();
         if (fill?.status === "RECONCILED") processed++;
-      } catch {
+      } catch (error) {
+        if (error?.code === "PAPER_ORDER_NOT_PENDING") continue;
         storeError ||= "paper-order-state-unavailable";
         break;
       }
@@ -862,15 +897,31 @@ export function createPaperOrderService({
       const order = records.find((record) => record.orderId === orderId);
       if (!order) return fail(404, "order-not-found", "paper order was not found");
       if (order.status === "CANCELED") {
+        const existingFill = await store.get("paper-fills", order.idempotencyKey);
+        if (existingFill) return fail(409, "order-not-cancelable", "a filled paper order cannot be canceled", "FILLED");
         return {status: 200, body: {ok: true, data: {order, state: "replayed", note: "Order was already canceled. Real money OFF."}}};
       }
       if (order.status !== "PENDING") {
         return fail(409, "order-not-cancelable", "only pending paper orders can be canceled", order.status);
       }
-      const canceled = {...order, status: "CANCELED", canceledAt: now(), updatedAt: now()};
       try {
-        await saveOrderRecord(canceled);
-        return {status: 200, body: {ok: true, data: {order: canceled, state: "ok", note: "Pending paper order canceled. No fill was created; real money OFF."}}};
+        const transition = await transitionPendingOrder(order, "CANCELED", current => ({
+          ...current, status: "CANCELED", canceledAt: now(), updatedAt: now()
+        }));
+        if (!transition.changed) {
+          if (transition.fillExists) {
+            return fail(409, "order-not-cancelable", "a filled paper order cannot be canceled", "FILLED");
+          }
+          if (transition.order?.status === "CANCELED") {
+            return {status: 200, body: {ok: true, data: {
+              order: transition.order, state: "replayed", note: "Order was already canceled. Real money OFF."
+            }}};
+          }
+          return fail(409, "order-not-cancelable", "only pending paper orders can be canceled", transition.order?.status || "missing");
+        }
+        return {status: 200, body: {ok: true, data: {
+          order: transition.order, state: "ok", note: "Pending paper order canceled. No fill was created; real money OFF."
+        }}};
       } catch {
         storeError ||= "paper-order-state-unavailable";
         return fail(500, "paper-order-not-persisted", "paper order cancellation could not be safely persisted");

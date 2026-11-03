@@ -89,7 +89,9 @@ export class DurableStore {
       const tx = {
         writes: new Map(),
         put: (namespace, id, value) => this.put(namespace, id, value),
-        get: (namespace, id) => this.get(namespace, id)
+        get: (namespace, id) => this.get(namespace, id),
+        // The in-memory adapter serializes all transactions through _queue.
+        lock: async () => {}
       };
       tx.nextPaperSequence = () => nextPaperSequence(tx);
       this._activeTx = tx;
