@@ -1,7 +1,9 @@
 # Trading-Nova V1 Product Gap Audit
 
+Whole-trade learning update (3 November 2026 PKT): PR #115 derives deterministic per-symbol flat-to-flat position-cycle summaries from the same complete, revision-fenced FIFO fill history. Scale-ins and partial closes remain in one cycle; a reversal closes the old cycle and starts a distinct opposite-side cycle. Existing FIFO fragment outputs and outcome IDs are preserved. Only fully closed cycles receive WIN/LOSS/BREAKEVEN; open cycles have no result, with realized partial P&L shown separately and open exposure/unrealized P&L excluded. API distinguishes open-only history; UI shows bounded whole-cycle rows and descriptive metrics. Session aggregation is deliberately not inferred without a defined session-boundary contract. Exact PR head `68bef924a7310d184c7c6be1a336dd6d1eb9e0e9`: CI `41615396895` and Chromium `41615396928` passed. Merged main `2127c58f8e88f23c2862ecc76deb4c217bc73201`: CI `41615767451`, Chromium `41615767546`, lockfile `41615767499` passed all enabled jobs. Both test jobs: 734 total, 725 pass, 0 fail, 9 expected skips. PostgreSQL/Neon, recovery, stress, lint, secret scan and high-severity audit passed; opt-in market-data evidence was skipped, not passed. Local clone/tests were unavailable due DNS resolution failure. Strategy calibration/revalidation remains open.
+
 **Audit type:** source-backed static product-contract review  
-**Snapshot audited:** main at a281857a5d47ca6785e93d17f706c755ef1faab7  
+**Snapshot audited:** main after PR #115 code merge at 2127c58f8e88f23c2862ecc76deb4c217bc73201  
 **Scope:** locked Product Contract in docs/TRADING-NOVA-MASTER-ROADMAP.md, section 21 (lines 242–283), actual browser UI, HTTP routes, API handlers, engines, persistence, tests, and the external-evidence runbook.  
 **Not a certification:** this document does not claim production deployment, profitability, or V1 release approval. Real-money execution must remain disabled.
 
