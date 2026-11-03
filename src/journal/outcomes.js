@@ -316,6 +316,12 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
       throw new Error("paper trade-cycle quantities do not reconcile");
     }
     const realizedNetPnl = cleanNumber(campaign.netPnl);
+    let result = null;
+    if (status === "CLOSED") {
+      if (realizedNetPnl > EPSILON) result = "WIN";
+      else if (realizedNetPnl < -EPSILON) result = "LOSS";
+      else result = "BREAKEVEN";
+    }
     return {
       tradeId: campaign.tradeId,
       source: "paper-position-cycle-v1",
@@ -323,9 +329,7 @@ export function derivePaperOutcomes(fills, {maxFills = DEFAULT_MAX_FILLS} = {}) 
       symbol: campaign.symbol,
       direction: campaign.direction,
       status,
-      result: status === "CLOSED"
-        ? realizedNetPnl > EPSILON ? "WIN" : realizedNetPnl < -EPSILON ? "LOSS" : "BREAKEVEN"
-        : null,
+      result,
       openedAt: campaign.openedAt,
       closedAt: status === "CLOSED" ? campaign.closedAt : null,
       openingOrderIds: [...campaign.openingOrderIds],
