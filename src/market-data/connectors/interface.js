@@ -1,5 +1,25 @@
 export function assertConnector(c){if(!c||typeof c.getQuote!=="function"||typeof c.getCandles!=="function")throw new Error("invalid market-data connector");return c;}
-export function normalizeQuote({source,symbol,bid,ask,timestamp,receivedAt=Date.now()}){if(!source||!symbol||![bid,ask].every(Number.isFinite)||bid<=0||ask<=0||bid>ask)throw new Error("invalid quote");if(!Number.isFinite(timestamp)||!Number.isFinite(receivedAt))throw new Error("invalid quote");return Object.freeze({source,symbol:symbol.toUpperCase(),bid,ask,timestamp,receivedAt,ageMs:Math.max(0,receivedAt-timestamp),trust:1});}
+// `timestamp` is a source-reported event time, never a local request/receipt time.
+// Some REST quote endpoints (including Binance Spot bookTicker) omit event time;
+// keep it unknown rather than reporting a fabricated zero-age quote.
+export function normalizeQuote({source,symbol,bid,ask,timestamp=null,receivedAt=Date.now()}) {
+  if (!source || !symbol || ![bid, ask].every(Number.isFinite) || bid <= 0 || ask <= 0 || bid > ask) {
+    throw new Error("invalid quote");
+  }
+  if (timestamp !== null && !Number.isFinite(timestamp)) throw new Error("invalid quote");
+  if (!Number.isFinite(receivedAt)) throw new Error("invalid quote");
+  return Object.freeze({
+    source,
+    symbol: symbol.toUpperCase(),
+    bid,
+    ask,
+    timestamp,
+    timestampStatus: timestamp === null ? "not-provided" : "source",
+    receivedAt,
+    ageMs: timestamp === null ? null : Math.max(0, receivedAt - timestamp),
+    trust: 1
+  });
+}
 // Schema parity with src/market-data/schema.js `validateCandle`: OHLC must be
 // internally consistent (open/close inside [low,high], not just high>=low) and
 // timestamps must be finite with closeTime>=openTime — NaN times or open>high
