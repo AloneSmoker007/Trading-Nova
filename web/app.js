@@ -1227,9 +1227,9 @@
     syncLossAutopsyControl();
     clear($("learning-values"));
     clear($("learning-outcomes"));
+    clear($("learning-trades-body"));
     clear($("learning-theses-body"));
     note("learning-note", "Refreshing server-derived paper outcomes…");
-    clear($("learning-theses-body"));
     setBadge("learning-badge", "loading");
     setBusy("learning-values", true);
     return api("/api/learning/outcomes").then(function (result) {
@@ -1237,11 +1237,25 @@
       var dl = $("learning-values");
       var list = $("learning-outcomes");
       clear($("learning-theses-body"));
+      clear($("learning-trades-body"));
       clear(dl);
       clear(list);
       var body = result.body;
       if (result.status === 200 && body && body.ok === true && body.data) {
         var data = body.data;
+        var tradeSummaries = Array.isArray(data.tradeSummaries) ? data.tradeSummaries : [];
+        var tradeSummary = data.tradeSummary || {};
+        tradeSummaries.slice(0, 20).forEach(function (trade) {
+          var tr = el("tr");
+          tr.appendChild(el("td", null, trade.symbol + " " + trade.direction + " · " + String(trade.tradeId || "").slice(0, 12)));
+          tr.appendChild(el("td", null, trade.status + (trade.result ? " · " + trade.result : " · not classified while open")));
+          tr.appendChild(el("td", null, fmtNum(trade.openedQuantity, 8) + " / "
+            + fmtNum(trade.closedQuantity, 8) + " / " + fmtNum(trade.openQuantity, 8)));
+          tr.appendChild(el("td", null, String(trade.matchedFragments)));
+          tr.appendChild(el("td", null, fmtNum(trade.realizedFees, 4) + " / " + fmtNum(trade.realizedNetPnl, 4)));
+          tr.appendChild(el("td", null, Number.isFinite(trade.closedAt) ? new Date(trade.closedAt).toISOString() : "Open"));
+          $("learning-trades-body").appendChild(tr);
+        });
         var groups = Array.isArray(data.thesisSummaries) ? data.thesisSummaries : [];
         groups.slice(0, 20).forEach(function (group) {
           var tr = el("tr");
@@ -1256,13 +1270,22 @@
         verifiedLearningOutcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
         syncLossAutopsyControl();
         setBadge("learning-badge", data.state === "empty" ? "empty" : "ok",
-          data.state === "empty" ? "NO REALIZED OUTCOMES" : "SERVER-DERIVED");
+          data.state === "empty" ? "NO RECONCILED FILLS"
+            : data.state === "open" ? "OPEN PAPER CYCLES" : "SERVER-DERIVED");
         row(dl, "Accounting", String(data.accounting || "—") + " · " + String(data.currency || "—"));
         row(dl, "Realized outcomes", String(summary.outcomeCount || 0));
         row(dl, "Thesis-linked", String(summary.linkedOutcomeCount || 0));
         row(dl, "Thesis groups shown", String(Math.min(groups.length, 20)) + " / " + groups.length + " · latest realized activity; open-only last, not performance ranking");
         row(dl, "Net paper P&L", "$" + fmtNum(summary.realizedNetPnl, 4));
         row(dl, "Open FIFO lots", String(summary.openLotCount || 0));
+        row(dl, "Closed whole trades", String(tradeSummary.closedTradeCount || 0));
+        row(dl, "Closed-trade win rate", Number.isFinite(tradeSummary.closedTradeWinRate)
+          ? (tradeSummary.closedTradeWinRate * 100).toFixed(1) + "% · descriptive paper history"
+          : "N/A — no closed trade cycles");
+        row(dl, "Open trade cycles", String(tradeSummary.openTradeCount || 0));
+        row(dl, "Closed-trade net P&L", "$" + fmtNum(tradeSummary.closedTradeNetPnl, 4));
+        row(dl, "Open-cycle realized net", "$" + fmtNum(tradeSummary.openTradeRealizedNetPnl, 4)
+          + " · partial realized only; open exposure excluded");
         row(dl, "Reviewed losses", data.reviewState === "verified"
           ? String(summary.reviewedLossCount || 0) + " / " + String(summary.losses || 0)
           : "Unavailable — journal review integrity not verified");
@@ -1291,6 +1314,7 @@
       verifiedLearningOutcomes = [];
       clear($("learning-values"));
       clear($("learning-outcomes"));
+      clear($("learning-trades-body"));
       clear($("learning-theses-body"));
       syncLossAutopsyControl();
       setBadge("learning-badge", "unavailable");
