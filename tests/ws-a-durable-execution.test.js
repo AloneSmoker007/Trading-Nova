@@ -39,7 +39,7 @@ test("C1 regression: persistent paper engine executes against the real DurableSt
   const replay = await engine.submit({ ...order, id: "2" }, { markPrice: 999, gateArtifact: allowArtifact(order, 999) });
   assert.deepEqual(replay, fill);
   // Exactly one fill record; nothing leaked.
-  assert.deepEqual(Object.keys(store.snapshot().state), ["paper-sequence:global", "paper-fills:x"]);
+  assert.deepEqual(Object.keys(store.snapshot().state), ["paper-sequence:global", "paper-fill-revision:global", "paper-fills:x"]);
   assert.equal(fill.executionSequence, 1);
   assert.deepEqual(store.get("paper-sequence", "global"), {version: 1, last: 1});
 });
@@ -151,7 +151,7 @@ test("durable engine never executes a paper fill without a persisted idempotency
   const order = { id: "7", idempotencyKey: "k7", side: "SELL", symbol: "ETHUSDT", quantity: 2 };
   await engine.submit(order, { markPrice: 50, gateArtifact: allowArtifact(order, 50) });
   const snap = store.snapshot();
-  assert.deepEqual(Object.keys(snap.state), ["paper-sequence:global", "paper-fills:k7"]);
+  assert.deepEqual(Object.keys(snap.state), ["paper-sequence:global", "paper-fill-revision:global", "paper-fills:k7"]);
   assert.deepEqual(snap.state["paper-sequence:global"], {version: 1, last: 1});
   assert.deepEqual(Object.keys(snap.idempotency), ["paper:k7"]);
   // A restored store replays idempotently instead of double-filling.

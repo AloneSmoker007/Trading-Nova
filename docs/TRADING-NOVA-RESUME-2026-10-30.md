@@ -2,6 +2,20 @@
 
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
+## Current task — revision-fenced paper learning history (3 November 2026 PKT)
+
+Starting remote main: `f89207f040975cd6d0f28c292341abab2756d6f1`. No open PRs; no applicable `AGENTS.md` was found. Locked product contract §21, this resume document and the current gap audit were reviewed before work. Existing fill pagination/cardinality protections remain in place and were not duplicated.
+
+Reproduced gap: `getLearningReport()` read bounded fill pages and checked each page's length/total, but a same-count replacement between page reads could preserve every cardinality check while mixing two histories. The report and loss-autopsy path could therefore derive FIFO learning from a non-snapshot set of fills.
+
+Implementation code commit `6b8cefaca306f8ed42829128b882bee600ab0de7` (PR #114): every supported `paper-fills` write advances `paper-fill-revision/global`. The in-memory store stages the fill and revision together. PostgreSQL serializes revision increments with a schema-scoped transaction advisory lock; direct pooled fill writes are wrapped in a transaction, and transaction-handle writes keep fill + revision in the caller's transaction. `getLearningReport()` reads the revision before and after the complete paginated read, fails closed on any change or malformed revision, and includes `historyRevision` in successful reports. No schema migration was needed.
+
+Acceptance passed on exact PR head: a same-count replacement during paginated report and loss-autopsy reads returns unavailable with no journal write; in-memory replacement increments revision and failed transactions roll it back; a real PostgreSQL test uses two independent store connections to replace a fill without changing row count and verifies the report is rejected, with revision + fill rollback proof. The previous page-cardinality and complete 202-fill controls remain.
+
+Exact implementation-code-head validation: CI run `41605679125` passed all enabled jobs; test job reports **725 tests, 716 pass, 0 fail, 9 expected skips** and includes lint, secret scan and `npm audit --audit-level=high`. PostgreSQL integration, PostgreSQL audit integration (9/9), Neon PostgreSQL, recovery drill, stress capacity and evidence-status passed. Chromium Browser E2E run `41605679111` passed. The opt-in `market-data-evidence` job was skipped by its workflow condition, not passed. Local clone/test execution was unavailable because this runtime could not resolve github.com; no local suite pass is claimed.
+
+Limitations: the revision fence covers current supported writes through the in-memory/PostgreSQL store adapters; raw SQL or an older writer that bypasses `store.put` can bypass it. All deployed writers must use the revision-aware release together. This is an application-level monotonic fence, not a PostgreSQL LSN or production certification. No live provider call, credential change, deployment, production-data mutation or risk-limit change occurred. Real-money remains OFF; every paper order still passes the mandatory server Risk Gate.
+
 ## Current task — isolate overlapping journal refreshes (3 November 2026 PKT)
 
 Starting remote main: 44729732230067cfc327d93cbe769e35c21abc5d. Main CI run 41592105569, Chromium 41592105541 and lockfile run 41592105555 passed all enabled checks; conditional market-data-evidence was skipped. No open PRs or applicable AGENTS.md existed. Locked product contract §21 and the current gap audit were reviewed. The audit already confirms MARKET/LIMIT/STOP_LOSS/TAKE_PROFIT state-machine behavior is implemented; remaining lifecycle gaps are partial fills, amend/replace, queue priority, cross-process transition locking and production soak.

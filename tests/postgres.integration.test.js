@@ -7,6 +7,7 @@ import {createPostgresStore} from "../src/persistence/postgres.js";
 import {createApi} from "../server/api.js";
 import {createPaperOrderService} from "../server/orders.js";
 import {createWatchlistService} from "../server/watchlist.js";
+import {startTestServer} from "./ws-d-helpers.js";
 
 const enabled = process.env.TRADING_NOVA_REAL_DB_TEST === "1";
 const run = enabled ? test : test.skip;
@@ -58,6 +59,65 @@ auditRun("PostgreSQL paper sequence serializes concurrent clients and rolls back
   assert.equal(sorted.at(-1)-sorted[0],7);
   const replay=await store.transactIdempotent(`sequence-${batch}-0`,()=>{throw new Error("replay must not allocate");});
   assert.equal(replay,values[0]);
+}));
+
+auditRun("PostgreSQL learning snapshot rejects same-count replacement from another connection", async()=>withStore(async first=>{
+  const second=await createPostgresStore({
+    connectionString:process.env.POSTGRES_URL,
+    max:2,
+    schema:process.env.TRADING_NOVA_DB_SCHEMA
+  });
+  const id="learning-snapshot-"+randomUUID();
+  let server;
+  try{
+    const fill={orderId:id,idempotencyKey:id,status:"RECONCILED",symbol:"BTCUSDT",side:"BUY",
+      quantity:1,price:100,fee:0.1,timestamp:Date.now()};
+    await first.put("paper-fills",id,fill);
+    const before=await first.get("paper-fill-revision","global");
+    assert.ok(Number.isSafeInteger(before?.revision));
+    let replaced=false;
+    let observedTotal=null;
+    const store=new Proxy(first,{
+      get(target,property){
+        if(property==="listPage") return async(namespace,options)=>{
+          const page=await target.listPage(namespace,options);
+          if(namespace==="paper-fills"&&!replaced){
+            replaced=true;
+            observedTotal=page.total;
+            await second.put("paper-fills",id,{...fill,price:101});
+          }
+          return page;
+        };
+        const value=Reflect.get(target,property,target);
+        return typeof value==="function"?value.bind(target):value;
+      }
+    });
+    server=await startTestServer({store});
+    const response=await fetch(server.base+"/api/learning/outcomes");
+    assert.equal(response.status,503);
+    assert.equal((await response.json()).error.code,"paper-learning-unavailable");
+    assert.equal(replaced,true);
+    const after=await second.get("paper-fill-revision","global");
+    assert.ok(after.revision>before.revision);
+    const afterPage=await first.listPage("paper-fills",{limit:200,offset:0});
+    assert.equal(afterPage.total,observedTotal,"replacement must preserve the row count");
+    assert.ok(afterPage.items.some(item=>item.idempotencyKey===id));
+    assert.equal((await first.get("paper-fills",id)).price,101);
+    const beforeRollback=await first.get("paper-fill-revision","global");
+    await assert.rejects(first.transactIdempotent("learning-snapshot-rollback-"+id,async tx=>{
+      await tx.put("paper-fills",id,{...fill,price:102});
+      throw new Error("injected snapshot rollback");
+    }),/injected snapshot rollback/);
+    assert.deepEqual(await second.get("paper-fill-revision","global"),beforeRollback);
+    assert.equal((await second.get("paper-fills",id)).price,101);
+  }finally{
+    if(server) await server.close();
+    await first.withTransaction(client=>client.query(
+      `DELETE FROM ${first.table("trading_state")} WHERE namespace=$1 AND state_id=$2`,
+      ["paper-fills",id]
+    ));
+    await second.pool.end();
+  }
 }));
 
 run("PostgreSQL real integration: health, persistence and migration state", async()=>withStore(async store=>{

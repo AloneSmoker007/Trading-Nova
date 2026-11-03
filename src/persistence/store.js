@@ -42,6 +42,17 @@ export class DurableStore {
     if (!namespace || !id) throw new Error("namespace and id required");
     const key = namespace + ":" + id;
     const staged = clone(value);
+    // Learning reports read fills in bounded pages. Advance a monotonic
+    // revision in the same staged write set so cross-request readers can
+    // detect even same-count replacements between pages.
+    if (namespace === "paper-fills") {
+      const current = this.get("paper-fill-revision", "global");
+      const revision = current === null ? 0 : current?.revision;
+      if (!Number.isSafeInteger(revision) || revision < 0 || revision >= Number.MAX_SAFE_INTEGER) {
+        throw new Error("invalid paper fill history revision");
+      }
+      this.put("paper-fill-revision", "global", {revision: revision + 1});
+    }
     // Writes issued while a transactional operation is executing join that
     // transaction's staging area: they either all commit or all disappear.
     if (this._activeTx) this._activeTx.writes.set(key, staged);
