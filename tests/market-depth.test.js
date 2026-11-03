@@ -243,3 +243,28 @@ test("depth book caps retained levels while preserving the best prices", () => {
   assert.deepEqual(view.asks, [{price: 101, quantity: 1}, {price: 102, quantity: 2}]);
   assert.equal(view.executionEligible, false);
 });
+
+
+test("depth book accepts the next contiguous update when the snapshot covers every pre-snapshot event", () => {
+  const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
+  book.ingest(event(90, 100, {E: 850, b: [["99", "2"]]}));
+  const snapshotView = book.setSnapshot(snapshot(100));
+  assert.equal(snapshotView.status, "syncing");
+  assert.equal(snapshotView.updateId, 100);
+
+  const view = book.ingest(event(101, 101, {E: 950, b: [["99", "3"]]}));
+  assert.equal(view.status, "ready");
+  assert.equal(view.updateId, 101);
+  assert.equal(view.bestBid, 99);
+  assert.equal(view.bids[0].quantity, 3);
+  assert.equal(view.executionEligible, false);
+});
+
+test("depth book still rejects a first post-snapshot event when no pre-snapshot stream event was buffered", () => {
+  const book = new BinanceSpotDepthBook({symbol: "BTCUSDT", now: () => 1000});
+  book.setSnapshot(snapshot(100));
+  const view = book.ingest(event(101, 101, {E: 950}));
+  assert.equal(view.status, "invalid");
+  assert.equal(view.reason, "snapshot-behind-stream");
+  assert.equal(view.executionEligible, false);
+});
