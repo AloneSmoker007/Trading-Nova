@@ -1,5 +1,28 @@
 # Trading-Nova continuation — 30 October 2026 PKT
 
+## Current task — cross-process pending-order transition linearization (3 November 2026 PKT)
+
+Starting remote main: `87bb150a501e1136449f6bf5d47fae6b9fc14683`. No open PRs and no applicable `AGENTS.md` were found. Re-read locked Product Contract §21, this resume file and `docs/V1-PRODUCT-GAP-AUDIT.md`. The quote-currency contract, durable fill sequence and whole-trade learning work were already merged and were not duplicated.
+
+Reproduced race: process A reads a pending LIMIT order and pauses while requesting a trigger quote. Process B cancels the same order and persists `CANCELED`. Before this fix, process A could continue from its stale snapshot, commit a fill and overwrite the order as `FILLED` after cancellation had returned success.
+
+PR #116 (`fix: linearize pending paper order terminal transitions`) adds a schema-scoped PostgreSQL transaction advisory lock (`hashtextextended`) to the transaction handle. Persistent paper fills and pending cancel/reject transitions take the same per-order lock. The in-memory store uses its existing globally serialized transaction queue. Pending fill commit re-reads the order inside the fill transaction and throws a typed conflict if the current state is no longer `PENDING`; the staged fill, portfolio and order writes then roll back together. Cancel/reject updates re-read and conditionally transition only `PENDING` records. Cancellation also refuses when a fill row already exists, including a legacy pending-record/fill inconsistency. A lost cancel race is treated as a normal no-op, not a database outage. Existing Risk Gate, idempotency, market freshness, fees/slippage and paper-only mode remain unchanged.
+
+Acceptance coverage:
+- Two independent in-memory order-service instances: cancellation wins while a trigger processor is paused after its pending snapshot; no fill persists and the order stays `CANCELED`.
+- Fill-wins behavior: a completed pending fill cannot subsequently be canceled.
+- Legacy pending record with an existing fill cannot be canceled.
+- Real PostgreSQL audit integration uses two independent store connections and reproduces cancel-before-trigger-commit; it verifies `CANCELED` and zero fill.
+- Exact PR head `b485f6c0c706ff184dc762467c7f9743f6b4cd84`: CI `41628279977` and duplicate push CI `41628256679` passed all enabled jobs. Test output: **738 total, 728 pass, 0 fail, 10 expected skips**. PostgreSQL audit integration passed **10/10**, including the new cross-connection race. PostgreSQL integration, Neon PostgreSQL, recovery, stress capacity, evidence-status and Chromium passed. Browser E2E runs `41628279819` and `41628256692` passed. The opt-in `market-data-evidence` job was skipped, not passed.
+- PR #116 merged as `0fe55b059290c584d60fde73a4512caa5d73c576`. Merged-main CI `41628687786`, Browser E2E `41628687775` and lockfile `41628687853` passed all enabled jobs. Merged-main test output again: **738 total, 728 pass, 0 fail, 10 expected skips**; PostgreSQL audit integration **10/10**; PostgreSQL/Neon, recovery, stress, evidence-status, browser and lockfile passed. The opt-in market-data evidence job remained skipped.
+- Local clone/full-suite execution was not possible because this runtime could not resolve `github.com`; no local pass is claimed.
+
+Scope limitation: this serializes terminal transitions for the **same order**. It does not serialize risk evaluation/portfolio mutation across different orders or create a global portfolio transaction fence. Concurrent distinct orders can still require a separate global risk revalidation/locking design. All deployed writers must run this lock-aware release; older binaries or direct SQL can bypass the application protocol. This is not an exchange-grade matching engine or production certification. No live/paid provider call, credential change, deployment, production-data mutation or risk-limit change occurred. Real-money remains OFF and every paper order still passes the mandatory server Risk Gate.
+
+Remaining: global portfolio-level cross-order risk serialization/revalidation; partial fills, amend/replace, venue queue priority and realistic latency; strategy calibration/revalidation; independent claim/counter-claim and publication freshness; wider fundamental/news/social inputs and live Gemini runtime evidence; then production deployment, sustained market-data soak, real DR and independent security evidence. CI/mocks are not production proof.
+
+---
+
 Repository: AloneSmoker007/Trading-Nova. This project is separate from Nova-AI.
 
 ## Current task — whole-trade position-cycle learning (3 November 2026 PKT)
