@@ -568,7 +568,7 @@ async function main() {
         assert.equal(await thesisRow.locator("td").nth(1).innerText(), "1");
         assert.equal(await thesisRow.locator("td").nth(3).innerText(), "2 / -2");
         assert.match(await page.locator("#learning-values").innerText(), /FIFO · USDT/);
-        assert.match(await page.locator("#learning-values").innerText(), /Net paper P&L\s+\$-2/);
+        assert.match(await page.locator("#learning-values").innerText(), /All realized FIFO net P&L\s+\$-2/);
         const outcome = await page.locator("#learning-outcomes").innerText();
         assert.match(outcome, /Browser verified thesis/);
         assert.match(outcome, /LOSS/);
