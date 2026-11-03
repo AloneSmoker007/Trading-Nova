@@ -1277,7 +1277,7 @@
         row(dl, "Realized outcomes", String(summary.outcomeCount || 0));
         row(dl, "Thesis-linked", String(summary.linkedOutcomeCount || 0));
         row(dl, "Thesis groups shown", String(Math.min(groups.length, 20)) + " / " + groups.length + " · latest realized activity; open-only last, not performance ranking");
-        row(dl, "Net paper P&L", "$" + fmtNum(summary.realizedNetPnl, 4));
+        row(dl, "All realized FIFO net P&L", "$" + fmtNum(summary.realizedNetPnl, 4));
         row(dl, "Open FIFO lots", String(summary.openLotCount || 0));
         row(dl, "Closed whole trades", String(tradeSummary.closedTradeCount || 0));
         row(dl, "Closed trade W / L / BE", String(tradeSummary.closedTradeWins || 0) + " / "
