@@ -404,11 +404,7 @@ export function createPaperOrderService({
         if (!current) return {changed: false, order: current};
         if (status !== "FILLED") {
           const existingFill = await tx.get("paper-fills", order.idempotencyKey);
-          if (existingFill) {
-            return {changed: false, order: {
-              ...current, status: "FILLED", filledAt: existingFill.timestamp, fillOrderId: existingFill.orderId
-            }};
-          }
+          if (existingFill) return {changed: false, order: current, fillExists: true};
         }
         if (current.status !== "PENDING") return {changed: false, order: current};
         const next = buildRecord(current);
@@ -913,6 +909,9 @@ export function createPaperOrderService({
           ...current, status: "CANCELED", canceledAt: now(), updatedAt: now()
         }));
         if (!transition.changed) {
+          if (transition.fillExists) {
+            return fail(409, "order-not-cancelable", "a filled paper order cannot be canceled", "FILLED");
+          }
           if (transition.order?.status === "CANCELED") {
             return {status: 200, body: {ok: true, data: {
               order: transition.order, state: "replayed", note: "Order was already canceled. Real money OFF."

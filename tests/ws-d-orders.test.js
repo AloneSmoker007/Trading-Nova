@@ -201,6 +201,29 @@ test("a legacy fill prevents a stale pending record from being canceled", async 
   }
 });
 
+test("a completed pending fill cannot subsequently be canceled", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trading-nova-order-transition-filled-"));
+  try {
+    const store = new DurableStore();
+    const service = createPaperOrderService({
+      market: {getTicker: async () => ({state: "ok", ageMs: 0, data: {last: 42000.5, bid: 42000, ask: 42001}})},
+      stateFile: join(dir, "paper-state.json"),
+      executionStateFile: join(dir, "paper-orders.json"),
+      store
+    });
+    const accepted = await service.submit({...validOrder("pending-fill-wins"), type: "LIMIT", price: 42100});
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.data.order.status, "FILLED");
+    const canceled = await service.cancelOrder(accepted.body.data.order.orderId);
+    assert.equal(canceled.status, 409);
+    assert.equal(canceled.body.error.reason, "FILLED");
+    assert.equal((await store.get("paper-orders", "pending-fill-wins")).status, "FILLED");
+    assert.ok(await store.get("paper-fills", "pending-fill-wins"));
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
+
 test("crossed LIMIT executes at or better than its limit with simulated costs", async () => {
   await withServer(async ({srv}) => {
     const accepted = await post(srv.base, {...validOrder("limit-crossed-key"), type: "LIMIT", price: 42100});
