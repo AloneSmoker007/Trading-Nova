@@ -950,7 +950,7 @@ export function createPaperOrderService({
           return {state: "error", reason: "paper-learning-history-changed"};
         }
         const report = derivePaperOutcomes(fills);
-        return {state: report.outcomes.length ? "ok" : "empty",
+        return {state: report.outcomes.length ? "ok" : report.tradeSummaries.length ? "open" : "empty",
           historyRevision: endRevision, fillCount: fills.length, ...report};
       } catch {
         return {state: "error", reason: "paper-learning-history-invalid"};
