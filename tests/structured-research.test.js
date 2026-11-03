@@ -36,6 +36,8 @@ test("structured research links two publishers, fresh token metrics and attribut
   assert.equal(context.state, "ok");
   assert.equal(context.sourceCoverage.eligiblePublisherCount, 2);
   assert.equal(context.headlines.length, 2, "BTCDOWN is not BTC");
+  assert.equal(context.headlines[0].temporalIntegrity, "consistent");
+  assert.equal(context.headlines[0].modificationDateStatus, "publisher-reported");
   assert.deepEqual(context.supportingCandidates, ["kraken-blog:1"]);
   assert.deepEqual(context.counterEvidence.candidateIds, ["bitfinex-blog:1"]);
   assert.equal(context.counterEvidence.basis, "headline-risk-cues-only");
@@ -64,6 +66,37 @@ test("headline matching rejects substrings, detects negation, and rechecks publi
   assert.equal(rows[1].eligible, true);
   assert.equal(relevantHeadlines(snapshot, "BTCUSDT", AT + 1)[1].eligible, false);
   assert.equal(relevantHeadlines(snapshot, "BTCUSDT", AT + 300001)[0].eligible, false);
+});
+
+test("publisher modification timestamps are separate from publication freshness and anomalies are ineligible", () => {
+  const snapshot = {state: "ok", assessedAt: AT, retrievedAt: AT, publisher: {id: "publisher", name: "Publisher"}, items: [
+    {id: "consistent", title: "Bitcoin upgrade", publishedAt: AT - 3600000, modifiedAt: AT - 1800000},
+    {id: "unknown", title: "Bitcoin adoption", publishedAt: AT - 3600000},
+    {id: "future-modified", title: "Bitcoin hack", publishedAt: AT - 3600000, modifiedAt: AT + 1},
+    {id: "invalid-modified", title: "Bitcoin fraud", publishedAt: AT - 3600000, modifiedDateStatus: "invalid"},
+    {id: "modified-before-published", title: "Bitcoin launch", publishedAt: AT - 3600000, modifiedAt: AT - 7200000},
+    {id: "future-published", title: "Bitcoin approval", publishedAt: AT + 1, modifiedAt: AT + 2}
+  ]};
+  const rows = relevantHeadlines(snapshot, "BTCUSDT");
+  const byId = Object.fromEntries(rows.map(row => [row.id, row]));
+  assert.equal(byId.consistent.eligible, true);
+  assert.equal(byId.consistent.temporalIntegrity, "consistent");
+  assert.equal(byId.consistent.modificationAgeMs, 1800000);
+  assert.equal(byId.unknown.eligible, true, "missing modification metadata does not erase a valid publication date");
+  assert.equal(byId.unknown.modificationDateStatus, "unknown");
+  assert.equal(byId.unknown.temporalIntegrity, "modified-date-unknown");
+  assert.equal(byId["future-modified"].modificationDateStatus, "future-date");
+  assert.equal(byId["future-modified"].temporalIntegrity, "future-modified-date");
+  assert.equal(byId["future-modified"].modificationAgeMs, null);
+  assert.equal(byId["future-modified"].eligible, false);
+  assert.equal(byId["invalid-modified"].modificationDateStatus, "invalid");
+  assert.equal(byId["invalid-modified"].temporalIntegrity, "invalid-modified-date");
+  assert.equal(byId["invalid-modified"].eligible, false);
+  assert.equal(byId["modified-before-published"].temporalIntegrity, "modified-before-publication");
+  assert.equal(byId["modified-before-published"].eligible, false);
+  assert.equal(byId["future-published"].publicationFreshness, "future-date");
+  assert.equal(byId["future-published"].temporalIntegrity, "future-publication-date");
+  assert.equal(byId["future-published"].eligible, false);
 });
 
 test("unsupported symbols spend no source work and Bitcoin sentiment is not reused for Ethereum", async () => {

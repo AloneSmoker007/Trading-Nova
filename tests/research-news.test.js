@@ -19,8 +19,12 @@ test("publisher UTC dates are strictly parsed; invalid dates stay unknown and li
   assert.equal(normalized.rejectedCount, 5);
   assert.equal(normalized.items[0].publishedAt, AT - 3600000);
   assert.equal(normalized.items[0].modifiedAt, AT - 1800000);
+  assert.equal(normalized.items[0].modifiedDateStatus, "publisher-reported");
   assert.equal(normalized.items[1].publishedAt, null);
   assert.equal(normalized.items[2].publishedAt, null);
+  assert.equal(normalized.items[1].modifiedDateStatus, "publisher-reported");
+  assert.equal(normalizePublisherPosts([post({modified_gmt: null})]).items[0].modifiedDateStatus, "unknown");
+  assert.equal(normalizePublisherPosts([post({modified_gmt: "2026-02-30T11:00:00"})]).items[0].modifiedDateStatus, "invalid");
   assert.throws(() => normalizePublisherPosts({items: []}), /invalid publisher/);
   assert.throws(() => normalizePublisherPosts(Array.from({length: 11}, () => post())), /invalid publisher/);
 });
